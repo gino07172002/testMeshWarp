@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <title>網格變形圖像動畫編輯軟體</title>
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
   <div id="app">
     <div class="editor-container">
@@ -33,7 +35,7 @@
           </div>
         </div>
       </div>
-      
+
       <!-- 主畫面：左側工具列 / 中間畫布區 / 右側圖層面板 -->
       <div class="main-container">
         <!-- 左側工具 -->
@@ -41,18 +43,14 @@
           <button class="tool-btn" :class="{ active: activeTool === 'tool1' }" @click="selectTool('tool1')">1</button>
           <button class="tool-btn" :class="{ active: activeTool === 'tool2' }" @click="selectTool('tool2')">2</button>
         </div>
-        
+
         <!-- 中間畫布 -->
         <div class="canvas-area">
           <div class="image-container" ref="imageContainer" @click="handleCanvasClick">
             <img class="image-canvas" id="main-image" :src="imageUrl" alt="讀取圖片">
             <!-- 此覆蓋層用於呈現點擊新增的圓圈 -->
             <div class="overlay-canvas">
-              <div 
-                v-for="(point, index) in points" 
-                :key="index" 
-                class="point" 
-                :style="{
+              <div v-for="(point, index) in points" :key="index" class="point" :style="{
                   position: 'absolute',
                   width: '10px',
                   height: '10px',
@@ -60,25 +58,19 @@
                   backgroundColor: 'red',
                   left: point.x + 'px',
                   top: point.y + 'px'
-                }"
-              ></div>
+                }"></div>
             </div>
           </div>
           <!-- 清除所有點的按鈕 -->
           <button @click="clearPoints" style="position:absolute; top:10px; right:10px; z-index:100;">清除點</button>
         </div>
-        
+
         <!-- 右側圖層 -->
         <div class="layers-panel">
           <div class="panel-title">圖層</div>
           <div class="layers-container">
-            <div 
-              v-for="layer in layers" 
-              :key="layer.id" 
-              class="layer-item" 
-              :class="{ active: layer.id === selectedLayerId }"
-              @click="selectLayer(layer.id)"
-            >
+            <div v-for="layer in layers" :key="layer.id" class="layer-item"
+              :class="{ active: layer.id === selectedLayerId }" @click="selectLayer(layer.id)">
               {{ layer.name }}
             </div>
           </div>
@@ -89,7 +81,7 @@
           </div>
         </div>
       </div>
-      
+
       <!-- 動畫時間軸 -->
       <div class="timeline">
         <div class="timeline-header">
@@ -101,34 +93,19 @@
         </div>
         <div class="timeline-content">
           <div class="timeline-layers">
-            <div 
-              v-for="layer in layers" 
-              :key="'timeline-' + layer.id" 
-              class="timeline-layer-item"
-            >
+            <div v-for="layer in layers" :key="'timeline-' + layer.id" class="timeline-layer-item">
               {{ layer.name }}
             </div>
           </div>
-          <div 
-            class="timeline-tracks" 
-            ref="timelineTracks" 
-            @mousedown="startDrag" 
-            @mousemove="onDrag" 
-            @mouseup="stopDrag" 
-            @mouseleave="stopDrag"
-          >
-            <div 
-              v-for="keyframe in keyframes" 
-              :key="keyframe.id" 
-              class="keyframe" 
-              :style="{ left: keyframe.position + 'px' }"
-              :title="'Keyframe ' + keyframe.id"
-              @click.stop="selectKeyframe(keyframe.id)"
-            ></div>
+          <div class="timeline-tracks" ref="timelineTracks" @mousedown="startDrag" @mousemove="onDrag"
+            @mouseup="stopDrag" @mouseleave="stopDrag">
+            <div v-for="keyframe in keyframes" :key="keyframe.id" class="keyframe"
+              :style="{ left: keyframe.position + 'px' }" :title="'Keyframe ' + keyframe.id"
+              @click.stop="selectKeyframe(keyframe.id)"></div>
           </div>
         </div>
       </div>
-      
+
       <!-- 狀態列 -->
       <div class="status-bar">
         <div class="status-item">狀態: {{ status }}</div>
@@ -159,7 +136,7 @@
       },
       mounted() {
         document.addEventListener('click', this.handleClickOutside);
-        
+
         // 初始化時新增一個預設圖層
         this.addLayer();
       },
@@ -172,7 +149,7 @@
           this.fileDropdown = false;
           this.editDropdown = false;
         },
-        
+
         // 下拉選單切換
         toggleDropdown(dropdown) {
           console.log("hi dropdown ... ");
@@ -185,26 +162,26 @@
             this.editDropdown = !this.editDropdown;
           }
         },
-        
+
         // 處理檔案選單動作
         handleFileAction(action) {
           this.status = `執行檔案動作: ${action}`;
           this.closeAllDropdowns();
-          
+
           if (action === 'save') {
             this.saveProjectToServer();
           }
         },
-        
+
         // 處理編輯選單動作
         handleEditAction(action) {
           this.status = `執行編輯動作: ${action}`;
           this.closeAllDropdowns();
         },
-        
+
         // 選擇工具
         selectTool(tool) {
-          console.log(" hi ",tool);
+          console.log(" hi ", tool);
           this.activeTool = this.activeTool === tool ? null : tool;
           this.status = `選擇工具: ${tool}`;
 
@@ -213,7 +190,7 @@
             keyframes: this.keyframes,
             points: this.points
           };
-          
+
           fetch('/api/tool1', {
             method: 'POST',
             headers: {
@@ -221,39 +198,72 @@
             },
             body: JSON.stringify(projectData)
           })
-          .then(response => response.json())
-          .then(data => {
-            if (data.success) {
-              this.status = '專案儲存成功!';
-            } else {
-              this.status = '專案儲存失敗: ' + data.message;
-            }
-          })
-          .catch(error => {
-            this.status = '專案儲存失敗: ' + error.message;
-            console.error('儲存專案時發生錯誤:', error);
-          });
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                this.status = '專案儲存成功!';
+              } else {
+                this.status = '專案儲存失敗: ' + data.message;
+              }
+            })
+            .catch(error => {
+              this.status = '專案儲存失敗: ' + error.message;
+              console.error('儲存專案時發生錯誤:', error);
+            });
         },
-        
+
         // 畫布點擊處理
         handleCanvasClick(e) {
-  const container = e.currentTarget; // 取得 image-container
-  const rect = container.getBoundingClientRect();
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          console.log("hi~");
+          // this.points.push({ x, y });
+          this.status = `新增點: x=${x}, y=${y}`;
 
-  // 計算相對於 image-container 的座標，包含滾動補正
-  const x = e.clientX - rect.left + container.scrollLeft;
-  const y = e.clientY - rect.top + container.scrollTop;
-  
-  this.points.push({ x, y });
-  this.status = `新增點: x=${x}, y=${y}`;
-},
-        
+          // 取得容器寬高
+          const width = rect.width;
+          const height = rect.height;
+
+          // 取得當前捲軸位置
+          const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
+          const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+
+          // 發送座標到伺服器，包含畫布尺寸與捲軸位置
+          fetch('/api/points', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              x,
+              y,
+              canvasWidth: width,
+              canvasHeight: height,
+              scrollX,
+              scrollY
+            })
+          })
+            .then(response => response.json())
+            .then(data => {
+              console.log('伺服器回應:', data);
+              var x2 = data.x;
+              var y2 = data.y;
+              this.points.push({ x: x2, y: y2 });
+              this.status = `最近的網格點: x=${x2}, y=${y2}`;
+            })
+            .catch(error => {
+              this.status = 'point bad: ' + error.message;
+              //   console.error('儲存專案時發生錯誤:', error);
+            });
+        },
+
         // 清除所有點
         clearPoints() {
           this.points = [];
           this.status = '已清除所有點';
         },
-        
+
         // 新增圖層
         addLayer() {
           this.layerCounter++;
@@ -264,7 +274,7 @@
           this.layers.push(newLayer);
           this.status = `新增圖層: ${newLayer.name}`;
         },
-        
+
         // 選擇圖層
         selectLayer(id) {
           this.selectedLayerId = id;
@@ -273,7 +283,7 @@
             this.status = `選擇圖層: ${layer.name} , id = ${id}`;
           }
         },
-        
+
         // 刪除選中圖層
         deleteLayer() {
           if (this.selectedLayerId) {
@@ -288,7 +298,7 @@
             this.status = '沒有選擇圖層';
           }
         },
-        
+
         // 新增關鍵幀
         addKeyframe() {
           this.keyframeCounter++;
@@ -298,25 +308,25 @@
           });
           this.status = `新增關鍵幀: ${this.keyframeCounter}`;
         },
-        
+
         // 選擇關鍵幀
         selectKeyframe(id) {
           this.status = `選擇關鍵幀: ${id}`;
         },
-        
+
         // 新增時間軸元件
         addTimelineComponent() {
           this.status = '新增時間軸元件';
           alert('新增時間軸元件功能觸發');
         },
-        
+
         // 時間軸拖曳功能
         startDrag(e) {
           this.isDragging = true;
           this.startX = e.pageX - this.$refs.timelineTracks.offsetLeft;
           this.scrollLeft = this.$refs.timelineTracks.scrollLeft;
         },
-        
+
         onDrag(e) {
           if (!this.isDragging) return;
           e.preventDefault();
@@ -324,21 +334,21 @@
           const walk = (x - this.startX);
           this.$refs.timelineTracks.scrollLeft = this.scrollLeft - walk;
         },
-        
+
         stopDrag() {
           this.isDragging = false;
         },
-        
+
         // 將專案儲存到伺服器的API示例
         saveProjectToServer() {
           this.status = '正在儲存專案...';
-          
+
           const projectData = {
             layers: this.layers,
             keyframes: this.keyframes,
             points: this.points
           };
-          
+
           fetch('/api/project/save', {
             method: 'POST',
             headers: {
@@ -346,36 +356,36 @@
             },
             body: JSON.stringify(projectData)
           })
-          .then(response => response.json())
-          .then(data => {
-            if (data.success) {
-              this.status = '專案儲存成功!';
-            } else {
-              this.status = '專案儲存失敗: ' + data.message;
-            }
-          })
-          .catch(error => {
-            this.status = '專案儲存失敗: ' + error.message;
-            console.error('儲存專案時發生錯誤:', error);
-          });
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                this.status = '專案儲存成功!';
+              } else {
+                this.status = '專案儲存失敗: ' + data.message;
+              }
+            })
+            .catch(error => {
+              this.status = '專案儲存失敗: ' + error.message;
+              console.error('儲存專案時發生錯誤:', error);
+            });
         },
-        
+
         // 將圖層儲存到伺服器的API示例
         saveLayerToServer() {
           if (!this.selectedLayerId) {
             this.status = '請先選擇一個圖層';
             return;
           }
-          
+
           this.status = '正在儲存圖層...';
-          
+
           const selectedLayer = this.layers.find(l => l.id === this.selectedLayerId);
           const layerData = {
             layerId: this.selectedLayerId,
             layerName: selectedLayer.name,
             points: this.points.filter(p => p.layerId === this.selectedLayerId || !p.layerId)
           };
-          
+
           fetch('/api/layer/save', {
             method: 'POST',
             headers: {
@@ -383,20 +393,20 @@
             },
             body: JSON.stringify(layerData)
           })
-          .then(response => response.json())
-          .then(data => {
-            if (data.success) {
-              this.status = `圖層 ${selectedLayer.name} 儲存成功!`;
-            } else {
-              this.status = '圖層儲存失敗: ' + data.message;
-            }
-          })
-          .catch(error => {
-            this.status = '圖層儲存失敗: ' + error.message;
-            console.error('儲存圖層時發生錯誤:', error);
-          });
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                this.status = `圖層 ${selectedLayer.name} 儲存成功!`;
+              } else {
+                this.status = '圖層儲存失敗: ' + data.message;
+              }
+            })
+            .catch(error => {
+              this.status = '圖層儲存失敗: ' + error.message;
+              console.error('儲存圖層時發生錯誤:', error);
+            });
         },
-        
+
         // 點擊頁面其他區域關閉下拉選單
         handleClickOutside(e) {
           const targetElement = e.target;
@@ -406,9 +416,10 @@
         }
       }
     });
-    
+
     // 掛載應用
     app.mount('#app');
   </script>
 </body>
+
 </html>

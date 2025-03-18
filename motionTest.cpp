@@ -8,12 +8,31 @@
 #include "mongoose.h"
 #include "json.hpp"
 #include <opencv2/opencv.hpp>
+#include "KDTree.h"
 
 using json = nlohmann::json;
 
 using namespace cv;
 using namespace std;
-Mat srcImage;
+Mat image;
+
+GridNode* findNearestGridNodeOptimized(const std::vector<GridNode>& gridNodes, const myPoint& targetPoint) {
+    // 這裡我們假設要使用 KD 樹方法
+    // 實際使用時，建議先建構 KD 樹，然後多次查詢
+    static KDTree kdTree;
+    static bool initialized = false;
+    std::cout << "init ? " << initialized << std::endl;
+
+    // 首次調用時初始化 KD 樹
+    if (!initialized) {
+        // 將 const 轉換為非 const，因為 KDTree 需要存儲指向 gridNodes 的指針
+        std::vector<GridNode>& nonConstGridNodes = const_cast<std::vector<GridNode>&>(gridNodes);
+        kdTree.build(nonConstGridNodes);
+        initialized = true;
+    }
+
+    return kdTree.findNearest(targetPoint);
+}
 // 定義MIME類型映射
 std::map<std::string, std::string> mime_types = {
     {".jpg", "image/jpeg"},
@@ -36,14 +55,7 @@ std::string get_mime_type(const std::string& path) {
     }
     return "application/octet-stream";  // 默認二進制流
 }
-struct myPoint {
-    float x, y;
-};
 
-struct GridNode {
-    myPoint position;
-    std::vector<GridNode*> neighbors;
-};
 // 將文件內容讀取到內存中
 bool read_file(const std::string& path, std::vector<char>& content) {
     std::cout << "read path ... " << path << std::endl;
@@ -60,6 +72,14 @@ bool read_file(const std::string& path, std::vector<char>& content) {
     file.read(content.data(), size);
 
     return file.good();
+}
+
+json gridNodesToJson(const std::vector<GridNode>& gridNodes) {
+    json nodesJson = json::array();
+    for (const auto& node : gridNodes) {
+        nodesJson.push_back({ {"x", node.position.x}, {"y", node.position.y} });
+    }
+    return nodesJson;
 }
 // 檢查三角形是否包含任何非透明且屬於中央色塊的像素
 bool triangleHasColor(const Mat& image, const Mat& centralMask, myPoint pt1, myPoint pt2, myPoint pt3) {
@@ -300,9 +320,9 @@ void drawGrid(Mat& image, std::vector<GridNode>& gridNodes) {
         }
     }
 }
-
+std::vector<GridNode> gridNodes;
 // 處理HTTP請求的回調函數
-static void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_data) {
+void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_data) {
     if (ev == MG_EV_HTTP_MSG) {
         struct mg_http_message* hm = (struct mg_http_message*)ev_data;
 
@@ -395,21 +415,15 @@ static void http_handler(struct mg_connection* conn, int ev, void* ev_data, void
              // 配置圖片路徑，這裡假設圖片名為 "image.jpg" 並位於當前目錄
              std::string image_path = "png.png";
 
-             Mat image = imread("png.png", IMREAD_UNCHANGED);
+             image = imread("png.png", IMREAD_UNCHANGED);
              std::cout << " read image size: " << image.size() << std::endl;
-             /*
-             std::vector<uchar> buffer;
-             if (!imencode(".png", image, buffer)) {
-                 mg_printf(conn, "HTTP/1.1 500 Internal Server Error\r\n"
-                     "Content-Type: text/plain\r\n"
-                     "Content-Length: 22\r\n\r\n"
-                     "Failed to encode image");
-                 return;
-             }
-             */
-             std::vector<GridNode> gridNodes = extractGridPoints(image, 80);
+         
+          
+             gridNodes = extractGridPoints(image, 80);
              drawGrid(image, gridNodes);
 
+             std::cout << " init grid point! " << std::endl;
+             findNearestGridNodeOptimized(gridNodes, { 0,0 });
              std::vector<uchar> buffer;
              if (!imencode(".png", image, buffer)) {
                  mg_printf(conn, "HTTP/1.1 500 Internal Server Error\r\n"
@@ -425,7 +439,41 @@ static void http_handler(struct mg_connection* conn, int ev, void* ev_data, void
 
              mg_send(conn, buffer.data(), buffer.size());
          }
+        else if (mg_match(hm->uri, mg_str("/api/points"), NULL)) {
 
+            std::string input(hm->body.buf);
+            json data = json::parse(input);
+
+            float x = data["x"];
+            float cw = data["canvasWidth"];
+            float y = data["y"];
+            float ch = data["canvasHeight"];
+            float _x = (x * (float)image.cols / cw) ;
+            float _y = (y * (float)image.rows / ch) ;
+
+
+            std::cout << " normalized x = " << _x << " , y = " << _y << std::endl;
+            auto nearPoint=findNearestGridNodeOptimized(gridNodes, {(float)_x,(float)_y });
+            
+           
+            json result;
+
+            if (nearPoint == nullptr)
+            {
+                result["y"] = 0;
+                result["x"] = 0;
+            }
+            else
+            {
+                result["y"] = nearPoint->position.y * ch /(float)image.rows;
+                result["x"] = nearPoint->position.x * cw / (float)image.cols;
+            }
+            std::cout << " hi someone call api points ... "<<data <<"nearest is : "<<result<< std::endl;
+            std::cout << " what's my size: " << image.rows << " , " << image.cols << std::endl;
+           // mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "{\"success\":true,\"message\":\"good\"}");
+            mg_http_reply(conn, 200, "Content-Type: application/json\r\n", result.dump().c_str());
+
+         }
         else if (mg_match(hm->uri, mg_str("/api/layer/save"), NULL)) {
              
              std::cout << " hi someong call me ... " << std::endl;
