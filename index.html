@@ -47,8 +47,9 @@
         <!-- 中間畫布 -->
         <div class="canvas-area">
           <div class="image-container" ref="imageContainer">
-            <img class="image-canvas" id="main-image" :src="imageUrl" alt="讀取圖片" @mousedown="handleCanvasMouseDown"
+            <img class="image-canvas" id="main-image" :src="imageData" alt="讀取圖片" @mousedown="handleCanvasMouseDown"
               @mousemove="handleCanvasMouseMove" @mouseup="handleCanvasMouseUp" @contextmenu.prevent>
+
             <!-- 此覆蓋層用於呈現點擊新增的圓圈 -->
             <div class="overlay-canvas">
               <div v-for="(point, index) in points" :key="index" class="point" :style="{
@@ -68,26 +69,20 @@
 
         <!-- 右側圖層 -->
         <div class="layers-panel">
-          <div class="panel-section flex-height">
+          <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
             <div class="panel-title">階層式物件</div>
-            <div class="tree-container">
+            <div class="layers-container">
               <div class="tree-item">
                 <div class="tree-item-header">
-                  <span 
-                    class="tree-toggle-icon"
-                    :class="{ 'expanded': expandedNodes.includes('root') }"
-                    @click.stop="toggleNode('root')"
-                  >▶</span>
+                  <span class="tree-toggle-icon" :class="{ 'expanded': expandedNodes.includes('root') }"
+                    @click.stop="toggleNode('root')">▶</span>
                   <span class="tree-item-name" @click.stop="handleNameClick('Root')">Root</span>
                 </div>
                 <div class="tree-children" v-if="expandedNodes.includes('root')">
                   <div class="tree-item">
                     <div class="tree-item-header">
-                      <span
-                        class="tree-toggle-icon"
-                        :class="{ 'expanded': expandedNodes.includes('child1') }"
-                        @click.stop="toggleNode('child1')"
-                      >▶</span>
+                      <span class="tree-toggle-icon" :class="{ 'expanded': expandedNodes.includes('child1') }"
+                        @click.stop="toggleNode('child1')">▶</span>
                       <span class="tree-item-name" @click.stop="handleNameClick('Child1')">Child1</span>
                     </div>
                     <div class="tree-children" v-if="expandedNodes.includes('child1')">
@@ -107,23 +102,26 @@
               </div>
             </div>
           </div>
-   
 
-          <div class="panel-section  small">
+
+          <div class="panel-section layers-section" style="height: 400px; flex: 0 0 400px;">
             <div class="panel-title">圖層</div>
-            <div class="layers-container">
-              <div v-for="layer in layers" :key="layer.id" class="layer-item"
-                :class="{ active: layer.id === selectedLayerId }" @click="selectLayer(layer.id)">
-                {{ layer.name }}
+            <div class="layers-content">
+              <div class="layers-container">
+                <div v-for="layer in layers" :key="layer.id" class="layer-item"
+                  :class="{ active: layer.id === selectedLayerId }" @click="selectLayer(layer.id)">
+                  {{ layer.name }}
+                </div>
+              </div>
+              <div class="layers-actions">
+                <button class="layer-btn" @click="addLayer">新增圖層</button>
+                <button class="layer-btn" @click="deleteLayer">刪除選中圖層</button>
+                <button class="layer-btn" @click="saveLayerToServer">儲存圖層到伺服器</button>
               </div>
             </div>
           </div>
-          <div class="layers-actions">
-            <button class="layer-btn" @click="addLayer">新增圖層</button>
-            <button class="layer-btn" @click="deleteLayer">刪除選中圖層</button>
-            <button class="layer-btn" @click="saveLayerToServer">儲存圖層到伺服器</button>
-          </div>
         </div>
+
 
 
 
@@ -165,16 +163,21 @@
     const app = Vue.createApp({
       data() {
         return {
-          imageUrl: '',
-          base64Image: '',
+          imageData: '',
+          lastTimestamp: 0,
           status: '準備中',
-          lastUpdateTime: '尚未更新',
-          timestamp: 0,
-          refreshInterval: null,
-          isAutoRefresh: true,
-          refreshRate: 1000, // 每1秒更新一次
           activeTool: null,
+          points: [],
+          fileDropdown: false,
+          editDropdown: false,
+          selectedLayerId: null,
+          layers: [],
+          layerCounter: 0,
+          keyframes: [],
+          keyframeCounter: 0,
           isDragging: false,
+          startX: 0,
+          scrollLeft: 0,
           dragStartX: 0,
           dragStartY: 0,
           points: [],
@@ -204,88 +207,54 @@
             ],
             name: "Root"
           },
-          expandedNodes: [] // 用來追蹤展開的節點
+          expandedNodes: []
         };
       },
       mounted() {
         document.addEventListener('click', this.handleClickOutside);
-        // 進行初始化載入
-        this.fetchImage();
-        // 開始自動更新
-        this.startAutoRefresh();
+        this.startImageUpdates();
         // 初始化時新增一個預設圖層
         this.addLayer();
+      },
+
+      beforeUnmount() {
+        clearInterval(this.updateTimer);
       },
       unmounted() {
         document.removeEventListener('click', this.handleClickOutside);
       },
       methods: {
-        getMousePosition(e) {
-          const scrollLeft = this.$refs.imageContainer.scrollLeft;
-          const scrollTop = this.$refs.imageContainer.scrollTop;
 
-          // 獲取點擊元素的位置
-          const rect = e.currentTarget.getBoundingClientRect();
-
-          // 計算準確的點擊位置（相對於圖片容器的絕對位置）
-          const x = e.clientX - rect.left + scrollLeft;
-          const y = e.clientY - rect.top + scrollTop;
-
-          console.log(" hi x: ", x, "y: ", y);
-          return { x, y };
+        fetchImage() {
+          fetch('/png')
+            .then(response => response.json())
+            .then(data => {
+              // 只有當時間戳記比上次更新時才更新圖片
+              if (data.timestamp > this.lastTimestamp) {
+                this.imageData = data.image;
+                this.lastTimestamp = data.timestamp;
+              }
+            })
+            .catch(error => console.error('圖片載入失敗:', error));
         },
-
+        // 定期更新或在需要時呼叫
+        startImageUpdates() {
+          this.fetchImage();
+          this.updateTimer = setInterval(() => {
+            this.fetchImage();
+          }, 1000); // 每秒更新一次，可調整
+        },
+        handleCanvasClick(event) {
+          // 處理點擊事件...
+          // 編輯後可能需要刷新圖片
+          this.fetchImage();
+        },
         // 關閉其他下拉選單
         closeAllDropdowns() {
           this.fileDropdown = false;
           this.editDropdown = false;
         },
-        fetchImage() {
-          this.status = '正在更新...';
-          fetch('/png')
-            .then(response => response.json())
-            .then(data => {
-              // 檢查是否有新圖片
-              if (this.timestamp != data.timestamp) {
-                this.base64Image = data.image;
-                this.imageUrl = data.image; // 直接使用完整的data:image/png;base64字串
-                this.timestamp = data.timestamp;
-                this.lastUpdateTime = new Date().toLocaleTimeString();
-                this.status = '更新成功';
-              } else {
-                this.status = '沒有新圖片';
-              }
-            })
-            .catch(error => {
-              console.error('取得圖片失敗:', error);
-              this.status = '更新失敗';
-            });
-        },
-        refreshImage() {
-          this.fetchImage();
-        },
-        startAutoRefresh() {
-          if (!this.refreshInterval) {
-            this.refreshInterval = setInterval(() => {
-              this.fetchImage();
-            }, this.refreshRate);
-            this.isAutoRefresh = true;
-          }
-        },
-        stopAutoRefresh() {
-          if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-            this.refreshInterval = null;
-            this.isAutoRefresh = false;
-          }
-        },
-        toggleAutoRefresh() {
-          if (this.isAutoRefresh) {
-            this.stopAutoRefresh();
-          } else {
-            this.startAutoRefresh();
-          }
-        },
+
         // 下拉選單切換
         toggleDropdown(dropdown) {
           console.log("hi dropdown ... ");
@@ -314,7 +283,10 @@
           this.status = `執行編輯動作: ${action}`;
           this.closeAllDropdowns();
         },
-
+        updateImage(newUrl) {
+          this.imageUrl = newUrl;
+          this.cacheBuster = Date.now(); // 更新 cacheBuster 來強制刷新
+        },
         // 選擇工具
         selectTool(tool) {
           console.log(" hi ", tool);
@@ -347,15 +319,26 @@
               console.error('儲存專案時發生錯誤:', error);
             });
         },
-
+        getMousePosition(event) {
+          const rect = this.$refs.imageContainer.getBoundingClientRect();
+          // Calculate the scroll position of the container
+          const scrollLeft = this.$refs.imageContainer.scrollLeft;
+          const scrollTop = this.$refs.imageContainer.scrollTop;
+          // Calculate the click position relative to the image container
+          // by accounting for the container's position, borders, and scroll position
+          const x = event.clientX - rect.left + scrollLeft;
+          const y = event.clientY - rect.top + scrollTop;
+          return { x, y };
+        },
         // 畫布點擊處理
-        handleCanvasMouseDown(e) {
-          const { x, y } = this.getMousePosition(e);
+        handleCanvasMouseDown(event) {
+          // Get the bounding rectangle of the image container
+          const { x, y } = this.getMousePosition(event);
 
-          // 防止默認的瀏覽器行為
-          e.preventDefault();
+          event.preventDefault();
 
-          if (e.button === 0) { // 左鍵點擊
+
+          if (event.button === 0) { // 左鍵點擊
             // 記錄拖曳起始位置
             this.isDragging = true;
             this.dragStartX = x;
@@ -363,7 +346,7 @@
             this.status = `開始拖曳: x=${x}, y=${y}`;
             console.log(" drag start x: ", this.dragStartX, ", y: ", this.dragStartY);
 
-          } else if (e.button === 2) { // 右鍵點擊
+          } else if (event.button === 2) { // 右鍵點擊
             this.status = `右鍵點擊: x=${x}, y=${y}`;
             // 處理右鍵點擊的功能，例如顯示上下文選單
             // 這裡添加您的右鍵點擊處理代碼
@@ -374,17 +357,17 @@
               this.status = `右鍵移除最後一個點，剩餘 ${this.points.length} 個點`;
             }
           }
+          this.updateImage('/png');
         },
 
+
+
         handleCanvasMouseMove(e) {
+          
           if (!this.isDragging) return;
 
-          const rect = e.currentTarget.getBoundingClientRect();
-          const scrollLeft = this.$refs.imageContainer.scrollLeft;
-          const scrollTop = this.$refs.imageContainer.scrollTop;
-          const x = e.clientX - rect.left + scrollLeft;
-          const y = e.clientY - rect.top + scrollTop;
-
+          const { x, y } = this.getMousePosition(e);
+          this.sendDragToServer(x, y);
           // 拖曳過程中更新狀態
           this.status = `拖曳中: x=${x}, y=${y}`;
 
@@ -394,7 +377,9 @@
 
         handleCanvasMouseUp(e) {
           const { x, y } = this.getMousePosition(e);
-          if (e.button === 0) { // 左鍵釋放
+          if (e.button === 0) {
+            console.log("mouse release");
+            // 左鍵釋放
             if (this.isDragging) {
               this.isDragging = false;
 
@@ -458,6 +443,23 @@
             });
         },
 
+        sendDragToServer(x, y) {
+          // 發送座標到伺服器
+          fetch('/api/points', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              x,
+              y,
+              scw: this.$refs.imageContainer.scrollWidth,
+              sch: this.$refs.imageContainer.scrollHeight
+            })
+          });
+        },
+
+
         // 清除所有點
         clearPoints() {
           this.points = [];
@@ -497,29 +499,6 @@
           } else {
             this.status = '沒有選擇圖層';
           }
-        },
-        toggleNode(nodeId) {
-          if (this.expandedNodes.includes(nodeId)) {
-            this.expandedNodes = this.expandedNodes.filter(id => id !== nodeId);
-          } else {
-            this.expandedNodes.push(nodeId);
-          }
-        },
-        handleNameClick(name) {
-          console.log('Clicked node name:', name);
-        },
-
-        // 遞迴渲染階層式結構的方法（可選的實作方式）
-        renderHierarchicalData(node, parentId = '') {
-          const nodeId = parentId ? `${parentId}-${node.name}` : node.name;
-          const hasChildren = node.children && node.children.length > 0;
-
-          return {
-            id: nodeId,
-            name: node.name,
-            hasChildren: hasChildren,
-            children: hasChildren ? node.children.map(child => this.renderHierarchicalData(child, nodeId)) : []
-          };
         },
 
         // 新增關鍵幀
@@ -636,6 +615,29 @@
           if (!targetElement.closest('.menu-item')) {
             this.closeAllDropdowns();
           }
+        },
+        toggleNode(nodeId) {
+          if (this.expandedNodes.includes(nodeId)) {
+            this.expandedNodes = this.expandedNodes.filter(id => id !== nodeId);
+          } else {
+            this.expandedNodes.push(nodeId);
+          }
+        },
+        handleNameClick(name) {
+          console.log('Clicked node name:', name);
+        },
+
+        // 遞迴渲染階層式結構的方法（可選的實作方式）
+        renderHierarchicalData(node, parentId = '') {
+          const nodeId = parentId ? `${parentId}-${node.name}` : node.name;
+          const hasChildren = node.children && node.children.length > 0;
+
+          return {
+            id: nodeId,
+            name: node.name,
+            hasChildren: hasChildren,
+            children: hasChildren ? node.children.map(child => this.renderHierarchicalData(child, nodeId)) : []
+          };
         }
       }
     });

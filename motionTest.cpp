@@ -380,40 +380,41 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
         struct mg_http_message* hm = (struct mg_http_message*)ev_data;
 
         // 處理根路徑請求 - 顯示HTML頁面
-         if (mg_match(hm->uri, mg_str("/image"),NULL)) {
+        if (mg_match(hm->uri, mg_str("/image"), NULL)) {
             // 配置圖片路徑，這裡假設圖片名為 "image.jpg" 並位於當前目錄
               // 讀取 PNG 圖片，保留 Alpha 通道
-             Mat image = imread("png.png", IMREAD_UNCHANGED);
+            Mat image = imread("png.png", IMREAD_UNCHANGED);
 
-             std::cout << " image channel: " << image.channels() << std::endl;
-             if (image.empty()) {
-                 mg_printf(conn, "HTTP/1.1 500 Internal Server Error\r\n"
-                     "Content-Type: text/plain\r\n"
-                     "Content-Length: 20\r\n\r\n"
-                     "Failed to load image");
-                 return;
-             }
+            std::cout << " image channel: " << image.channels() << std::endl;
+            if (image.empty()) {
+                mg_printf(conn, "HTTP/1.1 500 Internal Server Error\r\n"
+                    "Content-Type: text/plain\r\n"
+                    "Content-Length: 20\r\n\r\n"
+                    "Failed to load image");
+                return;
+            }
 
-             std::cout << "Read image size: " << image.size() << ", Channels: " << image.channels() << std::endl;
+            std::cout << "Read image size: " << image.size() << ", Channels: " << image.channels() << std::endl;
 
-             // 使用 OpenCV imencode 將 Mat 轉換成 PNG 二進制數據
-             std::vector<uchar> buffer;
-             if (!imencode(".png", image, buffer)) {
-                 mg_printf(conn, "HTTP/1.1 500 Internal Server Error\r\n"
-                     "Content-Type: text/plain\r\n"
-                     "Content-Length: 22\r\n\r\n"
-                     "Failed to encode image");
-                 return;
-             }
+            // 使用 OpenCV imencode 將 Mat 轉換成 PNG 二進制數據
+            std::vector<uchar> buffer;
+            if (!imencode(".png", image, buffer)) {
+                mg_printf(conn, "HTTP/1.1 500 Internal Server Error\r\n"
+                    "Content-Type: text/plain\r\n"
+                    "Content-Length: 22\r\n\r\n"
+                    "Failed to encode image");
+                return;
+            }
 
-             // 設置 HTTP 響應標頭
-             mg_printf(conn, "HTTP/1.1 200 OK\r\n"
-                 "Content-Type: image/png\r\n"
-                 "Content-Length: %d\r\n\r\n", (int)buffer.size());
+            // 設置 HTTP 響應標頭
+            mg_printf(conn, "HTTP/1.1 200 OK\r\n"
+                "Content-Type: image/png\r\n"
+                "Content-Length: %d\r\n\r\n", (int)buffer.size());
 
-             // 發送圖片數據
-             mg_send(conn, buffer.data(), buffer.size());
-        } else if (mg_match(hm->uri, mg_str("/png2"), NULL)) {
+            // 發送圖片數據
+            mg_send(conn, buffer.data(), buffer.size());
+        }
+        else if (mg_match(hm->uri, mg_str("/png2"), NULL)) {
             // 配置圖片路徑，這裡假設圖片名為 "image.jpg" 並位於當前目錄
             std::string image_path = "png.png";
 
@@ -441,30 +442,30 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
             }
         }
         else if (mg_match(hm->uri, mg_str("/png3"), NULL)) {
-             // 配置圖片路徑，這裡假設圖片名為 "image.jpg" 並位於當前目錄
-             std::string image_path = "png.png";
+            // 配置圖片路徑，這裡假設圖片名為 "image.jpg" 並位於當前目錄
+            std::string image_path = "png.png";
 
-             Mat image = imread("png.png", IMREAD_UNCHANGED);
-             std::cout << " read image size: " << image.size() << std::endl;
+            Mat image = imread("png.png", IMREAD_UNCHANGED);
+            std::cout << " read image size: " << image.size() << std::endl;
 
-             std::vector<uchar> buffer;
-             if (!imencode(".png", image, buffer)) {
-                 mg_printf(conn, "HTTP/1.1 500 Internal Server Error\r\n"
-                     "Content-Type: text/plain\r\n"
-                     "Content-Length: 22\r\n\r\n"
-                     "Failed to encode image");
-                 return;
-             }
+            std::vector<uchar> buffer;
+            if (!imencode(".png", image, buffer)) {
+                mg_printf(conn, "HTTP/1.1 500 Internal Server Error\r\n"
+                    "Content-Type: text/plain\r\n"
+                    "Content-Length: 22\r\n\r\n"
+                    "Failed to encode image");
+                return;
+            }
 
-             // 設置 HTTP 響應標頭
-             mg_printf(conn, "HTTP/1.1 200 OK\r\n"
-                 "Content-Type: image/png\r\n"
-                 "Content-Length: %d\r\n\r\n", (int)buffer.size());
+            // 設置 HTTP 響應標頭
+            mg_printf(conn, "HTTP/1.1 200 OK\r\n"
+                "Content-Type: image/png\r\n"
+                "Content-Length: %d\r\n\r\n", (int)buffer.size());
 
-             // 發送圖片數據
-             mg_send(conn, buffer.data(), buffer.size());
-         }
-        else if(mg_match(hm->uri, mg_str("/png"), NULL)) {
+            // 發送圖片數據
+            mg_send(conn, buffer.data(), buffer.size());
+        }
+        else if (mg_match(hm->uri, mg_str("/png"), NULL)) {
             std::string image_path = "png.png";
 
             std::vector<uchar> buffer;
@@ -492,7 +493,7 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
             result["success"] = true;
             result["message"] = "good";
             std::cout << " hi input :" << input << endl;
-            
+
 
             double x = data["x"];
             double y = data["y"];
@@ -502,46 +503,60 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
             std::cout << " what's my size: " << image.rows << " , " << image.cols << std::endl;
             double x2 = x * (double)image.cols / w;
             double y2 = y * (double)image.rows / h;
-            circle(image, Point(x2, y2),10, Scalar(255, 255, 0, 255), FILLED);
-            auto nearPoint=findNearestGridNodeOptimized(gridNodes, {(float)x2,(float)y2 });
+            circle(image, Point(x2, y2), 10, Scalar(255, 255, 0, 255), FILLED);
+            auto nearPoint = findNearestGridNodeOptimized(gridNodes, { (float)x2,(float)y2 });
 
-            std::cout<<" I would draw a near point at : "<<nearPoint->position.x<<" , "<<nearPoint->position.y<<std::endl;
-            circle(image, Point(nearPoint->position.x, nearPoint->position.y),10, Scalar(0, 255, 255, 255), FILLED);
+            std::cout << " I would draw a near point at : " << nearPoint->position.x << " , " << nearPoint->position.y << std::endl;
+            circle(image, Point(nearPoint->position.x, nearPoint->position.y), 10, Scalar(0, 255, 255, 255), FILLED);
 
 
 
 
             mg_http_reply(conn, 200, "Content-Type: application/json\r\n", result.dump().c_str());
 
-         }
+        }
+        else if (mg_match(hm->uri, mg_str("/api/drag"), NULL)) {
+
+            std::cout << " dragging ~" << std::endl;
+            std::string input(hm->body.buf);
+            json data = json::parse(input);
+            json result;
+            result["success"] = true;
+            result["message"] = "good";
+            
+
+
+            mg_http_reply(conn, 200, "Content-Type: application/json\r\n", result.dump().c_str());
+
+            }
         else if (mg_match(hm->uri, mg_str("/api/layer/save"), NULL)) {
 
-             std::cout << " hi someong call me ... " << std::endl;
+            std::cout << " hi someong call me ... " << std::endl;
 
-             mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "{\"success\":true,\"message\":\"專案儲存成功\"}");
+            mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "{\"success\":true,\"message\":\"專案儲存成功\"}");
 
-         }
+        }
         else if (mg_match(hm->uri, mg_str("/api/tool1"), NULL)) {
 
-             if (mg_strcmp(hm->method, mg_str("POST")) != 0) {
-                 mg_http_reply(conn, 405, "Content-Type: application/json\r\n", "{\"success\":false,\"message\":\"方法不允許，需要 POST 請求\"}");
-                 return;
-             }
-             std::cout << " hi someong call me tool1 ... " << std::endl;
+            if (mg_strcmp(hm->method, mg_str("POST")) != 0) {
+                mg_http_reply(conn, 405, "Content-Type: application/json\r\n", "{\"success\":false,\"message\":\"方法不允許，需要 POST 請求\"}");
+                return;
+            }
+            std::cout << " hi someong call me tool1 ... " << std::endl;
 
-             mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "{\"success\":true,\"message\":\"專案儲存成功\"}");
+            mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "{\"success\":true,\"message\":\"專案儲存成功\"}");
 
-         }
+        }
 
         // 處理其他路徑請求 - 返回404錯誤
-        else  {
-             // Serve web root directory
-             std::cout << " show html ... " << std::endl;
-             struct mg_http_serve_opts opts = { 0 };
-             opts.root_dir = ".";
-             opts.ssi_pattern = "#.html";
-             mg_http_serve_dir(conn, hm, &opts);
-         }
+        else {
+            // Serve web root directory
+            std::cout << " show html ... " << std::endl;
+            struct mg_http_serve_opts opts = { 0 };
+            opts.root_dir = ".";
+            opts.ssi_pattern = "#.html";
+            mg_http_serve_dir(conn, hm, &opts);
+        }
 
     }
 }
@@ -552,8 +567,8 @@ namespace {
     // 三角形哈希結構
     struct TriangleHash {
         std::size_t operator()(const std::tuple<const GridNode*,
-                                              const GridNode*,
-                                              const GridNode*>& tri) const {
+            const GridNode*,
+            const GridNode*>& tri) const {
             auto hash1 = std::hash<const GridNode*>{}(std::get<0>(tri));
             auto hash2 = std::hash<const GridNode*>{}(std::get<1>(tri));
             auto hash3 = std::hash<const GridNode*>{}(std::get<2>(tri));
@@ -564,29 +579,29 @@ namespace {
     // 三角形比較結構
     struct TriangleEqual {
         bool operator()(const std::tuple<const GridNode*, const GridNode*, const GridNode*>& lhs,
-                        const std::tuple<const GridNode*, const GridNode*, const GridNode*>& rhs) const {
+            const std::tuple<const GridNode*, const GridNode*, const GridNode*>& rhs) const {
             return std::tie(std::get<0>(lhs), std::get<1>(lhs), std::get<2>(lhs)) ==
-                   std::tie(std::get<0>(rhs), std::get<1>(rhs), std::get<2>(rhs));
+                std::tie(std::get<0>(rhs), std::get<1>(rhs), std::get<2>(rhs));
         }
     };
 }
 
 cv::Mat deformImageWithGrid(const std::vector<GridNode>& grid,
-                           const cv::Mat& image,
-                           int rows,
-                           int cols) {
+    const cv::Mat& image,
+    int rows,
+    int cols) {
     cv::Mat dst = cv::Mat::zeros(image.size(), image.type());
     std::unordered_set<std::tuple<const GridNode*, const GridNode*, const GridNode*>,
-                       TriangleHash,
-                       TriangleEqual> processedTriangles;
+        TriangleHash,
+        TriangleEqual> processedTriangles;
 
     // 生成並處理三角形
     for (int i = 0; i < rows - 1; ++i) {
         for (int j = 0; j < cols - 1; ++j) {
             const GridNode* tl = &grid[i * cols + j];
-            const GridNode* tr = &grid[i * cols + (j+1)];
-            const GridNode* bl = &grid[(i+1)*cols + j];
-            const GridNode* br = &grid[(i+1)*cols + (j+1)];
+            const GridNode* tr = &grid[i * cols + (j + 1)];
+            const GridNode* bl = &grid[(i + 1) * cols + j];
+            const GridNode* br = &grid[(i + 1) * cols + (j + 1)];
 
             std::array trianglesToProcess = {
                 std::make_tuple(tl, tr, br),
@@ -596,12 +611,12 @@ cv::Mat deformImageWithGrid(const std::vector<GridNode>& grid,
             for (auto& tri : trianglesToProcess) {
                 // 對頂點進行排序以保證唯一性
                 auto sortedTri = [&]() -> std::tuple<const GridNode*, const GridNode*, const GridNode*> {
-                    const GridNode* arr[3] = {std::get<0>(tri), std::get<1>(tri), std::get<2>(tri)};
-                    std::sort(arr, arr+3, [](const GridNode* a, const GridNode* b) {
+                    const GridNode* arr[3] = { std::get<0>(tri), std::get<1>(tri), std::get<2>(tri) };
+                    std::sort(arr, arr + 3, [](const GridNode* a, const GridNode* b) {
                         return a < b;
-                    });
+                        });
                     return std::make_tuple(arr[0], arr[1], arr[2]);
-                }();
+                    }();
 
                 // 檢查是否已處理過
                 if (processedTriangles.find(sortedTri) != processedTriangles.end()) {
@@ -636,15 +651,15 @@ cv::Mat deformImageWithGrid(const std::vector<GridNode>& grid,
 
                 // 創建掩碼
                 cv::Mat mask(image.size(), CV_8UC1, cv::Scalar(0));
-                std::vector<cv::Point> pts = {src_pts[0], src_pts[1], src_pts[2]};
+                std::vector<cv::Point> pts = { src_pts[0], src_pts[1], src_pts[2] };
                 cv::fillConvexPoly(mask, pts, cv::Scalar(255));
 
                 // 應用變換
                 cv::Mat warped, mask_warped;
                 cv::warpAffine(image, warped, M, image.size(),
-                              cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0));
+                    cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0));
                 cv::warpAffine(mask, mask_warped, M, image.size(),
-                              cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0));
+                    cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0));
 
                 // 獲取有效ROI區域
                 cv::Mat dst_roi = dst(bbox);
@@ -664,16 +679,16 @@ cv::Mat deformImageWithGrid(const std::vector<GridNode>& grid,
 }
 
 void drawGrid(const std::vector<GridNode>& grid,
-              int rows, int cols,
-              cv::Mat& image,
-              bool useModified = false,
-              const cv::Scalar& color = cv::Scalar(0, 255, 0)) {
+    int rows, int cols,
+    cv::Mat& image,
+    bool useModified = false,
+    const cv::Scalar& color = cv::Scalar(0, 255, 0)) {
     for (int i = 0; i < rows - 1; ++i) {
         for (int j = 0; j < cols - 1; ++j) {
             const GridNode* tl = &grid[i * cols + j];
-            const GridNode* tr = &grid[i * cols + (j+1)];
-            const GridNode* bl = &grid[(i+1)*cols + j];
-            const GridNode* br = &grid[(i+1)*cols + (j+1)];
+            const GridNode* tr = &grid[i * cols + (j + 1)];
+            const GridNode* bl = &grid[(i + 1) * cols + j];
+            const GridNode* br = &grid[(i + 1) * cols + (j + 1)];
 
             // 獲取坐標
             myPoint p_tl = useModified ? tl->position_modified : tl->position;
@@ -694,7 +709,7 @@ void drawGrid(const std::vector<GridNode>& grid,
     }
 }
 
-int main() {
+int main2() {
     // 讀取輸入圖像
     cv::Mat image = cv::imread("image.jpg");
     if (image.empty()) {
@@ -714,7 +729,7 @@ int main() {
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
             GridNode& node = grid[i * cols + j];
-            node.position = {j * dx, i * dy};
+            node.position = { j * dx, i * dy };
             node.position_modified = node.position; // 初始位置相同
         }
     }
@@ -723,15 +738,15 @@ int main() {
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
             GridNode& node = grid[i * cols + j];
-            if (i > 0) node.neighbors.push_back(&grid[(i-1)*cols + j]);
-            if (i < rows-1) node.neighbors.push_back(&grid[(i+1)*cols + j]);
-            if (j > 0) node.neighbors.push_back(&grid[i*cols + (j-1)]);
-            if (j < cols-1) node.neighbors.push_back(&grid[i*cols + (j+1)]);
+            if (i > 0) node.neighbors.push_back(&grid[(i - 1) * cols + j]);
+            if (i < rows - 1) node.neighbors.push_back(&grid[(i + 1) * cols + j]);
+            if (j > 0) node.neighbors.push_back(&grid[i * cols + (j - 1)]);
+            if (j < cols - 1) node.neighbors.push_back(&grid[i * cols + (j + 1)]);
         }
     }
 
     // 修改中心節點位置
-    int centerIdx = (rows/2) * cols + (cols/2);
+    int centerIdx = (rows / 2) * cols + (cols / 2);
     grid[centerIdx].position_modified.y -= 50; // 向上移動50像素
 
     // 執行變形
@@ -740,16 +755,16 @@ int main() {
     // 顯示結果
 
     // 創建調試圖像
-        cv::Mat debugOriginal = image.clone();
-        cv::Mat debugDeformed = deformed.clone();
+    cv::Mat debugOriginal = image.clone();
+    cv::Mat debugDeformed = deformed.clone();
 
-        // 繪製網格
-        drawGrid(grid, rows, cols, debugOriginal, false, cv::Scalar(0, 255, 0)); // 原始網格綠色
-        drawGrid(grid, rows, cols, debugDeformed, true, cv::Scalar(0, 0, 255));  // 變形網格紅色
+    // 繪製網格
+    drawGrid(grid, rows, cols, debugOriginal, false, cv::Scalar(0, 255, 0)); // 原始網格綠色
+    drawGrid(grid, rows, cols, debugDeformed, true, cv::Scalar(0, 0, 255));  // 變形網格紅色
 
-        // 顯示結果
-        cv::imshow("Original with Grid", debugOriginal);
-        cv::imshow("Deformed with Grid", debugDeformed);
+    // 顯示結果
+    cv::imshow("Original with Grid", debugOriginal);
+    cv::imshow("Deformed with Grid", debugDeformed);
 
     cv::imshow("Original", image);
     cv::imshow("Deformed", deformed);
@@ -759,13 +774,13 @@ int main() {
 }
 
 
-int main2() {
-    std::cout<<" go go ..." <<std::endl;
+int main() {
+    std::cout << " go go ..." << std::endl;
 
 
-    auto root =  GameObject::Create("Root");
-    auto child1 =  GameObject::Create("Child1");
-    auto child2 =  GameObject::Create("Child2");
+    auto root = GameObject::Create("Root");
+    auto child1 = GameObject::Create("Child1");
+    auto child2 = GameObject::Create("Child2");
     auto grandChild = Bone::Create("GrandChild");
 
     // Establish object relationships
