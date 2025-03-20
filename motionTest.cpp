@@ -10,6 +10,8 @@
 #include <opencv2/opencv.hpp>
 #include "KDTree.h"
 #include "gameObject.h"
+#include <unordered_set>
+#include <functional>
 //#include "gameObject.h"
 
 using json = nlohmann::json;
@@ -513,7 +515,7 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
 
          }
         else if (mg_match(hm->uri, mg_str("/api/layer/save"), NULL)) {
-             
+
              std::cout << " hi someong call me ... " << std::endl;
 
              mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "{\"success\":true,\"message\":\"專案儲存成功\"}");
@@ -544,7 +546,220 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
     }
 }
 
+
+
+namespace {
+    // 三角形哈希結構
+    struct TriangleHash {
+        std::size_t operator()(const std::tuple<const GridNode*,
+                                              const GridNode*,
+                                              const GridNode*>& tri) const {
+            auto hash1 = std::hash<const GridNode*>{}(std::get<0>(tri));
+            auto hash2 = std::hash<const GridNode*>{}(std::get<1>(tri));
+            auto hash3 = std::hash<const GridNode*>{}(std::get<2>(tri));
+            return hash1 ^ (hash2 << 1) ^ (hash3 << 2);
+        }
+    };
+
+    // 三角形比較結構
+    struct TriangleEqual {
+        bool operator()(const std::tuple<const GridNode*, const GridNode*, const GridNode*>& lhs,
+                        const std::tuple<const GridNode*, const GridNode*, const GridNode*>& rhs) const {
+            return std::tie(std::get<0>(lhs), std::get<1>(lhs), std::get<2>(lhs)) ==
+                   std::tie(std::get<0>(rhs), std::get<1>(rhs), std::get<2>(rhs));
+        }
+    };
+}
+
+cv::Mat deformImageWithGrid(const std::vector<GridNode>& grid,
+                           const cv::Mat& image,
+                           int rows,
+                           int cols) {
+    cv::Mat dst = cv::Mat::zeros(image.size(), image.type());
+    std::unordered_set<std::tuple<const GridNode*, const GridNode*, const GridNode*>,
+                       TriangleHash,
+                       TriangleEqual> processedTriangles;
+
+    // 生成並處理三角形
+    for (int i = 0; i < rows - 1; ++i) {
+        for (int j = 0; j < cols - 1; ++j) {
+            const GridNode* tl = &grid[i * cols + j];
+            const GridNode* tr = &grid[i * cols + (j+1)];
+            const GridNode* bl = &grid[(i+1)*cols + j];
+            const GridNode* br = &grid[(i+1)*cols + (j+1)];
+
+            std::array trianglesToProcess = {
+                std::make_tuple(tl, tr, br),
+                std::make_tuple(tl, br, bl)
+            };
+
+            for (auto& tri : trianglesToProcess) {
+                // 對頂點進行排序以保證唯一性
+                auto sortedTri = [&]() -> std::tuple<const GridNode*, const GridNode*, const GridNode*> {
+                    const GridNode* arr[3] = {std::get<0>(tri), std::get<1>(tri), std::get<2>(tri)};
+                    std::sort(arr, arr+3, [](const GridNode* a, const GridNode* b) {
+                        return a < b;
+                    });
+                    return std::make_tuple(arr[0], arr[1], arr[2]);
+                }();
+
+                // 檢查是否已處理過
+                if (processedTriangles.find(sortedTri) != processedTriangles.end()) {
+                    continue;
+                }
+
+                // 記錄已處理三角形
+                processedTriangles.insert(sortedTri);
+
+                // 獲取頂點坐標
+                std::vector<cv::Point2f> src_pts = {
+                    {std::get<0>(sortedTri)->position.x, std::get<0>(sortedTri)->position.y},
+                    {std::get<1>(sortedTri)->position.x, std::get<1>(sortedTri)->position.y},
+                    {std::get<2>(sortedTri)->position.x, std::get<2>(sortedTri)->position.y}
+                };
+
+                std::vector<cv::Point2f> dst_pts = {
+                    {std::get<0>(sortedTri)->position_modified.x, std::get<0>(sortedTri)->position_modified.y},
+                    {std::get<1>(sortedTri)->position_modified.x, std::get<1>(sortedTri)->position_modified.y},
+                    {std::get<2>(sortedTri)->position_modified.x, std::get<2>(sortedTri)->position_modified.y}
+                };
+
+                // 計算仿射變換
+                cv::Mat M = cv::getAffineTransform(src_pts, dst_pts);
+
+                // 計算變換後的邊界框並限制在圖像範圍內
+                cv::Rect bbox = cv::boundingRect(dst_pts);
+                cv::Rect validRect(0, 0, image.cols, image.rows);
+                bbox &= validRect; // 關鍵修復：限制邊界框在圖像範圍內
+
+                if (bbox.empty()) continue; // 跳過無效區域
+
+                // 創建掩碼
+                cv::Mat mask(image.size(), CV_8UC1, cv::Scalar(0));
+                std::vector<cv::Point> pts = {src_pts[0], src_pts[1], src_pts[2]};
+                cv::fillConvexPoly(mask, pts, cv::Scalar(255));
+
+                // 應用變換
+                cv::Mat warped, mask_warped;
+                cv::warpAffine(image, warped, M, image.size(),
+                              cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0));
+                cv::warpAffine(mask, mask_warped, M, image.size(),
+                              cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0));
+
+                // 獲取有效ROI區域
+                cv::Mat dst_roi = dst(bbox);
+                cv::Mat warped_roi = warped(bbox);
+                cv::Mat mask_roi = mask_warped(bbox);
+
+                // 執行拷貝（添加額外檢查）
+                if (warped_roi.size() == mask_roi.size() &&
+                    dst_roi.size() == mask_roi.size()) {
+                    warped_roi.copyTo(dst_roi, mask_roi);
+                }
+            }
+        }
+    }
+
+    return dst;
+}
+
+void drawGrid(const std::vector<GridNode>& grid,
+              int rows, int cols,
+              cv::Mat& image,
+              bool useModified = false,
+              const cv::Scalar& color = cv::Scalar(0, 255, 0)) {
+    for (int i = 0; i < rows - 1; ++i) {
+        for (int j = 0; j < cols - 1; ++j) {
+            const GridNode* tl = &grid[i * cols + j];
+            const GridNode* tr = &grid[i * cols + (j+1)];
+            const GridNode* bl = &grid[(i+1)*cols + j];
+            const GridNode* br = &grid[(i+1)*cols + (j+1)];
+
+            // 獲取坐標
+            myPoint p_tl = useModified ? tl->position_modified : tl->position;
+            myPoint p_tr = useModified ? tr->position_modified : tr->position;
+            myPoint p_bl = useModified ? bl->position_modified : bl->position;
+            myPoint p_br = useModified ? br->position_modified : br->position;
+
+            // 繪製四邊形邊
+            cv::line(image, cv::Point(p_tl.x, p_tl.y), cv::Point(p_tr.x, p_tr.y), color, 1);
+            cv::line(image, cv::Point(p_tr.x, p_tr.y), cv::Point(p_br.x, p_br.y), color, 1);
+            cv::line(image, cv::Point(p_br.x, p_br.y), cv::Point(p_bl.x, p_bl.y), color, 1);
+            cv::line(image, cv::Point(p_bl.x, p_bl.y), cv::Point(p_tl.x, p_tl.y), color, 1);
+
+            // 繪製對角線
+            cv::line(image, cv::Point(p_tl.x, p_tl.y), cv::Point(p_br.x, p_br.y), color, 1);
+            cv::line(image, cv::Point(p_tr.x, p_tr.y), cv::Point(p_bl.x, p_bl.y), color, 1);
+        }
+    }
+}
+
 int main() {
+    // 讀取輸入圖像
+    cv::Mat image = cv::imread("image.jpg");
+    if (image.empty()) {
+        std::cerr << "Could not open image!" << std::endl;
+        return -1;
+    }
+
+    // 網格參數
+    int rows = 5, cols = 5;
+    float width = image.cols;
+    float height = image.rows;
+    float dx = width / (cols - 1);
+    float dy = height / (rows - 1);
+
+    // 創建網格
+    std::vector<GridNode> grid(rows * cols);
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            GridNode& node = grid[i * cols + j];
+            node.position = {j * dx, i * dy};
+            node.position_modified = node.position; // 初始位置相同
+        }
+    }
+
+    // 設置鄰居關係（上下左右）
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            GridNode& node = grid[i * cols + j];
+            if (i > 0) node.neighbors.push_back(&grid[(i-1)*cols + j]);
+            if (i < rows-1) node.neighbors.push_back(&grid[(i+1)*cols + j]);
+            if (j > 0) node.neighbors.push_back(&grid[i*cols + (j-1)]);
+            if (j < cols-1) node.neighbors.push_back(&grid[i*cols + (j+1)]);
+        }
+    }
+
+    // 修改中心節點位置
+    int centerIdx = (rows/2) * cols + (cols/2);
+    grid[centerIdx].position_modified.y -= 50; // 向上移動50像素
+
+    // 執行變形
+    cv::Mat deformed = deformImageWithGrid(grid, image, rows, cols);
+
+    // 顯示結果
+
+    // 創建調試圖像
+        cv::Mat debugOriginal = image.clone();
+        cv::Mat debugDeformed = deformed.clone();
+
+        // 繪製網格
+        drawGrid(grid, rows, cols, debugOriginal, false, cv::Scalar(0, 255, 0)); // 原始網格綠色
+        drawGrid(grid, rows, cols, debugDeformed, true, cv::Scalar(0, 0, 255));  // 變形網格紅色
+
+        // 顯示結果
+        cv::imshow("Original with Grid", debugOriginal);
+        cv::imshow("Deformed with Grid", debugDeformed);
+
+    cv::imshow("Original", image);
+    cv::imshow("Deformed", deformed);
+    cv::waitKey(0);
+
+    return 0;
+}
+
+
+int main2() {
     std::cout<<" go go ..." <<std::endl;
 
 
