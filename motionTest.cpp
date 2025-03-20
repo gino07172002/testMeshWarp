@@ -9,6 +9,7 @@
 #include "json.hpp"
 #include <opencv2/opencv.hpp>
 #include "KDTree.h"
+//#include "gameObject.h"
 
 using json = nlohmann::json;
 
@@ -16,6 +17,55 @@ using namespace cv;
 using namespace std;
 Mat image;
 
+// Base64 encoding function
+std::string base64_encode(const unsigned char* data, size_t length) {
+    static const std::string base64_chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789+/";
+
+    std::string encoded;
+    int i = 0;
+    int j = 0;
+    unsigned char char_array_3[3];
+    unsigned char char_array_4[4];
+
+    while (length--) {
+        char_array_3[i++] = *(data++);
+        if (i == 3) {
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            char_array_4[3] = char_array_3[2] & 0x3f;
+
+            for (i = 0; i < 4; i++)
+                encoded += base64_chars[char_array_4[i]];
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for (j = i; j < 3; j++)
+            char_array_3[j] = '\0';
+
+        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+
+        for (j = 0; j < i + 1; j++)
+            encoded += base64_chars[char_array_4[j]];
+
+        while (i++ < 3)
+            encoded += '=';
+    }
+
+    return encoded;
+}
+
+// Helper function to encode vector of bytes
+std::string base64_encode(const std::vector<unsigned char>& data) {
+    return base64_encode(data.data(), data.size());
+}
 GridNode* findNearestGridNodeOptimized(const std::vector<GridNode>& gridNodes, const myPoint& targetPoint) {
     // 這裡我們假設要使用 KD 樹方法
     // 實際使用時，建議先建構 KD 樹，然後多次查詢
@@ -411,45 +461,54 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
              // 發送圖片數據
              mg_send(conn, buffer.data(), buffer.size());
          }
-        else if (mg_match(hm->uri, mg_str("/png"), NULL)) {
-             // 配置圖片路徑，這裡假設圖片名為 "image.jpg" 並位於當前目錄
-             std::string image_path = "png.png";
+        else if(mg_match(hm->uri, mg_str("/png"), NULL)) {
+            std::string image_path = "png.png";
 
-             image = imread("png.png", IMREAD_UNCHANGED);
-             std::cout << " read image size: " << image.size() << std::endl;
-         
-          
-             gridNodes = extractGridPoints(image, 80);
-             drawGrid(image, gridNodes);
+            std::vector<uchar> buffer;
+            if (!imencode(".png", image, buffer)) {
+                mg_http_reply(conn, 500, "Content-Type: application/json\r\n",
+                    "{\"error\": \"Failed to encode image\"}");
+                return;
+            }
 
-             std::cout << " init grid point! " << std::endl;
-             findNearestGridNodeOptimized(gridNodes, { 0,0 });
-             std::vector<uchar> buffer;
-             if (!imencode(".png", image, buffer)) {
-                 mg_printf(conn, "HTTP/1.1 500 Internal Server Error\r\n"
-                     "Content-Type: text/plain\r\n"
-                     "Content-Length: 22\r\n\r\n"
-                     "Failed to encode image");
-                 return;
-             }
+            // 將圖片轉換為base64
+            std::string base64_image = base64_encode(buffer.data(), buffer.size());
 
-             mg_printf(conn, "HTTP/1.1 200 OK\r\n"
-                 "Content-Type: image/png\r\n"
-                 "Content-Length: %d\r\n\r\n", (int)buffer.size());
+            // 回傳JSON格式，包含base64圖片和時間戳記
+            std::string response = "{\"image\": \"data:image/png;base64," + base64_image +
+                "\", \"timestamp\": " + std::to_string(time(NULL)) + "}";
 
-             mg_send(conn, buffer.data(), buffer.size());
-         }
+            mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "%s", response.c_str());
+        }
         else if (mg_match(hm->uri, mg_str("/api/points"), NULL)) {
 
+            std::cout << " hello ~" << std::endl;
             std::string input(hm->body.buf);
             json data = json::parse(input);
+            json result;
+            result["success"] = true;
+            result["message"] = "good";
+            std::cout << " hi input :" << input << endl;
+            
 
+            double x = data["x"];
+            double y = data["y"];
+            double w = data["scw"];
+            double h = data["sch"];
+
+            std::cout << " what's my size: " << image.rows << " , " << image.cols << std::endl;
+            double x2 = x * (double)image.cols / w;
+            double y2 = y * (double)image.rows / h;
+            circle(image, Point(x2, y2), 15, Scalar(255, 255, 0, 255), FILLED);
+
+            /**
             float x = data["x"];
             float cw = data["canvasWidth"];
             float y = data["y"];
             float ch = data["canvasHeight"];
             float _x = (x * (float)image.cols / cw) ;
             float _y = (y * (float)image.rows / ch) ;
+        
 
 
             std::cout << " normalized x = " << _x << " , y = " << _y << std::endl;
@@ -468,8 +527,9 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
                 result["y"] = nearPoint->position.y * ch /(float)image.rows;
                 result["x"] = nearPoint->position.x * cw / (float)image.cols;
             }
-            std::cout << " hi someone call api points ... "<<data <<"nearest is : "<<result<< std::endl;
-            std::cout << " what's my size: " << image.rows << " , " << image.cols << std::endl;
+                */
+           // std::cout << " hi someone call api points ... "<<data <<"nearest is : "<<result<< std::endl;
+          
            // mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "{\"success\":true,\"message\":\"good\"}");
             mg_http_reply(conn, 200, "Content-Type: application/json\r\n", result.dump().c_str());
 
@@ -510,6 +570,12 @@ int main() {
     struct mg_mgr mgr;
     mg_mgr_init(&mgr);
 
+    image = imread("png.png", IMREAD_UNCHANGED);
+    gridNodes = extractGridPoints(image, 80);
+    drawGrid(image, gridNodes);
+
+    std::cout << " init grid point! " << std::endl;
+    findNearestGridNodeOptimized(gridNodes, { 0,0 });
     // 設置HTTP服務器監聽地址和端口
     const char* listen_addr = "http://0.0.0.0:8000";
     mg_http_listen(&mgr, listen_addr, (mg_event_handler_t)http_handler, NULL);
