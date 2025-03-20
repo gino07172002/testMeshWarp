@@ -3,6 +3,7 @@
         padding: 0;
         box-sizing: border-box;
     }
+
     body {
         font-family: Arial, sans-serif;
         background-color: #2a2a2a;
@@ -12,6 +13,7 @@
         flex-direction: column;
         overflow: hidden;
     }
+
     .header {
         height: 40px;
         background-color: #1a1a1a;
@@ -21,23 +23,26 @@
         border-bottom: 1px solid #3a3a3a;
         position: relative;
     }
+
     .menu-bar {
         display: flex;
         gap: 15px;
         position: relative;
     }
+
     .menu-item {
         cursor: pointer;
         padding: 5px;
         position: relative;
     }
+
     .menu-item:hover {
         background-color: #3a3a3a;
         border-radius: 3px;
     }
 
-  
-      .dropdown-menu {
+
+    .dropdown-menu {
         position: absolute;
         top: 100%;
         left: 0;
@@ -46,12 +51,12 @@
         box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
         z-index: 100;
         min-width: 120px;
-      }
-  
-  
-      .dropdown-item:hover {
+    }
+
+
+    .dropdown-item:hover {
         background: #f0f0f0;
-      }
+    }
 
 
     .dropdown-menu .dropdown-item {
@@ -59,15 +64,17 @@
         cursor: pointer;
         white-space: nowrap;
     }
+
     .dropdown-menu .dropdown-item:hover {
         background-color: #444;
-    }    
+    }
+
     .main-container {
         display: flex;
         flex: 1;
         overflow: hidden;
     }
-    
+
     .toolbar {
         width: 60px;
         background-color: #333;
@@ -78,7 +85,7 @@
         padding: 10px 0;
         overflow-y: auto;
     }
-    
+
     .tool-btn {
         width: 40px;
         height: 40px;
@@ -92,15 +99,15 @@
         align-items: center;
         justify-content: center;
     }
-    
+
     .tool-btn:hover {
         background-color: #555;
     }
-    
+
     .tool-btn.active {
         background-color: #0078d7;
     }
-    
+
     .canvas-area {
         flex: 1;
         background-color: #2a2a2a;
@@ -112,28 +119,31 @@
 
     .image-container {
         position: relative;
-        width: 100%; /* 讓容器適應頁面 */
+        width: 100%;
+        /* 讓容器適應頁面 */
         height: 100%;
-        max-width: 800px; /* 可依需求調整 */
-        max-height: 800px; /* 可依需求調整 */
+        max-width: 800px;
+        /* 可依需求調整 */
+        max-height: 800px;
+        /* 可依需求調整 */
         margin: auto;
         background-color: rgba(189, 185, 185, 0.323);
         overflow: auto;
         /* 設置網格背景 */
-        background-image: 
-          linear-gradient(to right, rgba(0, 0, 0, 0.2) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(0, 0, 0, 0.2) 1px, transparent 1px),
-          linear-gradient(to right, rgba(0, 0, 0, 0.5) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(0, 0, 0, 0.5) 1px, transparent 1px);
+        background-image:
+            linear-gradient(to right, rgba(0, 0, 0, 0.2) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(0, 0, 0, 0.2) 1px, transparent 1px),
+            linear-gradient(to right, rgba(0, 0, 0, 0.5) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(0, 0, 0, 0.5) 1px, transparent 1px);
         background-size: 10px 10px, 10px 10px, 100px 100px, 100px 100px;
-      }
-      
-      .image-canvas {
+    }
+
+    .image-canvas {
         width: 100%;
         height: auto;
         display: block;
-      }
-    
+    }
+
     .overlay-canvas {
         position: absolute;
         top: 0;
@@ -144,14 +154,37 @@
         /* 由於我們在 image-container 綁定 click 事件，所以暫時停用 pointer-events 避免遮擋 */
         pointer-events: none;
     }
-    
+
     .layers-panel {
         width: 200px;
         background-color: #333;
         border-left: 1px solid #3a3a3a;
         display: flex;
         flex-direction: column;
+        height: 100%;
+        overflow-y: auto; /* 允許在內容超出時滾動 */
+    }
+    
+    .panel-section {
+        display: flex;
+        flex-direction: column;
+        flex: 0 0 auto; /* 改為不自動擴展，根據內容決定 */
+        min-height: 0; /* 允許面板縮小 */
+        border-bottom: 1px solid #3a3a3a;
         overflow: hidden;
+    }
+    
+    /* 可以設置特定面板的固定或比例高度 */
+    .panel-section.fixed-height {
+        height: 200px; /* 固定高度 */
+    }
+    
+    .panel-section.flex-height {
+        flex: 1 0 auto; /* 讓這個面板填充剩餘空間 */
+    }
+    
+    .panel-section.small {
+        flex: 0.5 0 auto; /* 0.5 的比例空間 */
     }
     
     .panel-title {
@@ -161,12 +194,76 @@
         border-bottom: 1px solid #3a3a3a;
     }
     
-    .layers-container {
-        flex: 1;
-        overflow-y: auto;
-        padding: 5px;
+    /* 添加可調整大小的功能 */
+    .panel-section .resizer {
+        height: 5px;
+        background-color: #2a2a2a;
+        cursor: ns-resize;
+        margin: -1px 0;
+        position: relative;
+        z-index: 10;
     }
     
+    .panel-section .resizer:hover {
+        background-color: #444;
+    }
+    
+    /* 確保內容區可滾動 */
+    .tree-container, .layers-container {
+        overflow-y: auto;
+        flex: 1;
+    }
+    
+    .layers-actions {
+        padding: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+
+    .tree-item {
+        margin-bottom: 2px;
+    }
+
+    .tree-item-header {
+        display: flex;
+        align-items: center;
+        padding: 4px;
+        cursor: pointer;
+        border-radius: 3px;
+        background-color: #444;
+    }
+
+    .tree-item-header:hover {
+        background-color: #555;
+    }
+
+    .tree-toggle-icon {
+        margin-right: 5px;
+        transform: rotate(0deg);
+        transition: transform 0.2s;
+        cursor: pointer;
+    }
+
+    .tree-toggle-icon.expanded {
+        transform: rotate(90deg);
+    }
+
+    .tree-item-name {
+        flex: 1;
+        cursor: pointer;
+    }
+    .tree-item-name:hover {
+        color: #409eff;
+      }
+
+    .tree-children {
+        padding-left: 15px;
+        margin-top: 2px;
+    }
+
+    /* 原本的圖層樣式 */
     .layer-item {
         display: flex;
         align-items: center;
@@ -176,24 +273,24 @@
         border-radius: 3px;
         background-color: #444;
     }
-    
+
     .layer-item:hover {
         background-color: #555;
     }
-    
+
     .layer-item.active {
         background-color: #0078d7;
     }
-    
+
     .layer-visibility {
         margin-right: 5px;
         cursor: pointer;
     }
-    
+
     .layer-name {
         flex: 1;
     }
-    
+
     .layer-thumbnail {
         width: 30px;
         height: 30px;
@@ -204,14 +301,8 @@
         justify-content: center;
         font-size: 10px;
     }
-    
-    .layers-actions {
-        display: flex;
-        padding: 5px;
-        background-color: #2a2a2a;
-        border-top: 1px solid #3a3a3a;
-    }
-    
+
+
     .layer-btn {
         flex: 1;
         padding: 5px;
@@ -222,11 +313,12 @@
         cursor: pointer;
         border-radius: 3px;
     }
-    
+
     .layer-btn:hover {
         background-color: #555;
     }
-    
+
+
     .timeline {
         height: 120px;
         background-color: #333;
@@ -235,24 +327,24 @@
         flex-direction: column;
         overflow: hidden;
     }
-    
+
     .timeline-header {
         display: flex;
         align-items: center;
         padding: 5px;
         background-color: #1a1a1a;
     }
-    
+
     .timeline-title {
         flex: 1;
         font-weight: bold;
     }
-    
+
     .timeline-controls {
         display: flex;
         gap: 5px;
     }
-    
+
     .timeline-btn {
         padding: 3px 8px;
         border: none;
@@ -261,23 +353,23 @@
         cursor: pointer;
         border-radius: 3px;
     }
-    
+
     .timeline-btn:hover {
         background-color: #555;
     }
-    
+
     .timeline-content {
         flex: 1;
         display: flex;
         overflow: hidden;
     }
-    
+
     .timeline-layers {
         width: 150px;
         border-right: 1px solid #3a3a3a;
         overflow-y: auto;
     }
-    
+
     .timeline-layer-item {
         padding: 5px;
         border-bottom: 1px solid #3a3a3a;
@@ -285,25 +377,25 @@
         align-items: center;
         height: 30px;
     }
-    
+
     .timeline-tracks {
         flex: 1;
         position: relative;
         overflow-x: auto;
         overflow-y: auto;
         background-color: #2a2a2a;
-        background-image: 
+        background-image:
             linear-gradient(to right, #3a3a3a 1px, transparent 1px),
             linear-gradient(to bottom, #3a3a3a 1px, transparent 1px);
         background-size: 50px 30px;
     }
-    
+
     .timeline-track {
         height: 30px;
         position: relative;
         border-bottom: 1px solid #444;
     }
-    
+
     .keyframe {
         position: absolute;
         width: 10px;
@@ -314,12 +406,12 @@
         transform: translateX(-50%);
         cursor: pointer;
     }
-    
+
     .keyframe:hover {
         background-color: #ffdd44;
         transform: translateX(-50%) scale(1.2);
     }
-    
+
     .timeline-playhead {
         position: absolute;
         top: 0;
@@ -329,7 +421,7 @@
         z-index: 10;
         pointer-events: none;
     }
-    
+
     .status-bar {
         height: 25px;
         background-color: #1a1a1a;
@@ -339,75 +431,75 @@
         border-top: 1px solid #3a3a3a;
         font-size: 12px;
     }
-    
+
     .status-item {
         margin-right: 15px;
     }
-    
+
     .dialog-overlay {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        background-color: rgba(0,0,0,0.7);
+        background-color: rgba(0, 0, 0, 0.7);
         display: none;
         align-items: center;
         justify-content: center;
         z-index: 1000;
     }
-    
+
     .dialog {
         background-color: #333;
         border-radius: 5px;
         padding: 20px;
         min-width: 300px;
     }
-    
+
     .dialog-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 15px;
     }
-    
+
     .dialog-title {
         font-weight: bold;
         font-size: 18px;
     }
-    
+
     .dialog-close {
         cursor: pointer;
         font-size: 20px;
     }
-    
+
     .dialog-content {
         margin-bottom: 15px;
     }
-    
+
     .dialog-footer {
         display: flex;
         justify-content: flex-end;
         gap: 10px;
     }
-    
+
     .dialog-btn {
         padding: 5px 15px;
         border: none;
         border-radius: 3px;
         cursor: pointer;
     }
-    
+
     .btn-primary {
         background-color: #0078d7;
         color: white;
     }
-    
+
     .btn-secondary {
         background-color: #555;
         color: white;
     }
-    
+
     .tool-options {
         position: absolute;
         top: 40px;
@@ -420,16 +512,16 @@
         z-index: 100;
         display: none;
     }
-    
+
     .option-group {
         margin-bottom: 10px;
     }
-    
+
     .option-label {
         display: block;
         margin-bottom: 5px;
     }
-    
+
     .option-input {
         width: 100%;
         padding: 5px;
@@ -438,7 +530,7 @@
         color: #f0f0f0;
         border-radius: 3px;
     }
-    
+
     .color-picker {
         width: 30px;
         height: 30px;

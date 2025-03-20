@@ -10,6 +10,7 @@ struct myPoint {
 
 struct GridNode {
     myPoint position;
+    myPoint position_modified;
     std::vector<GridNode*> neighbors;
 };
 

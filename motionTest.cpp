@@ -9,6 +9,7 @@
 #include "json.hpp"
 #include <opencv2/opencv.hpp>
 #include "KDTree.h"
+#include "gameObject.h"
 //#include "gameObject.h"
 
 using json = nlohmann::json;
@@ -499,38 +500,15 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
             std::cout << " what's my size: " << image.rows << " , " << image.cols << std::endl;
             double x2 = x * (double)image.cols / w;
             double y2 = y * (double)image.rows / h;
-            circle(image, Point(x2, y2), 15, Scalar(255, 255, 0, 255), FILLED);
+            circle(image, Point(x2, y2),10, Scalar(255, 255, 0, 255), FILLED);
+            auto nearPoint=findNearestGridNodeOptimized(gridNodes, {(float)x2,(float)y2 });
 
-            /**
-            float x = data["x"];
-            float cw = data["canvasWidth"];
-            float y = data["y"];
-            float ch = data["canvasHeight"];
-            float _x = (x * (float)image.cols / cw) ;
-            float _y = (y * (float)image.rows / ch) ;
-        
+            std::cout<<" I would draw a near point at : "<<nearPoint->position.x<<" , "<<nearPoint->position.y<<std::endl;
+            circle(image, Point(nearPoint->position.x, nearPoint->position.y),10, Scalar(0, 255, 255, 255), FILLED);
 
 
-            std::cout << " normalized x = " << _x << " , y = " << _y << std::endl;
-            auto nearPoint=findNearestGridNodeOptimized(gridNodes, {(float)_x,(float)_y });
-            
-           
-            json result;
 
-            if (nearPoint == nullptr)
-            {
-                result["y"] = 0;
-                result["x"] = 0;
-            }
-            else
-            {
-                result["y"] = nearPoint->position.y * ch /(float)image.rows;
-                result["x"] = nearPoint->position.x * cw / (float)image.cols;
-            }
-                */
-           // std::cout << " hi someone call api points ... "<<data <<"nearest is : "<<result<< std::endl;
-          
-           // mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "{\"success\":true,\"message\":\"good\"}");
+
             mg_http_reply(conn, 200, "Content-Type: application/json\r\n", result.dump().c_str());
 
          }
@@ -567,6 +545,25 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
 }
 
 int main() {
+    std::cout<<" go go ..." <<std::endl;
+
+
+    auto root =  GameObject::Create("Root");
+    auto child1 =  GameObject::Create("Child1");
+    auto child2 =  GameObject::Create("Child2");
+    auto grandChild = Bone::Create("GrandChild");
+
+    // Establish object relationships
+    root->AddChild(child1);
+    root->AddChild(child2);
+    child1->AddChild(grandChild);
+
+    // Get nested JSON
+    json hierarchyJson = root->GetHierarchyJson();
+
+    std::cout << "Hierarchy JSON:\n" << hierarchyJson.dump(4) << std::endl;
+
+
     struct mg_mgr mgr;
     mg_mgr_init(&mgr);
 
