@@ -8,11 +8,130 @@ struct myPoint {
     float x, y;
 };
 
-struct GridNode {
-    myPoint position;
-    myPoint position_modified;
-    std::vector<GridNode*> neighbors;
+struct GridNode; // 前向宣告
+
+struct Triangle {
+    GridNode* v1;  // 三角形頂點 1
+    GridNode* v2;  // 三角形頂點 2
+    GridNode* v3;  // 三角形頂點 3
+
+    // 默認構造函數
+    Triangle() : v1(nullptr), v2(nullptr), v3(nullptr) {}
+
+    // 構造函數
+    Triangle(GridNode* node1, GridNode* node2, GridNode* node3) : v1(node1), v2(node2), v3(node3) {}
+
+    // 新增方法：從所有相關的GridNode中移除這個Triangle
+    void removeFromGridNodes();
 };
+// 2D 三角形結構
+struct GridNode {
+    cv::Point2f position;            // 原始位置
+    cv::Point2f position_modified;   // 變形後位置
+    std::vector<GridNode*> neighbors; // 鄰居節點
+    std::vector<Triangle*> triangles; // 所屬的三角形
+
+    // 構造函數
+    GridNode(const cv::Point2f& pos) : position(pos), position_modified(pos) {}
+
+    GridNode()=default;
+    // 計算當前節點的形變
+    void applyDeformation() {
+        // 實現形變邏輯
+    }
+};
+struct TriangleComparator {
+    bool operator()(const Triangle* lhs, const Triangle* rhs) const {
+        // 獲取排序後的頂點指針以便比較
+        std::vector<GridNode*> lv = {lhs->v1, lhs->v2, lhs->v3};
+        std::vector<GridNode*> rv = {rhs->v1, rhs->v2, rhs->v3};
+
+        // 排序指針，使得相同的三角形具有相同的頂點順序
+        std::sort(lv.begin(), lv.end());
+        std::sort(rv.begin(), rv.end());
+
+        // 比較排序後的頂點
+        return std::tie(lv[0], lv[1], lv[2]) < std::tie(rv[0], rv[1], rv[2]);
+    }
+};
+
+
+struct GridNodeComparator {
+    bool operator()(const GridNode* lhs, const GridNode* rhs) const {
+        return std::tie(lhs->position.x, lhs->position.y) < std::tie(rhs->position.x, rhs->position.y);
+    }
+};
+class Grid {
+public:
+   std::vector<GridNode*> nodes;  // 所有GridNode的列表
+   std::set<Triangle*, TriangleComparator> triangles;;  // 所有Triangle的列表
+
+   void addTriangle(GridNode* v1, GridNode* v2, GridNode* v3) {
+       Triangle* newTriangle = new Triangle(v1, v2, v3);
+       auto result = triangles.insert(newTriangle);
+       if (result.second) {
+           if (v1) v1->triangles.push_back(newTriangle);
+           if (v2) v2->triangles.push_back(newTriangle);
+           if (v3) v3->triangles.push_back(newTriangle);
+       } else {
+           delete newTriangle;
+       }
+   }
+    // 方法：刪除一個Triangle
+   void deleteTriangle(Triangle* tri) {
+       if (tri) {
+           tri->removeFromGridNodes();
+           triangles.erase(tri);
+           delete tri;
+       }
+   }
+
+    // 方法：刪除一個GridNode
+   void deleteGridNode(GridNode* node) {
+       if (node) {
+           for (auto tri : node->triangles) {
+               deleteTriangle(tri);
+           }
+           for (auto neighbor : node->neighbors) {
+               if (neighbor) {
+                   auto it = std::find(neighbor->neighbors.begin(), neighbor->neighbors.end(), node);
+                   if (it != neighbor->neighbors.end()) {
+                       neighbor->neighbors.erase(it);
+                   }
+               }
+           }
+           auto it = std::find(nodes.begin(), nodes.end(), node);
+           if (it != nodes.end()) {
+               nodes.erase(it);
+           }
+           delete node;
+       }
+   }
+
+    // 方法：清理不在任何Triangle中的GridNode
+    void cleanupOrphanedNodes() {
+        std::vector<GridNode*> toDelete;
+        for (auto node : nodes) {
+            if (node->triangles.empty()) {
+                toDelete.push_back(node);
+            }
+        }
+        for (auto node : toDelete) {
+            deleteGridNode(node);
+        }
+    }
+
+    ~Grid() {
+        for (auto tri : triangles) {
+            delete tri;
+        }
+        for (auto node : nodes) {
+            delete node;
+        }
+    }
+};
+
+
 
 class KDTree {
 private:

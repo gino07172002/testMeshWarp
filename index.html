@@ -411,7 +411,18 @@
 
         handleDragEnd(x, y) {
           this.status = `拖曳結束: 從 (${this.dragStartX}, ${this.dragStartY}) 到 (${x}, ${y})`;
-
+          fetch('/api/dragDone', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              x,
+              y,
+              scw: this.$refs.imageContainer.scrollWidth,
+              sch: this.$refs.imageContainer.scrollHeight
+            })
+          });
           // 在這裡加入拖曳結束後的處理邏輯
           // 例如：計算拖曳區域、選擇區域內的點等
         },
@@ -445,7 +456,7 @@
 
         sendDragToServer(x, y) {
           // 發送座標到伺服器
-          fetch('/api/points', {
+          fetch('/api/drag', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
