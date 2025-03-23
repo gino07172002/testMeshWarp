@@ -20,3 +20,12 @@ void Triangle::removeFromGridNodes() {
         }
     }
 }
+
+std::vector<cv::Point2f> Triangle::getOriginalPoints() {
+    return { v1->position, v2->position, v3->position };
+}
+
+// 取得變形後的三角形頂點
+std::vector<cv::Point2f> Triangle::getModifiedPoints() {
+    return { v1->position_modified, v2->position_modified, v3->position_modified };
+}

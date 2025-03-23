@@ -40,8 +40,8 @@
       <div class="main-container">
         <!-- 左側工具 -->
         <div class="toolbar">
-          <button class="tool-btn" :class="{ active: activeTool === 'tool1' }" @click="selectTool('tool1')">1</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'tool2' }" @click="selectTool('tool2')">2</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')">grab-point</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }" @click="selectTool('bone-create')">bone-create</button>
         </div>
 
         <!-- 中間畫布 -->
@@ -242,7 +242,7 @@
           this.fetchImage();
           this.updateTimer = setInterval(() => {
             this.fetchImage();
-          }, 1000); // 每秒更新一次，可調整
+          }, 200); // 每秒更新一次，可調整
         },
         handleCanvasClick(event) {
           // 處理點擊事件...
@@ -289,14 +289,12 @@
         },
         // 選擇工具
         selectTool(tool) {
-          console.log(" hi ", tool);
+          console.log(" hi  ", tool);
           this.activeTool = this.activeTool === tool ? null : tool;
           this.status = `選擇工具: ${tool}`;
 
           const projectData = {
-            layers: this.layers,
-            keyframes: this.keyframes,
-            points: this.points
+            tool:tool
           };
 
           fetch('/api/tool1', {

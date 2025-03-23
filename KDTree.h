@@ -23,6 +23,11 @@ struct Triangle {
 
     // 新增方法：從所有相關的GridNode中移除這個Triangle
     void removeFromGridNodes();
+
+    std::vector<cv::Point2f> getOriginalPoints();
+
+    // 取得變形後的三角形頂點
+    std::vector<cv::Point2f> getModifiedPoints();
 };
 // 2D 三角形結構
 struct GridNode {
@@ -140,69 +145,261 @@ private:
         KDNode* left;
         KDNode* right;
         int splitDim;
-
         KDNode(GridNode* node) : data(node), left(nullptr), right(nullptr), splitDim(0) {}
     };
-
     KDNode* root;
 
     // 递归构建 KD 树
     KDNode* buildKDTree(std::vector<GridNode*>& points, int start, int end, int depth) {
         if (start > end) return nullptr;
-
         int dim = depth % 2;  // 0 代表 x 维度，1 代表 y 维度
-
         // 根据当前维度排序
         int mid = (start + end) / 2;
         std::nth_element(points.begin() + start, points.begin() + mid, points.begin() + end + 1,
             [dim](GridNode* a, GridNode* b) {
-                return dim == 0 ? a->position.x < b->position.x : a->position.y < b->position.y;
+                return dim == 0 ? a->position_modified.x < b->position_modified.x : a->position_modified.y < b->position_modified.y;
             });
-
         // 创建节点
         KDNode* node = new KDNode(points[mid]);
         node->splitDim = dim;
-
         // 递归构建左右子树
         node->left = buildKDTree(points, start, mid - 1, depth + 1);
         node->right = buildKDTree(points, mid + 1, end, depth + 1);
-
         return node;
     }
 
     // 递归查找最近点
-    void findNearest(KDNode* node, const myPoint& target, GridNode*& bestNode, float& bestDist, int depth) {
+    void findNearest(KDNode* node, const cv::Point2f& target, GridNode*& bestNode, float& bestDist, int depth) {
         if (!node) return;
-
         int dim = depth % 2;  // 当前分割维度
-
         // 计算当前节点与目标点的距离
-        float dx = node->data->position.x - target.x;
-        float dy = node->data->position.y - target.y;
+        float dx = node->data->position_modified.x - target.x;
+        float dy = node->data->position_modified.y - target.y;
         float dist = dx * dx + dy * dy;
-
         // 更新最近点
         if (dist < bestDist) {
             bestDist = dist;
             bestNode = node->data;
         }
-
         // 决定先搜索哪个子树
-        float splitValue = (dim == 0) ? node->data->position.x : node->data->position.y;
+        float splitValue = (dim == 0) ? node->data->position_modified.x : node->data->position_modified.y;
         float targetValue = (dim == 0) ? target.x : target.y;
-
         KDNode* nearerNode = (targetValue < splitValue) ? node->left : node->right;
         KDNode* furtherNode = (targetValue < splitValue) ? node->right : node->left;
-
         // 先搜索更可能包含最近点的子树
         findNearest(nearerNode, target, bestNode, bestDist, depth + 1);
-
         // 检查是否需要搜索另一个子树
         float splitDist = targetValue - splitValue;
         splitDist *= splitDist;
-
         if (splitDist < bestDist) {
             findNearest(furtherNode, target, bestNode, bestDist, depth + 1);
+        }
+    }
+
+    // 递归插入节点
+    KDNode* insertRecursive(KDNode* node, GridNode* point, int depth) {
+        if (node == nullptr) {
+            KDNode* newNode = new KDNode(point);
+            newNode->splitDim = depth % 2;
+            return newNode;
+        }
+
+        int dim = depth % 2;
+        float nodeValue = (dim == 0) ? node->data->position_modified.x : node->data->position_modified.y;
+        float pointValue = (dim == 0) ? point->position_modified.x : point->position_modified.y;
+
+        if (pointValue < nodeValue) {
+            node->left = insertRecursive(node->left, point, depth + 1);
+        }
+        else {
+            node->right = insertRecursive(node->right, point, depth + 1);
+        }
+
+        return node;
+    }
+
+    // 查找子树中的最小值节点
+    KDNode* findMin(KDNode* node, int dim, int depth) {
+        if (node == nullptr) return nullptr;
+
+        int curDim = depth % 2;
+
+        if (curDim == dim) {
+            if (node->left == nullptr) return node;
+            return findMin(node->left, dim, depth + 1);
+        }
+        else {
+            KDNode* leftMin = findMin(node->left, dim, depth + 1);
+            KDNode* rightMin = findMin(node->right, dim, depth + 1);
+
+            KDNode* minNode = node;
+
+            if (leftMin != nullptr) {
+                float nodeValue = (dim == 0) ? minNode->data->position_modified.x : minNode->data->position_modified.y;
+                float leftValue = (dim == 0) ? leftMin->data->position_modified.x : leftMin->data->position_modified.y;
+                if (leftValue < nodeValue) minNode = leftMin;
+            }
+
+            if (rightMin != nullptr) {
+                float minValue = (dim == 0) ? minNode->data->position_modified.x : minNode->data->position_modified.y;
+                float rightValue = (dim == 0) ? rightMin->data->position_modified.x : rightMin->data->position_modified.y;
+                if (rightValue < minValue) minNode = rightMin;
+            }
+
+            return minNode;
+        }
+    }
+
+    // 递归删除节点
+    KDNode* deleteRecursive(KDNode* node, const cv::Point2f& point, int depth) {
+        if (node == nullptr) return nullptr;
+
+        int dim = depth % 2;
+
+        // 判断是否为目标节点
+        if (node->data->position_modified.x == point.x && node->data->position_modified.y == point.y) {
+            // 情况1: 叶子节点，直接删除
+            if (node->right == nullptr && node->left == nullptr) {
+                delete node;
+                return nullptr;
+            }
+            // 情况2: 有右子树，找右子树中当前维度的最小值
+            else if (node->right != nullptr) {
+                KDNode* minNode = findMin(node->right, dim, depth + 1);
+                // 复制数据
+                node->data = minNode->data;
+                // 递归删除找到的最小值节点
+                node->right = deleteRecursive(node->right, minNode->data->position_modified, depth + 1);
+            }
+            // 情况3: 无右子树但有左子树，找左子树中当前维度的最小值
+            else {
+                KDNode* minNode = findMin(node->left, dim, depth + 1);
+                // 复制数据
+                node->data = minNode->data;
+                // 将左子树变为右子树，并递归删除找到的最小值节点
+                node->right = node->left;
+                node->left = nullptr;
+                node->right = deleteRecursive(node->right, minNode->data->position_modified, depth + 1);
+            }
+        }
+        else {
+            // 递归搜索正确的子树
+            float nodeValue = (dim == 0) ? node->data->position_modified.x : node->data->position_modified.y;
+            float pointValue = (dim == 0) ? point.x : point.y;
+
+            if (pointValue < nodeValue) {
+                node->left = deleteRecursive(node->left, point, depth + 1);
+            }
+            else {
+                node->right = deleteRecursive(node->right, point, depth + 1);
+            }
+        }
+
+        return node;
+    }
+
+    // 递归删除节点
+    KDNode* deleteRecursive(KDNode* node, GridNode* gridNode, int depth) {
+        if (node == nullptr) return nullptr;
+
+        int dim = depth % 2;
+
+        // 判断是否为目标节点 (通过内存地址比较或位置比较)
+        bool isSameNode = (node->data == gridNode ||
+            (node->data->position.x == gridNode->position.x &&
+                node->data->position.y == gridNode->position.y));
+
+        if (isSameNode) {
+            // 情况1: 叶子节点，直接删除
+            if (node->right == nullptr && node->left == nullptr) {
+                delete node;
+                return nullptr;
+            }
+            // 情况2: 有右子树，找右子树中当前维度的最小值
+            else if (node->right != nullptr) {
+                KDNode* minNode = findMin(node->right, dim, depth + 1);
+                // 复制数据
+                node->data = minNode->data;
+                // 递归删除找到的最小值节点
+                node->right = deleteRecursive(node->right, minNode->data, depth + 1);
+            }
+            // 情况3: 无右子树但有左子树，找左子树中当前维度的最小值
+            else {
+                KDNode* minNode = findMin(node->left, dim, depth + 1);
+                // 复制数据
+                node->data = minNode->data;
+                // 将左子树变为右子树，并递归删除找到的最小值节点
+                node->right = node->left;
+                node->left = nullptr;
+                node->right = deleteRecursive(node->right, minNode->data, depth + 1);
+            }
+        }
+        else {
+            // 递归搜索正确的子树
+            float nodeValue = (dim == 0) ? node->data->position.x : node->data->position.y;
+            float pointValue = (dim == 0) ? gridNode->position.x : gridNode->position.y;
+
+            if (pointValue < nodeValue) {
+                node->left = deleteRecursive(node->left, gridNode, depth + 1);
+            }
+            else {
+                node->right = deleteRecursive(node->right, gridNode, depth + 1);
+            }
+        }
+
+        return node;
+    }
+
+    // 递归释放内存
+    void deleteTree(KDNode* node) {
+        if (node == nullptr) return;
+        deleteTree(node->left);
+        deleteTree(node->right);
+        delete node;
+    }
+
+    // 查找精确匹配的节点
+    KDNode* findExact(KDNode* node, const cv::Point2f& target, int depth) {
+        if (node == nullptr) return nullptr;
+
+        // 检查当前节点是否为目标
+        if (node->data->position_modified.x == target.x && node->data->position_modified.y == target.y) {
+            return node;
+        }
+
+        int dim = depth % 2;
+        float nodeValue = (dim == 0) ? node->data->position.x : node->data->position.y;
+        float targetValue = (dim == 0) ? target.x : target.y;
+
+        // 递归搜索子树
+        if (targetValue < nodeValue) {
+            return findExact(node->left, target, depth + 1);
+        }
+        else {
+            return findExact(node->right, target, depth + 1);
+        }
+    }
+
+    KDNode* findExact(KDNode* node, GridNode* gridNode, int depth) {
+        if (node == nullptr) return nullptr;
+
+        // 检查当前节点是否为目标 (通过内存地址或位置比较)
+        if (node->data == gridNode ||
+            (node->data->position.x == gridNode->position.x &&
+                node->data->position.y == gridNode->position.y)) {
+            return node;
+        }
+
+        int dim = depth % 2;
+        float nodeValue = (dim == 0) ? node->data->position.x : node->data->position.y;
+        float targetValue = (dim == 0) ? gridNode->position.x : gridNode->position.y;
+
+        // 递归搜索子树
+        if (targetValue < nodeValue) {
+            return findExact(node->left, gridNode, depth + 1);
+        }
+        else {
+            return findExact(node->right, gridNode, depth + 1);
         }
     }
 
@@ -210,7 +407,7 @@ public:
     KDTree() : root(nullptr) {}
 
     ~KDTree() {
-        // 释放内存的代码（略）
+        deleteTree(root);
     }
 
     // 从 GridNode 集合构建 KD 树
@@ -219,19 +416,69 @@ public:
         for (auto& node : gridNodes) {
             points.push_back(&node);
         }
-
         root = buildKDTree(points, 0, points.size() - 1, 0);
     }
 
     // 查找最近点
-    GridNode* findNearest(const myPoint& target) {
+    GridNode* findNearest(const cv::Point2f& target) {
         if (!root) return nullptr;
-
         GridNode* bestNode = nullptr;
         float bestDist = std::numeric_limits<float>::max();
-
         findNearest(root, target, bestNode, bestDist, 0);
         return bestNode;
+    }
+
+    // 新增: 插入节点 (使用GridNode*参数)
+    void insert(GridNode* gridNode) {
+        if (!gridNode) return;
+        root = insertRecursive(root, gridNode, 0);
+    }
+
+    // 新增: 删除节点 (使用GridNode*参数)
+    bool remove(GridNode* gridNode) {
+        if (!gridNode) return false;
+
+        KDNode* node = findExact(root, gridNode, 0);
+        if (node == nullptr) return false; // 节点不存在
+
+        root = deleteRecursive(root, gridNode, 0);
+        return true;
+    }
+
+    // 新增: 修改节点 (使用GridNode*参数)
+    bool modifyNode(GridNode* gridNode, const cv::Point2f& newPosition) {
+        if (!gridNode) return false;
+
+        // 先找到节点
+        KDNode* node = findExact(root, gridNode, 0);
+        if (node == nullptr) return false; // 节点不存在
+
+        // 方法1: 删除再插入 (适用于树结构需要保持平衡的情况)
+        if (remove(gridNode)) {
+            // 更新位置
+            gridNode->position = newPosition;
+            gridNode->position_modified = newPosition; // 也更新修改后的位置
+            // 重新插入
+            insert(gridNode);
+            return true;
+        }
+
+        // 如果删除失败
+        return false;
+    }
+
+    // 新增: 直接更新节点位置 (不重构树，适用于小幅度移动)
+    bool updateNodePosition(GridNode* gridNode, const cv::Point2f& newPosition) {
+        if (!gridNode) return false;
+
+        std::cout << " update select gridNode ..." << std::endl;
+        KDNode* node = findExact(root, gridNode, 0);
+        if (node == nullptr) return false; // 节点不存在
+
+        // 直接更新位置 (注意: 这可能会破坏KD树的属性, 仅适用于临时修改)
+    //    gridNode->position = newPosition;
+        gridNode->position_modified = newPosition;
+        return true;
     }
 };
 
