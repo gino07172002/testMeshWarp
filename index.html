@@ -40,8 +40,10 @@
       <div class="main-container">
         <!-- 左側工具 -->
         <div class="toolbar">
-          <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')">grab-point</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }" @click="selectTool('bone-create')">bone-create</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }"
+            @click="selectTool('grab-point')">grab-point</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }"
+            @click="selectTool('bone-create')">bone-create</button>
         </div>
 
         <!-- 中間畫布 -->
@@ -294,7 +296,7 @@
           this.status = `選擇工具: ${tool}`;
 
           const projectData = {
-            tool:tool
+            tool: tool
           };
 
           fetch('/api/tool1', {
@@ -344,6 +346,19 @@
             this.status = `開始拖曳: x=${x}, y=${y}`;
             console.log(" drag start x: ", this.dragStartX, ", y: ", this.dragStartY);
 
+            fetch('/api/clickStart', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                x,
+                y,
+                scw: this.$refs.imageContainer.scrollWidth,
+                sch: this.$refs.imageContainer.scrollHeight
+              })
+            });
+
           } else if (event.button === 2) { // 右鍵點擊
             this.status = `右鍵點擊: x=${x}, y=${y}`;
             // 處理右鍵點擊的功能，例如顯示上下文選單
@@ -361,14 +376,20 @@
 
 
         handleCanvasMouseMove(e) {
-          
+
           if (!this.isDragging) return;
 
           const { x, y } = this.getMousePosition(e);
-          this.sendDragToServer(x, y);
-          // 拖曳過程中更新狀態
-          this.status = `拖曳中: x=${x}, y=${y}`;
 
+          // 拖曳過程中更新狀態
+
+          if (e.ctrlKey) {
+            this.status = `拖曳中with ctrl : x=${x}, y=${y}`;
+          }
+          else {
+            this.status = `拖曳中: x=${x}, y=${y}`;
+          }
+          this.sendDragToServer(x, y, e);
           // 您可以在這裡添加拖曳期間的視覺反饋
           // 例如畫一條線從起始點到當前位置
         },
@@ -389,10 +410,10 @@
               console.log("left relese ... x : ", x, " y : ", y, " distance : ", distance);
               if (distance < 5) {
                 // 視為點擊而非拖曳
-                this.handleLeftClick(x, y);
+                this.handleLeftClick(x, y, e);
               } else {
                 // 處理拖曳完成
-                this.handleDragEnd(x, y);
+                this.handleDragEnd(x, y, e);
               }
             }
           }
@@ -407,64 +428,65 @@
           this.sendPointToServer(x, y);
         },
 
-        handleDragEnd(x, y) {
-          this.status = `拖曳結束: 從 (${this.dragStartX}, ${this.dragStartY}) 到 (${x}, ${y})`;
-          fetch('/api/dragDone', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              x,
-              y,
-              scw: this.$refs.imageContainer.scrollWidth,
-              sch: this.$refs.imageContainer.scrollHeight
-            })
+        getBasePayload(x, y, event) {
+          const payload = {
+            x,
+            y,
+            scw: this.$refs.imageContainer.scrollWidth,
+            sch: this.$refs.imageContainer.scrollHeight
+          };
+
+          // 統一處理按鍵狀態
+          ['ctrlKey', 'shiftKey', 'altKey'].forEach(key => {
+            if (event && event[key]) {
+              payload[key] = true;
+            }
           });
-          // 在這裡加入拖曳結束後的處理邏輯
-          // 例如：計算拖曳區域、選擇區域內的點等
+
+          return payload;
         },
 
-        sendPointToServer(x, y) {
-          // 發送座標到伺服器
+        // 優化後的 handleDragEnd
+        handleDragEnd(x, y, event) {
+          const payload = this.getBasePayload(x, y, event);
+
+          this.status = `拖曳結束: 從 (${this.dragStartX}, ${this.dragStartY}) 到 (${x}, ${y})`;
+
+          fetch('/api/dragDone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        },
+
+        // 優化後的 sendPointToServer
+        sendPointToServer(x, y, event) {
+          const payload = this.getBasePayload(x, y, event);
+
           fetch('/api/points', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              x,
-              y,
-              scw: this.$refs.imageContainer.scrollWidth,
-              sch: this.$refs.imageContainer.scrollHeight
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
           })
             .then(response => response.json())
             .then(data => {
               console.log('伺服器回應:', data);
-              var x2 = data.x;
-              var y2 = data.y;
-              this.points.push({ x: x2, y: y2 });
-              this.status = `最近的網格點: x=${x2}, y=${y2}`;
+              this.points.push({ x: data.x, y: data.y });
+              this.status = `最近的網格點: x=${data.x}, y=${data.y}`;
             })
             .catch(error => {
               this.status = 'point bad: ' + error.message;
             });
         },
 
-        sendDragToServer(x, y) {
-          // 發送座標到伺服器
+        // 優化後的 sendDragToServer
+        sendDragToServer(x, y, event) {
+          const payload = this.getBasePayload(x, y, event);
+
           fetch('/api/drag', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              x,
-              y,
-              scw: this.$refs.imageContainer.scrollWidth,
-              sch: this.$refs.imageContainer.scrollHeight
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
           });
         },
 

@@ -9,7 +9,7 @@
 #include <opencv2/opencv.hpp>
 
 using json = nlohmann::json;
-
+using namespace cv;
 // Forward declarations
 class Transform;
 class Mesh;
@@ -75,15 +75,26 @@ public:
     std::weak_ptr<Bone> parentBone; // Parent bone
     std::vector<std::shared_ptr<Bone>> childBones; // Child bones
 
+    cv::Point head;
+    cv::Point tail;
+    float thickness=5;
+    Scalar color;
     // Constructor
     Bone(const std::string& name);
-
+    Bone(Point h, Point t, float th, Scalar c);
     // Static method to create shared_ptr
     static std::shared_ptr<Bone> Create(const std::string& name);
 
+    void setPoint(cv::Point head,cv::Point tail)
+    {
+        this->head=head;
+        this->tail=tail;
+    }
     void AddChildBone(std::shared_ptr<Bone> bone);
 };
 
+double distancePointToLine(const cv::Point& P, const cv::Point& A, const cv::Point& B);
+cv::Point rotatePoint(const cv::Point& P, const cv::Point& C, double angle);
 // SpriteRenderer is responsible for handling image data
 class SpriteRenderer : public GameObject {
 public:

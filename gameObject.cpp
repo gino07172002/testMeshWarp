@@ -87,6 +87,8 @@ void Mesh::LoadFromJson(const json& data) {
 // Bone implementation
 Bone::Bone(const std::string& name) : GameObject(name) {}
 
+Bone::Bone(Point h, Point t, float th, Scalar c) : GameObject("newBone"),head(h), tail(t), thickness(th), color(c) {}
+
 std::shared_ptr<Bone> Bone::Create(const std::string& name) {
     return std::make_shared<Bone>(name);
 }
@@ -123,4 +125,31 @@ std::shared_ptr<AnimationController> AnimationController::Create(const std::stri
 void AnimationController::PlayAnimation(const std::string& clipName) {
     std::cout << "Playing animation: " << clipName << std::endl;
     // TODO: Implement animation playback logic
+}
+
+//bone control
+
+double distancePointToLine(const cv::Point& P, const cv::Point& A, const cv::Point& B)
+{
+    Point AB = B - A;
+    Point AP = P - A;
+
+    double abLengthSq = AB.x*AB.x + AB.y*AB.y;
+    if (abLengthSq == 0) return norm(AP);  // A和B重合
+
+    double t = (AP.x*AB.x + AP.y*AB.y) / abLengthSq;
+    t = max(0.0, min(1.0, t));
+
+    Point projection = A + t * AB;
+    return norm(P - projection);
+}
+cv::Point rotatePoint(const cv::Point& P, const cv::Point& C, double angle)
+{
+    Point translated = P - C;
+    double cosA = cos(angle);
+    double sinA = sin(angle);
+    return Point(
+        round(translated.x*cosA - translated.y*sinA + C.x),
+        round(translated.x*sinA + translated.y*cosA + C.y)
+    );
 }
