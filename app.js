@@ -510,9 +510,10 @@ const app = Vue.createApp({
     }
   },
   setup() {
-    const gl = ref(null);
+       const gl = ref(null);
     const program = ref(null);
     const colorProgram = ref(null);
+    const skeletonProgram = ref(null); // Store skeleton program as a ref
     const texture = ref(null);
     const vertices = ref([]);
     const indices = ref([]);
@@ -521,7 +522,23 @@ const app = Vue.createApp({
     const ebo = ref(null);
     const eboLines = ref(null);
     const selectedVertex = ref(-1);
+    const drawingMode = ref(false);
+    const skeletonVertices = ref([]);
+    const skeletonIndices = ref([]);
 
+   const skeletonVertexShaderSource = `
+      attribute vec2 aPosition;
+      void main() {
+        gl_Position = vec4(aPosition, 0.0, 1.0);
+      }
+    `;
+
+    const skeletonFragmentShaderSource = `
+      precision mediump float;
+      void main() {
+        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); // Green color for skeleton
+      }
+    `;
     const vertexShaderSource = `
                     attribute vec2 aPosition;
                     attribute vec2 aTexCoord;
@@ -571,7 +588,7 @@ const app = Vue.createApp({
       return shader;
     }
 
-    function createProgram(gl, vsSource, fsSource) {
+       function createProgram(gl, vsSource, fsSource) {
       const vertexShader = compileShader(gl, vsSource, gl.VERTEX_SHADER);
       const fragmentShader = compileShader(gl, fsSource, gl.FRAGMENT_SHADER);
 
@@ -587,7 +604,6 @@ const app = Vue.createApp({
 
       return program;
     }
-
     function createBuffers(gl) {
       const rows = 5, cols = 5;
       const xStep = 2.0 / (cols - 1);
@@ -678,8 +694,19 @@ const app = Vue.createApp({
         image.src = url;
       });
     }
+ function createSkeletonBuffers(gl) {
+      const skeletonVbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(skeletonVertices.value), gl.DYNAMIC_DRAW);
 
-    function setupEventHandlers(canvas, gl, container) {
+      const skeletonEbo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(skeletonIndices.value), gl.DYNAMIC_DRAW);
+
+      return { skeletonVbo, skeletonEbo };
+    }
+
+   function setupEventHandlers(canvas, gl, container) {
       canvas.addEventListener('mousedown', (e) => {
         if (e.button === 0) {
           const rect = container.getBoundingClientRect();
@@ -768,12 +795,120 @@ const app = Vue.createApp({
         }
       });
     }
-    
 
-    function render(gl, program, colorProgram) {
+       function setupSkeletonEventHandlers(canvas, gl, container) {
+      let lastX = null;
+      let lastY = null;
+
+      canvas.addEventListener('keydown', (e) => {
+        if (e.ctrlKey) {
+          drawingMode.value = true;
+          e.preventDefault(); // Prevent default Ctrl key behavior
+        }
+      });
+
+      canvas.addEventListener('keyup', (e) => {
+        if (!e.ctrlKey) {
+          drawingMode.value = false;
+          lastX = null;
+          lastY = null;
+        }
+      });
+
+      canvas.addEventListener('mousedown', (e) => {
+        if (drawingMode.value && e.button === 0) {
+          const rect = container.getBoundingClientRect();
+          const containerWidth = container.clientWidth;
+          const containerHeight = container.clientHeight;
+          const canvasWidth = canvas.width;
+          const canvasHeight = canvas.height;
+
+          // Calculate scroll offsets
+          const scrollLeft = container.scrollLeft;
+          const scrollTop = container.scrollTop;
+
+          // Calculate the mouse position relative to the container
+          const x = e.clientX - rect.left + scrollLeft;
+          const y = e.clientY - rect.top + scrollTop;
+
+          // Calculate the scale factor between canvas and container
+          const scaleX = canvasWidth / containerWidth;
+          const scaleY = canvasHeight / containerHeight;
+
+          // Convert to canvas coordinates
+          const canvasX = x * scaleX;
+          const canvasY = y * scaleY;
+
+          // Convert to WebGL normalized device coordinates (NDC)
+          const xNDC = (canvasX / canvasWidth) * 2 - 1;
+          const yNDC = 1 - (canvasY / canvasHeight) * 2;
+
+          lastX = xNDC;
+          lastY = yNDC;
+
+          // Add first vertex
+          skeletonVertices.value.push(xNDC, yNDC);
+        }
+      });
+
+      canvas.addEventListener('mousemove', (e) => {
+        if (drawingMode.value && lastX !== null && lastY !== null) {
+          const rect = container.getBoundingClientRect();
+          const containerWidth = container.clientWidth;
+          const containerHeight = container.clientHeight;
+          const canvasWidth = canvas.width;
+          const canvasHeight = canvas.height;
+
+          // Calculate scroll offsets
+          const scrollLeft = container.scrollLeft;
+          const scrollTop = container.scrollTop;
+
+          // Calculate the mouse position relative to the container
+          const x = e.clientX - rect.left + scrollLeft;
+          const y = e.clientY - rect.top + scrollTop;
+
+          // Calculate the scale factor between canvas and container
+          const scaleX = canvasWidth / containerWidth;
+          const scaleY = canvasHeight / containerHeight;
+
+          // Convert to canvas coordinates
+          const canvasX = x * scaleX;
+          const canvasY = y * scaleY;
+
+          // Convert to WebGL normalized device coordinates (NDC)
+          const xNDC = (canvasX / canvasWidth) * 2 - 1;
+          const yNDC = 1 - (canvasY / canvasHeight) * 2;
+
+          // Add line segment to skeleton
+          skeletonVertices.value.push(xNDC, yNDC);
+          skeletonIndices.value.push(
+            skeletonVertices.value.length / 2 - 2, 
+            skeletonVertices.value.length / 2 - 1
+          );
+
+          lastX = xNDC;
+          lastY = yNDC;
+        }
+      });
+
+      canvas.addEventListener('mouseup', () => {
+        lastX = null;
+        lastY = null;
+      });
+
+      // Ensure canvas can receive keyboard events
+      canvas.tabIndex = 1;
+      canvas.addEventListener('focus', () => {
+        canvas.style.outline = 'none';
+      });
+    }
+
+
+     function render(gl, program, colorProgram, skeletonProgram) {
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
+      // Render texture
       if (texture.value) {
         gl.useProgram(program);
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
@@ -797,6 +932,7 @@ const app = Vue.createApp({
         gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
       }
 
+      // Render default mesh lines and points
       gl.useProgram(colorProgram);
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
 
@@ -812,7 +948,21 @@ const app = Vue.createApp({
       gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
       gl.drawArrays(gl.POINTS, 0, vertices.value.length / 4);
 
-      requestAnimationFrame(() => render(gl, program, colorProgram));
+      // Render skeleton lines
+      if (skeletonVertices.value.length > 0) {
+        gl.useProgram(skeletonProgram);
+        const skeletonBuffer = createSkeletonBuffers(gl);
+        
+        const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
+        gl.enableVertexAttribArray(skeletonPosAttrib);
+        gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, skeletonBuffer.skeletonVbo);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonBuffer.skeletonEbo);
+        gl.drawElements(gl.LINES, skeletonIndices.value.length, gl.UNSIGNED_SHORT, 0);
+      }
+
+      requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
     }
 
     function downloadImage(gl) {
@@ -879,7 +1029,7 @@ const app = Vue.createApp({
       requestAnimationFrame(cleanRender);
     }
 
-    onMounted(async () => {
+     onMounted(async () => {
       const canvas = document.getElementById('webgl');
       const container = canvas.closest('.image-container');
       const webglContext = canvas.getContext('webgl');
@@ -887,12 +1037,16 @@ const app = Vue.createApp({
     
       program.value = createProgram(webglContext, vertexShaderSource, fragmentShaderSource);
       colorProgram.value = createProgram(webglContext, colorVertexShaderSource, colorFragmentShaderSource);
+      
+      // Create and store skeleton shader program in the ref
+      skeletonProgram.value = createProgram(webglContext, skeletonVertexShaderSource, skeletonFragmentShaderSource);
     
       try {
         await loadTexture(webglContext, './input.jpg');
         createBuffers(webglContext);
         setupEventHandlers(canvas, webglContext, container);
-        render(webglContext, program.value, colorProgram.value);
+        setupSkeletonEventHandlers(canvas, webglContext, container);
+        render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
       } catch (error) {
         console.error("Initialization error:", error);
       }
