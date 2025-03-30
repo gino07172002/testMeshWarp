@@ -40,15 +40,16 @@
       <div class="main-container">
         <!-- 左側工具 -->
         <div class="toolbar">
-          <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')">grab-point</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }" @click="selectTool('bone-create')">bone-create</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')"  @contextmenu.prevent>grab-point</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }" @click="selectTool('bone-create')"  @contextmenu.prevent>bone-create</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-animate' }" @click="selectTool('bone-animate')"  @contextmenu.prevent>bone-animate</button>
         </div>
 
         <!-- 中間畫布 -->
-        <div class="canvas-area">
-          <div class="image-container" ref="imageContainer">
+        <div class="canvas-area"  @contextmenu.prevent>
+          <div class="image-container" ref="imageContainer" @contextmenu.prevent>
             
-            <canvas class="image-canvas"  id="webgl" width="640" height="480"></canvas>
+            <canvas class="image-canvas"  id="webgl" width="640" height="480" @contextmenu.prevent></canvas>
             <!--
             <br>
             <button @click="downloadImage" class="download-btn">Download Deformed Image</button>

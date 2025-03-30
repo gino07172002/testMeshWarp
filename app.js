@@ -1,5 +1,185 @@
 const { createApp, onMounted, ref } = Vue;
 
+// Shader sources
+const shaders = {
+  vertex: `
+        attribute vec2 aPosition;
+        attribute vec2 aTexCoord;
+        varying vec2 vTexCoord;
+        void main() {
+          gl_Position = vec4(aPosition, 0.0, 1.0);
+          vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
+        }
+      `,
+  fragment: `
+        precision mediump float;
+        varying vec2 vTexCoord;
+        uniform sampler2D uTexture;
+        void main() {
+          gl_FragColor = texture2D(uTexture, vTexCoord);
+        }
+      `,
+  colorVertex: `
+        attribute vec2 aPosition;
+        uniform float uPointSize;
+        void main() {
+          gl_Position = vec4(aPosition, 0.0, 1.0);
+          gl_PointSize = uPointSize;
+        }
+      `,
+  colorFragment: `
+        precision mediump float;
+        uniform vec4 uColor;
+        void main() {
+          gl_FragColor = uColor;
+        }
+      `,
+  skeletonVertex: `
+        attribute vec2 aPosition;
+        void main() {
+          gl_Position = vec4(aPosition, 0.0, 1.0);
+        }
+      `,
+  skeletonFragment: `
+        precision mediump float;
+        void main() {
+          gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); // Green color for skeleton
+        }
+      `
+};
+
+const compileShader = (gl, source, type) => {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error('Shader compilation failed:', gl.getShaderInfoLog(shader));
+    return null;
+  }
+  return shader;
+};
+
+const createProgram = (gl, vsSource, fsSource) => {
+  const vertexShader = compileShader(gl, vsSource, gl.VERTEX_SHADER);
+  const fragmentShader = compileShader(gl, fsSource, gl.FRAGMENT_SHADER);
+
+  const program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error('Program link failed:', gl.getProgramInfoLog(program));
+    return null;
+  }
+  return program;
+};
+
+// Coordinate conversion utility function
+const convertToNDC = (e, canvas, container) => {
+  const rect = container.getBoundingClientRect();
+  const scrollLeft = container.scrollLeft;
+  const scrollTop = container.scrollTop;
+
+  // Get coordinates relative to container
+  const x = e.clientX - rect.left + scrollLeft;
+  const y = e.clientY - rect.top + scrollTop;
+
+  // Calculate scale factors
+  const scaleX = canvas.width / container.clientWidth;
+  const scaleY = canvas.height / container.clientHeight;
+
+  // Convert to canvas coordinates
+  const canvasX = x * scaleX;
+  const canvasY = y * scaleY;
+
+  // Convert to WebGL NDC
+  return {
+    x: (canvasX / canvas.width) * 2 - 1,
+    y: 1 - (canvasY / canvas.height) * 2
+  };
+};
+
+// ======= Texture Loading Functions =======
+const loadTexture = (gl, url, imageData, imageWidth, imageHeight) => {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const currentTexture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, currentTexture);
+
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+      // Store the image data for transparency checks
+      // Create a temporary canvas to extract pixel data
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = image.width;
+      tempCanvas.height = image.height;
+      const tempCtx = tempCanvas.getContext('2d');
+
+      // Draw the image
+      tempCtx.drawImage(image, 0, 0);
+
+      // Get pixel data
+      const imgData = tempCtx.getImageData(0, 0, image.width, image.height);
+
+      // Store for later use
+      imageData.value = imgData.data;
+      imageWidth.value = image.width;
+      imageHeight.value = image.height;
+
+      gl.bindTexture(gl.TEXTURE_2D, null);
+
+      resolve(currentTexture);
+    };
+
+    image.onerror = (error) => {
+      console.error("Image loading failed:", error);
+      reject(error);
+    };
+
+    image.src = url;
+  });
+};
+
+// ======= Feature-specific Functions =======
+// Helper to check if an area is fully transparent
+const isAreaTransparent = (x, y, w, h, imageData, imageWidth, imageHeight) => {
+  if (!imageData.value) return false;
+
+  const width = imageWidth.value;
+  const height = imageHeight.value;
+
+  // Convert normalized texture coordinates to pixel coordinates
+  const startX = Math.floor(x * width);
+  const startY = Math.floor(y * height);
+  const endX = Math.min(Math.ceil((x + w) * width), width);
+  const endY = Math.min(Math.ceil((y + h) * height), height);
+
+  // Check each pixel in the area
+  for (let py = startY; py < endY; py++) {
+    for (let px = startX; px < endX; px++) {
+      // Get the alpha value (every 4th byte in RGBA data)
+      const pixelIndex = (py * width + px) * 4 + 3;
+      // If any pixel has non-zero alpha, the area is not fully transparent
+      if (imageData.value[pixelIndex] > 0) {
+        return false;
+      }
+    }
+  }
+
+  // If we get here, all pixels had zero alpha
+  return true;
+};
+
+
 const app = Vue.createApp({
   data() {
     return {
@@ -128,6 +308,7 @@ const app = Vue.createApp({
       this.cacheBuster = Date.now(); // 更新 cacheBuster 來強制刷新
     },
     // 選擇工具
+    /*
     selectTool(tool) {
       console.log(" hi  ", tool);
       this.activeTool = this.activeTool === tool ? null : tool;
@@ -157,6 +338,7 @@ const app = Vue.createApp({
           console.error('儲存專案時發生錯誤:', error);
         });
     },
+    */
     getMousePosition(event) {
       const rect = this.$refs.imageContainer.getBoundingClientRect();
       // Calculate the scroll position of the container
@@ -510,405 +692,618 @@ const app = Vue.createApp({
     }
   },
   setup() {
-       const gl = ref(null);
+    // Refs for WebGL objects
+    const gl = ref(null);
+    const texture = ref(null);
+    const selectedVertex = ref(-1);
+
+    // Tool selection state
+    const activeTool = ref('grab-point');
+
+    // Add ref for image data to check transparency
+    const imageData = ref(null);
+    const imageWidth = ref(0);
+    const imageHeight = ref(0);
+
+    // Programs
     const program = ref(null);
     const colorProgram = ref(null);
-    const skeletonProgram = ref(null); // Store skeleton program as a ref
-    const texture = ref(null);
+    const skeletonProgram = ref(null);
+
+    // Geometry data
     const vertices = ref([]);
+    const originalVertices = ref([]);
     const indices = ref([]);
     const linesIndices = ref([]);
-    const vbo = ref(null);
-    const ebo = ref(null);
-    const eboLines = ref(null);
-    const selectedVertex = ref(-1);
-    const drawingMode = ref(false);
     const skeletonVertices = ref([]);
     const skeletonIndices = ref([]);
 
-   const skeletonVertexShaderSource = `
-      attribute vec2 aPosition;
-      void main() {
-        gl_Position = vec4(aPosition, 0.0, 1.0);
+    // Animation state
+    const selectedBone = ref(-1);
+    const boneEndBeingDragged = ref(null);
+    const originalSkeletonVertices = ref([]);
+
+    // Bone hierarchy
+    const boneParents = ref([]);
+    const boneChildren = ref([]);
+    const isShiftPressed = ref(false);
+
+    // Buffers
+    const vbo = ref(null);
+    const ebo = ref(null);
+    const eboLines = ref(null);
+
+    // Vertex influences for skinning
+    const vertexInfluences = ref([]);
+
+    // Compute vertex influences with Gaussian falloff
+    const computeVertexInfluences = () => {
+      const numVertices = vertices.value.length / 4;
+      const numBones = originalSkeletonVertices.value.length / 4;
+      const sigma = 0.1;
+      const minWeightThreshold = 0.01;
+      const maxInfluences = 4;
+
+      vertexInfluences.value = [];
+
+      for (let i = 0; i < numVertices; i++) {
+        const influences = [];
+        const vertexX = originalVertices.value[i * 4];
+        const vertexY = originalVertices.value[i * 4 + 1];
+
+        for (let boneIndex = 0; boneIndex < numBones; boneIndex++) {
+          const boneStartX = originalSkeletonVertices.value[boneIndex * 4];
+          const boneStartY = originalSkeletonVertices.value[boneIndex * 4 + 1];
+          const boneEndX = originalSkeletonVertices.value[boneIndex * 4 + 2];
+          const boneEndY = originalSkeletonVertices.value[boneIndex * 4 + 3];
+
+          const distanceToBone = distanceFromPointToSegment(
+            vertexX, vertexY,
+            boneStartX, boneStartY,
+            boneEndX, boneEndY
+          );
+
+          const weight = Math.exp(- (distanceToBone * distanceToBone) / (sigma * sigma));
+          if (weight > minWeightThreshold) {
+            influences.push({ boneIndex, weight });
+          }
+        }
+
+        if (influences.length > 0) {
+          influences.sort((a, b) => b.weight - a.weight);
+          const topInfluences = influences.slice(0, maxInfluences);
+          const totalWeight = topInfluences.reduce((sum, inf) => sum + inf.weight, 0);
+          topInfluences.forEach(inf => inf.weight /= totalWeight);
+          vertexInfluences.value[i] = topInfluences;
+        } else {
+          vertexInfluences.value[i] = [];
+        }
       }
-    `;
+    };
 
-    const skeletonFragmentShaderSource = `
-      precision mediump float;
-      void main() {
-        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); // Green color for skeleton
-      }
-    `;
-    const vertexShaderSource = `
-                    attribute vec2 aPosition;
-                    attribute vec2 aTexCoord;
-                    varying vec2 vTexCoord;
-                    void main() {
-                        gl_Position = vec4(aPosition, 0.0, 1.0);
-                        vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
-                    }
-                `;
+    // Update mesh based on skeleton pose
+    const updateMeshForSkeletonPose = () => {
+      const numVertices = vertices.value.length / 4;
+      for (let i = 0; i < numVertices; i++) {
+        const influences = vertexInfluences.value[i];
+        if (influences.length === 0) {
+          vertices.value[i * 4] = originalVertices.value[i * 4];
+          vertices.value[i * 4 + 1] = originalVertices.value[i * 4 + 1];
+          continue;
+        }
 
-    const fragmentShaderSource = `
-                    precision mediump float;
-                    varying vec2 vTexCoord;
-                    uniform sampler2D uTexture;
-                    void main() {
-                        gl_FragColor = texture2D(uTexture, vTexCoord);
-                    }
-                `;
+        let skinnedX = 0;
+        let skinnedY = 0;
+        const originalX = originalVertices.value[i * 4];
+        const originalY = originalVertices.value[i * 4 + 1];
 
-    const colorVertexShaderSource = `
-                    attribute vec2 aPosition;
-                    uniform float uPointSize;
-                    void main() {
-                        gl_Position = vec4(aPosition, 0.0, 1.0);
-                        gl_PointSize = uPointSize;
-                    }
-                `;
+        influences.forEach(({ boneIndex, weight }) => {
+          const origBoneHeadX = originalSkeletonVertices.value[boneIndex * 4];
+          const origBoneHeadY = originalSkeletonVertices.value[boneIndex * 4 + 1];
+          const origBoneTailX = originalSkeletonVertices.value[boneIndex * 4 + 2];
+          const origBoneTailY = originalSkeletonVertices.value[boneIndex * 4 + 3];
 
-    const colorFragmentShaderSource = `
-                    precision mediump float;
-                    uniform vec4 uColor;
-                    void main() {
-                        gl_FragColor = uColor;
-                    }
-                `;
+          const currBoneHeadX = skeletonVertices.value[boneIndex * 4];
+          const currBoneHeadY = skeletonVertices.value[boneIndex * 4 + 1];
+          const currBoneTailX = skeletonVertices.value[boneIndex * 4 + 2];
+          const currBoneTailY = skeletonVertices.value[boneIndex * 4 + 3];
 
-    function compileShader(gl, source, type) {
-      const shader = gl.createShader(type);
-      gl.shaderSource(shader, source);
-      gl.compileShader(shader);
+          const translateX = currBoneHeadX - origBoneHeadX;
+          const translateY = currBoneHeadY - origBoneHeadY;
+          const origAngle = calculateAngle(origBoneHeadX, origBoneHeadY, origBoneTailX, origBoneTailY);
+          const currAngle = calculateAngle(currBoneHeadX, currBoneHeadY, currBoneTailX, currBoneTailY);
+          const rotationAngle = currAngle - origAngle;
 
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        console.error('Shader compilation failed:', gl.getShaderInfoLog(shader));
-        return null;
+          const transX = originalX + translateX;
+          const transY = originalY + translateY;
+          const rotated = rotatePoint(currBoneHeadX, currBoneHeadY, transX, transY, rotationAngle);
+
+          skinnedX += rotated.x * weight;
+          skinnedY += rotated.y * weight;
+        });
+
+        vertices.value[i * 4] = skinnedX;
+        vertices.value[i * 4 + 1] = skinnedY;
       }
 
-      return shader;
-    }
+      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo.value);
+      gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
+    };
 
-       function createProgram(gl, vsSource, fsSource) {
-      const vertexShader = compileShader(gl, vsSource, gl.VERTEX_SHADER);
-      const fragmentShader = compileShader(gl, fsSource, gl.FRAGMENT_SHADER);
-
-      const program = gl.createProgram();
-      gl.attachShader(program, vertexShader);
-      gl.attachShader(program, fragmentShader);
-      gl.linkProgram(program);
-
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        console.error('Program link failed:', gl.getProgramInfoLog(program));
-        return null;
+    // Set vertex bone weight
+    const setVertexBoneWeight = (vertexIndex, boneIndex, newWeight) => {
+      const influences = vertexInfluences.value[vertexIndex];
+      if (influences) {
+        const influence = influences.find(inf => inf.boneIndex === boneIndex);
+        if (influence) {
+          influence.weight = newWeight;
+          const totalWeight = influences.reduce((sum, inf) => sum + inf.weight, 0);
+          if (totalWeight > 0) {
+            influences.forEach(inf => inf.weight /= totalWeight);
+          }
+          updateMeshForSkeletonPose();
+        }
       }
+    };
 
-      return program;
-    }
-    function createBuffers(gl) {
-      const rows = 5, cols = 5;
+    // Select active tool
+    const selectTool = (tool) => {
+      if (activeTool.value === 'bone-animate' && tool !== 'bone-animate') {
+        resetMeshToOriginal();
+      }
+      activeTool.value = tool;
+    };
+
+    // Reset mesh to original positions
+    const resetMeshToOriginal = () => {
+      if (originalVertices.value.length > 0) {
+        for (let i = 0; i < vertices.value.length; i++) {
+          vertices.value[i] = originalVertices.value[i];
+        }
+        if (originalSkeletonVertices.value.length > 0) {
+          for (let i = 0; i < skeletonVertices.value.length; i++) {
+            skeletonVertices.value[i] = originalSkeletonVertices.value[i];
+          }
+        }
+        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo.value);
+        gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
+      }
+    };
+
+    // Create buffers for the mesh grid
+    const createBuffers = (gl) => {
+      const rows = 10, cols = 10;
       const xStep = 2.0 / (cols - 1);
       const yStep = 2.0 / (rows - 1);
+
+      const visibleCells = [];
+      for (let y = 0; y < rows - 1; y++) {
+        for (let x = 0; x < cols - 1; x++) {
+          const cellX = x / (cols - 1);
+          const cellY = y / (rows - 1);
+          const cellW = 1 / (cols - 1);
+          const cellH = 1 / (rows - 1);
+          if (!isAreaTransparent(cellX, cellY, cellW, cellH, imageData, imageWidth, imageHeight)) {
+            visibleCells.push({ x, y });
+          }
+        }
+      }
+
+      const usedVertices = new Set();
+      visibleCells.forEach(cell => {
+        const { x, y } = cell;
+        usedVertices.add(y * cols + x);
+        usedVertices.add(y * cols + x + 1);
+        usedVertices.add((y + 1) * cols + x);
+        usedVertices.add((y + 1) * cols + x + 1);
+      });
+
+      const vertexMapping = new Map();
+      let newIndex = 0;
       const currentVertices = [];
       const currentIndices = [];
       const currentLinesIndices = [];
 
       for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
-          currentVertices.push(
-            -1.0 + x * xStep,
-            1.0 - y * yStep,
-            x / (cols - 1),
-            y / (rows - 1)
-          );
+          const originalIndex = y * cols + x;
+          if (usedVertices.has(originalIndex)) {
+            vertexMapping.set(originalIndex, newIndex++);
+            currentVertices.push(
+              -1.0 + x * xStep,
+              1.0 - y * yStep,
+              x / (cols - 1),
+              y / (rows - 1)
+            );
+          }
         }
       }
 
       for (let y = 0; y < rows - 1; y++) {
         for (let x = 0; x < cols - 1; x++) {
-          const row1 = y * cols;
-          const row2 = (y + 1) * cols;
-          currentIndices.push(
-            row1 + x, row2 + x, row1 + x + 1,
-            row1 + x + 1, row2 + x, row2 + x + 1
-          );
+          const cellX = x / (cols - 1);
+          const cellY = y / (rows - 1);
+          const cellW = 1 / (cols - 1);
+          const cellH = 1 / (rows - 1);
+          if (!isAreaTransparent(cellX, cellY, cellW, cellH, imageData, imageWidth, imageHeight)) {
+            const topLeft = y * cols + x;
+            const topRight = y * cols + x + 1;
+            const bottomLeft = (y + 1) * cols + x;
+            const bottomRight = (y + 1) * cols + x + 1;
+            const newTopLeft = vertexMapping.get(topLeft);
+            const newTopRight = vertexMapping.get(topRight);
+            const newBottomLeft = vertexMapping.get(bottomLeft);
+            const newBottomRight = vertexMapping.get(bottomRight);
+            currentIndices.push(
+              newTopLeft, newBottomLeft, newTopRight,
+              newTopRight, newBottomLeft, newBottomRight
+            );
+          }
         }
       }
 
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols - 1; x++) {
-          currentLinesIndices.push(y * cols + x, y * cols + x + 1);
+      for (const originalIndex1 of usedVertices) {
+        if (originalIndex1 % cols < cols - 1) {
+          const originalIndex2 = originalIndex1 + 1;
+          if (usedVertices.has(originalIndex2)) {
+            currentLinesIndices.push(
+              vertexMapping.get(originalIndex1),
+              vertexMapping.get(originalIndex2)
+            );
+          }
         }
-      }
-      for (let x = 0; x < cols; x++) {
-        for (let y = 0; y < rows - 1; y++) {
-          currentLinesIndices.push(y * cols + x, (y + 1) * cols + x);
+        if (Math.floor(originalIndex1 / cols) < rows - 1) {
+          const originalIndex2 = originalIndex1 + cols;
+          if (usedVertices.has(originalIndex2)) {
+            currentLinesIndices.push(
+              vertexMapping.get(originalIndex1),
+              vertexMapping.get(originalIndex2)
+            );
+          }
         }
       }
 
       vertices.value = currentVertices;
+      originalVertices.value = [...currentVertices];
       indices.value = currentIndices;
       linesIndices.value = currentLinesIndices;
 
-      const currentVbo = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, currentVbo);
+      vbo.value = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-      vbo.value = currentVbo;
 
-      const currentEbo = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, currentEbo);
+      ebo.value = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-      ebo.value = currentEbo;
 
-      const currentEboLines = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, currentEboLines);
+      eboLines.value = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines.value);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-      eboLines.value = currentEboLines;
-    }
+    };
 
-    function loadTexture(gl, url) {
-      return new Promise((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => {
-          const currentTexture = gl.createTexture();
-          gl.bindTexture(gl.TEXTURE_2D, currentTexture);
-
-          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-          gl.bindTexture(gl.TEXTURE_2D, null);
-
-          texture.value = currentTexture;
-          resolve(currentTexture);
-        };
-
-        image.onerror = (error) => {
-          console.error("Image loading failed:", error);
-          reject(error);
-        };
-
-        image.src = url;
-      });
-    }
- function createSkeletonBuffers(gl) {
+    // Create skeleton buffers
+    const createSkeletonBuffers = (gl) => {
       const skeletonVbo = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(skeletonVertices.value), gl.DYNAMIC_DRAW);
 
       const skeletonEbo = gl.createBuffer();
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(skeletonIndices.value), gl.DYNAMIC_DRAW);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(skeletonIndices.value), gl.STATIC_DRAW);
 
       return { skeletonVbo, skeletonEbo };
-    }
+    };
 
-   function setupEventHandlers(canvas, gl, container) {
-      canvas.addEventListener('mousedown', (e) => {
-        if (e.button === 0) {
-          const rect = container.getBoundingClientRect();
-          const containerWidth = container.clientWidth;
-          const containerHeight = container.clientHeight;
-          const canvasWidth = canvas.width;
-          const canvasHeight = canvas.height;
-    
-          // Calculate scroll offsets
-          const scrollLeft = container.scrollLeft;
-          const scrollTop = container.scrollTop;
-    
-          // Calculate the mouse position relative to the container
-          const x = e.clientX - rect.left + scrollLeft;
-          const y = e.clientY - rect.top + scrollTop;
-    
-          // Calculate the scale factor between canvas and container
-          const scaleX = canvasWidth / containerWidth;
-          const scaleY = canvasHeight / containerHeight;
-    
-          // Convert to canvas coordinates
-          const canvasX = x * scaleX;
-          const canvasY = y * scaleY;
-    
-          // Convert to WebGL normalized device coordinates (NDC)
-          const xNDC = (canvasX / canvasWidth) * 2 - 1;
-          const yNDC = 1 - (canvasY / canvasHeight) * 2;
-    
-          let minDist = Infinity;
-          let closestIndex = -1;
-    
-          for (let i = 0; i < vertices.value.length; i += 4) {
-            const dx = vertices.value[i] - xNDC;
-            const dy = vertices.value[i + 1] - yNDC;
-            const dist = dx * dx + dy * dy;
-    
-            if (dist < minDist) {
-              minDist = dist;
-              closestIndex = i / 4;
+    // Utility functions
+    const calculateDistance = (x1, y1, x2, y2) => Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    const calculateAngle = (x1, y1, x2, y2) => Math.atan2(y2 - y1, x2 - x1);
+    const rotatePoint = (cx, cy, x, y, angle) => {
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const dx = x - cx;
+      const dy = y - cy;
+      const rx = dx * cos - dy * sin;
+      const ry = dx * sin + dy * cos;
+      return { x: rx + cx, y: ry + cy };
+    };
+    const distanceFromPointToSegment = (px, py, ax, ay, bx, by) => {
+      const dx = bx - ax;
+      const dy = by - ay;
+      const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+      const clampedT = Math.max(0, Math.min(1, t));
+      const nearestX = ax + clampedT * dx;
+      const nearestY = ay + clampedT * dy;
+      return Math.sqrt((px - nearestX) ** 2 + (py - nearestY) ** 2);
+    };
+
+    // Keyboard event handlers
+    const handleKeyDown = (e) => {
+      if (e.key === 'Shift') {
+        isShiftPressed.value = true;
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      if (e.key === 'Shift') {
+        isShiftPressed.value = false;
+      }
+    };
+
+    // Canvas events
+    const setupCanvasEvents = (canvas, gl, container) => {
+      let isDragging = false;
+      let localSelectedVertex = -1;
+      let startPosX = 0;
+      let startPosY = 0;
+      let lineIndex = 0;
+
+      const handleMouseDown = (e) => {
+        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
+        startPosX = xNDC;
+        startPosY = yNDC;
+
+        if (e.button === 0 || e.button === 2) {
+          if (activeTool.value === 'grab-point') {
+            let minDist = Infinity;
+            localSelectedVertex = -1;
+            for (let i = 0; i < vertices.value.length; i += 4) {
+              const dx = vertices.value[i] - xNDC;
+              const dy = vertices.value[i + 1] - yNDC;
+              const dist = dx * dx + dy * dy;
+              if (dist < minDist) {
+                minDist = dist;
+                localSelectedVertex = i / 4;
+              }
+            }
+            if (minDist < 0.02) {
+              isDragging = true;
+              selectedVertex.value = localSelectedVertex;
+            }
+          } else if (activeTool.value === 'bone-create') {
+            isDragging = true;
+            const newBoneIndex = lineIndex;
+            if (isShiftPressed.value && newBoneIndex > 0) {
+              const parentBoneIndex = newBoneIndex - 1;
+              boneParents.value.push(parentBoneIndex);
+              const parentTailX = skeletonVertices.value[parentBoneIndex * 4 + 2];
+              const parentTailY = skeletonVertices.value[parentBoneIndex * 4 + 3];
+              skeletonVertices.value.push(parentTailX, parentTailY, parentTailX, parentTailY);
+            } else {
+              boneParents.value.push(-1);
+              skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
+            }
+            if (skeletonIndices.value.length <= newBoneIndex * 2) {
+              skeletonIndices.value.push(newBoneIndex * 2, newBoneIndex * 2 + 1);
+            }
+          } else if (activeTool.value === 'bone-animate') {
+            let minDistToSegment = Infinity;
+            selectedBone.value = -1;
+            boneEndBeingDragged.value = null;
+
+            for (let i = 0; i < skeletonVertices.value.length; i += 4) {
+              const headX = skeletonVertices.value[i];
+              const headY = skeletonVertices.value[i + 1];
+              const tailX = skeletonVertices.value[i + 2];
+              const tailY = skeletonVertices.value[i + 3];
+
+              // 檢查是否點擊頭部
+              let dx = headX - xNDC;
+              let dy = headY - yNDC;
+              let dist = dx * dx + dy * dy;
+              if (dist < 0.02) {
+                selectedBone.value = i / 4;
+                boneEndBeingDragged.value = 'head';
+                break;
+              }
+
+              // 檢查是否點擊尾部
+              dx = tailX - xNDC;
+              dy = tailY - yNDC;
+              dist = dx * dx + dy * dy;
+              if (dist < 0.02) {
+                selectedBone.value = i / 4;
+                boneEndBeingDragged.value = 'tail';
+                break;
+              }
+
+              // 檢查是否點擊在骨骼中間
+              const distToSegment = distanceFromPointToSegment(xNDC, yNDC, headX, headY, tailX, tailY);
+              if (distToSegment < 0.05 && distToSegment < minDistToSegment) {
+                minDistToSegment = distToSegment;
+                selectedBone.value = i / 4;
+                boneEndBeingDragged.value = 'middle';
+              }
+            }
+
+            if (selectedBone.value >= 0) {
+              isDragging = true;
+              if (originalSkeletonVertices.value.length === 0) {
+                originalSkeletonVertices.value = [...skeletonVertices.value];
+              }
             }
           }
-    
-          if (minDist < 0.02) {
-            selectedVertex.value = closestIndex;
-          }
         }
-      });
-    
-      canvas.addEventListener('mouseup', () => selectedVertex.value = -1);
-    
-      canvas.addEventListener('mousemove', (e) => {
-        if (selectedVertex.value !== -1) {
-          const rect = container.getBoundingClientRect();
-          const containerWidth = container.clientWidth;
-          const containerHeight = container.clientHeight;
-          const canvasWidth = canvas.width;
-          const canvasHeight = canvas.height;
-    
-          // Calculate scroll offsets
-          const scrollLeft = container.scrollLeft;
-          const scrollTop = container.scrollTop;
-    
-          // Calculate the mouse position relative to the container
-          const x = e.clientX - rect.left + scrollLeft;
-          const y = e.clientY - rect.top + scrollTop;
-    
-          // Calculate the scale factor between canvas and container
-          const scaleX = canvasWidth / containerWidth;
-          const scaleY = canvasHeight / containerHeight;
-    
-          // Convert to canvas coordinates
-          const canvasX = x * scaleX;
-          const canvasY = y * scaleY;
-    
-          // Convert to WebGL normalized device coordinates (NDC)
-          const xNDC = (canvasX / canvasWidth) * 2 - 1;
-          const yNDC = 1 - (canvasY / canvasHeight) * 2;
-    
-          const index = selectedVertex.value * 4;
+      };
+
+      const handleMouseMove = (e) => {
+
+        if (!isDragging) {
+          if (e.button === 2) {
+            console.log(" right button but not dragging... return ");
+          }
+          return;
+        }
+        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
+
+        if (activeTool.value === 'grab-point' && localSelectedVertex !== -1) {
+          const index = localSelectedVertex * 4;
           vertices.value[index] = xNDC;
           vertices.value[index + 1] = yNDC;
-    
           gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-          gl.bufferSubData(gl.ARRAY_BUFFER, index * 4,
-            new Float32Array([xNDC, yNDC]));
+          gl.bufferSubData(gl.ARRAY_BUFFER, index * 4, new Float32Array([xNDC, yNDC]));
+        } else if (activeTool.value === 'bone-create') {
+          skeletonVertices.value[lineIndex * 4 + 2] = xNDC;
+          skeletonVertices.value[lineIndex * 4 + 3] = yNDC;
+        } else if (activeTool.value === 'bone-animate' && selectedBone.value >= 0) {
+          const boneIndex = selectedBone.value;
+          if (boneEndBeingDragged.value === 'head') {
+            const prevHeadX = skeletonVertices.value[boneIndex * 4];
+            const prevHeadY = skeletonVertices.value[boneIndex * 4 + 1];
+            skeletonVertices.value[boneIndex * 4] = xNDC;
+            skeletonVertices.value[boneIndex * 4 + 1] = yNDC;
+            const deltaX = xNDC - prevHeadX;
+            const deltaY = yNDC - prevHeadY;
+            skeletonVertices.value[boneIndex * 4 + 2] += deltaX;
+            skeletonVertices.value[boneIndex * 4 + 3] += deltaY;
+            const applyDeltaToChildren = (parentIndex) => {
+              if (boneChildren.value[parentIndex]) {
+                boneChildren.value[parentIndex].forEach(childIndex => {
+                  skeletonVertices.value[childIndex * 4] += deltaX;
+                  skeletonVertices.value[childIndex * 4 + 1] += deltaY;
+                  skeletonVertices.value[childIndex * 4 + 2] += deltaX;
+                  skeletonVertices.value[childIndex * 4 + 3] += deltaY;
+                  applyDeltaToChildren(childIndex);
+                });
+              }
+            };
+            applyDeltaToChildren(boneIndex);
+          } else if (boneEndBeingDragged.value === 'tail') {
+            const prevTailX = skeletonVertices.value[boneIndex * 4 + 2];
+            const prevTailY = skeletonVertices.value[boneIndex * 4 + 3];
+            skeletonVertices.value[boneIndex * 4 + 2] = xNDC;
+            skeletonVertices.value[boneIndex * 4 + 3] = yNDC;
+            const newTailX = xNDC;
+            const newTailY = yNDC;
+            if (boneChildren.value[boneIndex]) {
+              boneChildren.value[boneIndex].forEach(childIndex => {
+                const childBindHeadX = originalSkeletonVertices.value[childIndex * 4];
+                const childBindHeadY = originalSkeletonVertices.value[childIndex * 4 + 1];
+                const childBindTailX = originalSkeletonVertices.value[childIndex * 4 + 2];
+                const childBindTailY = originalSkeletonVertices.value[childIndex * 4 + 3];
+                const dx = childBindTailX - childBindHeadX;
+                const dy = childBindTailY - childBindHeadY;
+                skeletonVertices.value[childIndex * 4] = newTailX;
+                skeletonVertices.value[childIndex * 4 + 1] = newTailY;
+                skeletonVertices.value[childIndex * 4 + 2] = newTailX + dx;
+                skeletonVertices.value[childIndex * 4 + 3] = newTailY + dy;
+              });
+            }
+          } else if (boneEndBeingDragged.value === 'middle') {
+            console.log("e button: ", e.button);
+            if (e.buttons === 1) { // 左鍵拖動：移動
+              console.log("hi translate .. ");
+              const deltaX = xNDC - startPosX;
+              const deltaY = yNDC - startPosY;
+              skeletonVertices.value[boneIndex * 4] += deltaX;
+              skeletonVertices.value[boneIndex * 4 + 1] += deltaY;
+              skeletonVertices.value[boneIndex * 4 + 2] += deltaX;
+              skeletonVertices.value[boneIndex * 4 + 3] += deltaY;
+              const applyDeltaToChildren = (parentIndex) => {
+                if (boneChildren.value[parentIndex]) {
+                  boneChildren.value[parentIndex].forEach(childIndex => {
+                    skeletonVertices.value[childIndex * 4] += deltaX;
+                    skeletonVertices.value[childIndex * 4 + 1] += deltaY;
+                    skeletonVertices.value[childIndex * 4 + 2] += deltaX;
+                    skeletonVertices.value[childIndex * 4 + 3] += deltaY;
+                    applyDeltaToChildren(childIndex);
+                  });
+                }
+              };
+              applyDeltaToChildren(boneIndex);
+              startPosX = xNDC;
+              startPosY = yNDC;
+            } else if (e.buttons === 2) { // 右鍵拖動：旋轉
+              console.log("hi rotate...");
+              const headX = skeletonVertices.value[boneIndex * 4];
+              const headY = skeletonVertices.value[boneIndex * 4 + 1];
+              const prevAngle = Math.atan2(startPosY - headY, startPosX - headX);
+              const currentAngle = Math.atan2(yNDC - headY, xNDC - headX);
+              const rotationAngle = currentAngle - prevAngle;
+
+              // 旋轉當前骨骼的尾部
+              const tailX = skeletonVertices.value[boneIndex * 4 + 2];
+              const tailY = skeletonVertices.value[boneIndex * 4 + 3];
+              const rotatedTail = rotatePoint(headX, headY, tailX, tailY, rotationAngle);
+              skeletonVertices.value[boneIndex * 4 + 2] = rotatedTail.x;
+              skeletonVertices.value[boneIndex * 4 + 3] = rotatedTail.y;
+
+              // 旋轉子骨骼
+              const rotateChildren = (parentIndex, angle) => {
+                if (boneChildren.value[parentIndex]) {
+                  boneChildren.value[parentIndex].forEach(childIndex => {
+                    const childHeadX = skeletonVertices.value[childIndex * 4];
+                    const childHeadY = skeletonVertices.value[childIndex * 4 + 1];
+                    const childTailX = skeletonVertices.value[childIndex * 4 + 2];
+                    const childTailY = skeletonVertices.value[childIndex * 4 + 3];
+                    const rotatedHead = rotatePoint(headX, headY, childHeadX, childHeadY, angle);
+                    const rotatedTail = rotatePoint(headX, headY, childTailX, childTailY, angle);
+                    skeletonVertices.value[childIndex * 4] = rotatedHead.x;
+                    skeletonVertices.value[childIndex * 4 + 1] = rotatedHead.y;
+                    skeletonVertices.value[childIndex * 4 + 2] = rotatedTail.x;
+                    skeletonVertices.value[childIndex * 4 + 3] = rotatedTail.y;
+                    rotateChildren(childIndex, angle);
+                  });
+                }
+              };
+              rotateChildren(boneIndex, rotationAngle);
+              startPosX = xNDC;
+              startPosY = yNDC;
+            }
+          }
+          updateMeshForSkeletonPose();
         }
-      });
-    }
 
-       function setupSkeletonEventHandlers(canvas, gl, container) {
-      let lastX = null;
-      let lastY = null;
 
-      canvas.addEventListener('keydown', (e) => {
-        if (e.ctrlKey) {
-          drawingMode.value = true;
-          e.preventDefault(); // Prevent default Ctrl key behavior
-        }
-      });
+      };
 
-      canvas.addEventListener('keyup', (e) => {
-        if (!e.ctrlKey) {
-          drawingMode.value = false;
-          lastX = null;
-          lastY = null;
-        }
-      });
-
-      canvas.addEventListener('mousedown', (e) => {
-        if (drawingMode.value && e.button === 0) {
-          const rect = container.getBoundingClientRect();
-          const containerWidth = container.clientWidth;
-          const containerHeight = container.clientHeight;
-          const canvasWidth = canvas.width;
-          const canvasHeight = canvas.height;
-
-          // Calculate scroll offsets
-          const scrollLeft = container.scrollLeft;
-          const scrollTop = container.scrollTop;
-
-          // Calculate the mouse position relative to the container
-          const x = e.clientX - rect.left + scrollLeft;
-          const y = e.clientY - rect.top + scrollTop;
-
-          // Calculate the scale factor between canvas and container
-          const scaleX = canvasWidth / containerWidth;
-          const scaleY = canvasHeight / containerHeight;
-
-          // Convert to canvas coordinates
-          const canvasX = x * scaleX;
-          const canvasY = y * scaleY;
-
-          // Convert to WebGL normalized device coordinates (NDC)
-          const xNDC = (canvasX / canvasWidth) * 2 - 1;
-          const yNDC = 1 - (canvasY / canvasHeight) * 2;
-
-          lastX = xNDC;
-          lastY = yNDC;
-
-          // Add first vertex
-          skeletonVertices.value.push(xNDC, yNDC);
-        }
-      });
-
-      canvas.addEventListener('mousemove', (e) => {
-        if (drawingMode.value && lastX !== null && lastY !== null) {
-          const rect = container.getBoundingClientRect();
-          const containerWidth = container.clientWidth;
-          const containerHeight = container.clientHeight;
-          const canvasWidth = canvas.width;
-          const canvasHeight = canvas.height;
-
-          // Calculate scroll offsets
-          const scrollLeft = container.scrollLeft;
-          const scrollTop = container.scrollTop;
-
-          // Calculate the mouse position relative to the container
-          const x = e.clientX - rect.left + scrollLeft;
-          const y = e.clientY - rect.top + scrollTop;
-
-          // Calculate the scale factor between canvas and container
-          const scaleX = canvasWidth / containerWidth;
-          const scaleY = canvasHeight / containerHeight;
-
-          // Convert to canvas coordinates
-          const canvasX = x * scaleX;
-          const canvasY = y * scaleY;
-
-          // Convert to WebGL normalized device coordinates (NDC)
-          const xNDC = (canvasX / canvasWidth) * 2 - 1;
-          const yNDC = 1 - (canvasY / canvasHeight) * 2;
-
-          // Add line segment to skeleton
-          skeletonVertices.value.push(xNDC, yNDC);
-          skeletonIndices.value.push(
-            skeletonVertices.value.length / 2 - 2, 
-            skeletonVertices.value.length / 2 - 1
+      const handleMouseUp = () => {
+        if (activeTool.value === 'bone-create' && isDragging) {
+          const newBoneIndex = lineIndex;
+          if (boneParents.value[newBoneIndex] !== -1) {
+            const parentIndex = boneParents.value[newBoneIndex];
+            if (!boneChildren.value[parentIndex]) {
+              boneChildren.value[parentIndex] = [];
+            }
+            boneChildren.value[parentIndex].push(newBoneIndex);
+          }
+          lineIndex++;
+          const newBoneStart = newBoneIndex * 4;
+          originalSkeletonVertices.value.push(
+            skeletonVertices.value[newBoneStart],
+            skeletonVertices.value[newBoneStart + 1],
+            skeletonVertices.value[newBoneStart + 2],
+            skeletonVertices.value[newBoneStart + 3]
           );
-
-          lastX = xNDC;
-          lastY = yNDC;
+          computeVertexInfluences();
         }
-      });
 
-      canvas.addEventListener('mouseup', () => {
-        lastX = null;
-        lastY = null;
-      });
+        isDragging = false;
+        localSelectedVertex = -1;
+        selectedVertex.value = -1;
+        boneEndBeingDragged.value = null;
+      };
 
-      // Ensure canvas can receive keyboard events
+      canvas.removeEventListener('mousedown', handleMouseDown);
+      canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('mouseleave', handleMouseUp);
+
+      canvas.addEventListener('mousedown', handleMouseDown);
+      canvas.addEventListener('mousemove', handleMouseMove);
+      canvas.addEventListener('mouseup', handleMouseUp);
+      canvas.addEventListener('mouseleave', handleMouseUp);
+
       canvas.tabIndex = 1;
       canvas.addEventListener('focus', () => {
         canvas.style.outline = 'none';
       });
-    }
+    };
 
-
-     function render(gl, program, colorProgram, skeletonProgram) {
+    // Render function
+    const render = (gl, program, colorProgram, skeletonProgram) => {
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
-      // Render texture
       if (texture.value) {
         gl.useProgram(program);
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
@@ -916,9 +1311,7 @@ const app = Vue.createApp({
 
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, texture.value);
-
-        const textureUniform = gl.getUniformLocation(program, 'uTexture');
-        gl.uniform1i(textureUniform, 0);
+        gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
 
         const posAttrib = gl.getAttribLocation(program, 'aPosition');
         const texAttrib = gl.getAttribLocation(program, 'aTexCoord');
@@ -932,7 +1325,6 @@ const app = Vue.createApp({
         gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
       }
 
-      // Render default mesh lines and points
       gl.useProgram(colorProgram);
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
 
@@ -948,25 +1340,49 @@ const app = Vue.createApp({
       gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
       gl.drawArrays(gl.POINTS, 0, vertices.value.length / 4);
 
-      // Render skeleton lines
       if (skeletonVertices.value.length > 0) {
         gl.useProgram(skeletonProgram);
         const skeletonBuffer = createSkeletonBuffers(gl);
-        
+
         const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
         gl.enableVertexAttribArray(skeletonPosAttrib);
         gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
+        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 0, 1);
         gl.bindBuffer(gl.ARRAY_BUFFER, skeletonBuffer.skeletonVbo);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonBuffer.skeletonEbo);
         gl.drawElements(gl.LINES, skeletonIndices.value.length, gl.UNSIGNED_SHORT, 0);
+
+        gl.uniform1f(gl.getUniformLocation(skeletonProgram, 'uPointSize'), 7.0);
+        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 0, 1);
+        const headVertices = [];
+        for (let i = 0; i < skeletonVertices.value.length; i += 4) {
+          headVertices.push(skeletonVertices.value[i], skeletonVertices.value[i + 1]);
+        }
+        const headVbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, headVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(headVertices), gl.STATIC_DRAW);
+        gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.POINTS, 0, headVertices.length / 2);
+
+        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 0.5, 1, 1);
+        const tailVertices = [];
+        for (let i = 0; i < skeletonVertices.value.length; i += 4) {
+          tailVertices.push(skeletonVertices.value[i + 2], skeletonVertices.value[i + 3]);
+        }
+        const tailVbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, tailVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tailVertices), gl.STATIC_DRAW);
+        gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.POINTS, 0, tailVertices.length / 2);
       }
 
       requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
-    }
+    };
 
-    function downloadImage(gl) {
-      console.log(" hi download ... ");
+    // Download image function
+    const downloadImage = () => {
+      const webglContext = gl.value;
       const canvas = document.getElementById('webgl');
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = canvas.width;
@@ -974,33 +1390,33 @@ const app = Vue.createApp({
       const tempCtx = tempCanvas.getContext('2d');
 
       function cleanRender() {
-        gl.clearColor(0.0, 0.0, 0.0, 0.0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
+        webglContext.clearColor(0.0, 0.0, 0.0, 0.0);
+        webglContext.clear(webglContext.COLOR_BUFFER_BIT);
 
         if (texture.value) {
-          gl.useProgram(program.value);
-          gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
+          webglContext.useProgram(program.value);
+          webglContext.bindBuffer(webglContext.ARRAY_BUFFER, vbo.value);
+          webglContext.bindBuffer(webglContext.ELEMENT_ARRAY_BUFFER, ebo.value);
 
-          gl.activeTexture(gl.TEXTURE0);
-          gl.bindTexture(gl.TEXTURE_2D, texture.value);
-          gl.uniform1i(gl.getUniformLocation(program.value, 'uTexture'), 0);
+          webglContext.activeTexture(webglContext.TEXTURE0);
+          webglContext.bindTexture(webglContext.TEXTURE_2D, texture.value);
+          webglContext.uniform1i(webglContext.getUniformLocation(program.value, 'uTexture'), 0);
 
-          const posAttrib = gl.getAttribLocation(program.value, 'aPosition');
-          gl.enableVertexAttribArray(posAttrib);
-          gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 16, 0);
+          const posAttrib = webglContext.getAttribLocation(program.value, 'aPosition');
+          webglContext.enableVertexAttribArray(posAttrib);
+          webglContext.vertexAttribPointer(posAttrib, 2, webglContext.FLOAT, false, 16, 0);
 
-          const texAttrib = gl.getAttribLocation(program.value, 'aTexCoord');
-          gl.enableVertexAttribArray(texAttrib);
-          gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
+          const texAttrib = webglContext.getAttribLocation(program.value, 'aTexCoord');
+          webglContext.enableVertexAttribArray(texAttrib);
+          webglContext.vertexAttribPointer(texAttrib, 2, webglContext.FLOAT, false, 16, 8);
 
-          gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+          webglContext.drawElements(webglContext.TRIANGLES, indices.value.length, webglContext.UNSIGNED_SHORT, 0);
         }
 
         const width = canvas.width;
         const height = canvas.height;
         const pixels = new Uint8Array(width * height * 4);
-        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        webglContext.readPixels(0, 0, width, height, webglContext.RGBA, webglContext.UNSIGNED_BYTE, pixels);
 
         const imageData = tempCtx.createImageData(width, height);
         imageData.data.set(pixels);
@@ -1025,27 +1441,28 @@ const app = Vue.createApp({
         document.body.removeChild(downloadLink);
       }
 
-      gl.flush();
+      webglContext.flush();
       requestAnimationFrame(cleanRender);
-    }
+    };
 
-     onMounted(async () => {
+    // Initialize on mount
+    onMounted(async () => {
       const canvas = document.getElementById('webgl');
       const container = canvas.closest('.image-container');
       const webglContext = canvas.getContext('webgl');
       gl.value = webglContext;
-    
-      program.value = createProgram(webglContext, vertexShaderSource, fragmentShaderSource);
-      colorProgram.value = createProgram(webglContext, colorVertexShaderSource, colorFragmentShaderSource);
-      
-      // Create and store skeleton shader program in the ref
-      skeletonProgram.value = createProgram(webglContext, skeletonVertexShaderSource, skeletonFragmentShaderSource);
-    
+
+      program.value = createProgram(webglContext, shaders.vertex, shaders.fragment);
+      colorProgram.value = createProgram(webglContext, shaders.colorVertex, shaders.colorFragment);
+      skeletonProgram.value = createProgram(webglContext, shaders.skeletonVertex, shaders.skeletonFragment);
+
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keyup', handleKeyUp);
+
       try {
-        await loadTexture(webglContext, './input.jpg');
+        texture.value = await loadTexture(webglContext, './png3.png', imageData, imageWidth, imageHeight);
         createBuffers(webglContext);
-        setupEventHandlers(canvas, webglContext, container);
-        setupSkeletonEventHandlers(canvas, webglContext, container);
+        setupCanvasEvents(canvas, webglContext, container);
         render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
       } catch (error) {
         console.error("Initialization error:", error);
@@ -1053,7 +1470,10 @@ const app = Vue.createApp({
     });
 
     return {
-      downloadImage: () => downloadImage(gl.value)
+      downloadImage,
+      selectTool,
+      activeTool,
+      setVertexBoneWeight
     };
   }
 });
