@@ -693,7 +693,7 @@ const app = Vue.createApp({
       };
     }
   },
- setup() {
+  setup() {
     const gl = ref(null);
     const texture = ref(null);
     const selectedVertex = ref(-1);
@@ -724,10 +724,7 @@ const app = Vue.createApp({
     const computeVertexInfluences = () => {
       const numVertices = vertices.value.length / 4;
       const numBones = originalSkeletonVertices.value.length / 4;
-      const sigma = 0.1;
-      const minWeightThreshold = 0.01;
-      const maxInfluences = 4;
-      const rootBoneIndex = 0;
+      const sigma = 0.1; // 控制權重衰減速度，可根據需要調整
 
       vertexInfluences.value = [];
 
@@ -736,11 +733,8 @@ const app = Vue.createApp({
         const vertexX = originalVertices.value[i * 4];
         const vertexY = originalVertices.value[i * 4 + 1];
 
-        influences.push({ boneIndex: rootBoneIndex, weight: 1.0 });
-
+        // 計算每個骨骼對該頂點的影響
         for (let boneIndex = 0; boneIndex < numBones; boneIndex++) {
-          if (boneIndex === rootBoneIndex) continue;
-
           const boneStartX = originalSkeletonVertices.value[boneIndex * 4];
           const boneStartY = originalSkeletonVertices.value[boneIndex * 4 + 1];
           const boneEndX = originalSkeletonVertices.value[boneIndex * 4 + 2];
@@ -752,20 +746,50 @@ const app = Vue.createApp({
             boneEndX, boneEndY
           );
 
-          const weight = Math.exp(- (distanceToBone * distanceToBone) / (sigma * sigma));
-          if (weight > minWeightThreshold) {
-            influences.push({ boneIndex, weight });
-          }
+          // 使用高斯衰減計算權重，移除閾值限制
+          const weight = Math.exp(-(distanceToBone * distanceToBone) / (sigma * sigma));
+          influences.push({ boneIndex, weight });
         }
 
-        influences.sort((a, b) => b.weight - a.weight);
-        const topInfluences = influences.slice(0, maxInfluences);
-        const totalWeight = topInfluences.reduce((sum, inf) => sum + inf.weight, 0);
-        topInfluences.forEach(inf => inf.weight /= totalWeight);
-        vertexInfluences.value[i] = topInfluences;
+        // 標準化權重，使總和為 1
+        const totalWeight = influences.reduce((sum, inf) => sum + inf.weight, 0);
+        if (totalWeight > 0) {
+          influences.forEach(inf => (inf.weight /= totalWeight));
+        }
+
+        // 保留所有影響，不限制最大影響數量
+        vertexInfluences.value[i] = influences;
       }
     };
+    const applyTransformToChildren = (parentIndex, deltaX, deltaY, rotationAngle, pivotX, pivotY) => {
+      if (boneChildren.value[parentIndex]) {
+        boneChildren.value[parentIndex].forEach(childIndex => {
+          const childHeadX = skeletonVertices.value[childIndex * 4];
+          const childHeadY = skeletonVertices.value[childIndex * 4 + 1];
+          const childTailX = skeletonVertices.value[childIndex * 4 + 2];
+          const childTailY = skeletonVertices.value[childIndex * 4 + 3];
 
+          // 平移
+          skeletonVertices.value[childIndex * 4] += deltaX;
+          skeletonVertices.value[childIndex * 4 + 1] += deltaY;
+          skeletonVertices.value[childIndex * 4 + 2] += deltaX;
+          skeletonVertices.value[childIndex * 4 + 3] += deltaY;
+
+          // 旋轉（如果有）
+          if (rotationAngle !== 0) {
+            const rotatedHead = rotatePoint(pivotX, pivotY, childHeadX, childHeadY, rotationAngle);
+            const rotatedTail = rotatePoint(pivotX, pivotY, childTailX, childTailY, rotationAngle);
+            skeletonVertices.value[childIndex * 4] = rotatedHead.x;
+            skeletonVertices.value[childIndex * 4 + 1] = rotatedHead.y;
+            skeletonVertices.value[childIndex * 4 + 2] = rotatedTail.x;
+            skeletonVertices.value[childIndex * 4 + 3] = rotatedTail.y;
+          }
+
+          // 遞歸應用到子骨骼的子骨骼
+          applyTransformToChildren(childIndex, deltaX, deltaY, rotationAngle, pivotX, pivotY);
+        });
+      }
+    };
     const updateMeshForSkeletonPose = () => {
       const numVertices = vertices.value.length / 4;
       for (let i = 0; i < numVertices; i++) {
@@ -792,18 +816,41 @@ const app = Vue.createApp({
           const currBoneTailX = skeletonVertices.value[boneIndex * 4 + 2];
           const currBoneTailY = skeletonVertices.value[boneIndex * 4 + 3];
 
-          const translateX = currBoneHeadX - origBoneHeadX;
-          const translateY = currBoneHeadY - origBoneHeadY;
-          const origAngle = calculateAngle(origBoneHeadX, origBoneHeadY, origBoneTailX, origBoneTailY);
-          const currAngle = calculateAngle(currBoneHeadX, currBoneHeadY, currBoneTailX, currBoneTailY);
+          const origBoneDirX = origBoneTailX - origBoneHeadX;
+          const origBoneDirY = origBoneTailY - origBoneHeadY;
+          const origBoneLength = Math.sqrt(origBoneDirX * origBoneDirX + origBoneDirY * origBoneDirY);
+
+          const currBoneDirX = currBoneTailX - currBoneHeadX;
+          const currBoneDirY = currBoneTailY - currBoneHeadY;
+          const currBoneLength = Math.sqrt(currBoneDirX * currBoneDirX + currBoneDirY * currBoneDirY);
+
+          const scale = currBoneLength / origBoneLength;
+
+          const localX = originalX - origBoneHeadX;
+          const localY = originalY - origBoneHeadY;
+
+          const origAngle = Math.atan2(origBoneDirY, origBoneDirX);
+          const currAngle = Math.atan2(currBoneDirY, currBoneDirX);
           const rotationAngle = currAngle - origAngle;
 
-          const transX = originalX + translateX;
-          const transY = originalY + translateY;
-          const rotated = rotatePoint(currBoneHeadX, currBoneHeadY, transX, transY, rotationAngle);
+          const cosOrig = Math.cos(-origAngle);
+          const sinOrig = Math.sin(-origAngle);
+          const localRotX = localX * cosOrig - localY * sinOrig;
+          const localRotY = localX * sinOrig + localY * cosOrig;
 
-          skinnedX += rotated.x * weight;
-          skinnedY += rotated.y * weight;
+          const scaledX = localRotX * scale;
+          const scaledY = localRotY;
+
+          const cosCurr = Math.cos(currAngle);
+          const sinCurr = Math.sin(currAngle);
+          const transformedX = scaledX * cosCurr - scaledY * sinCurr;
+          const transformedY = scaledX * sinCurr + scaledY * cosCurr;
+
+          const worldX = transformedX + currBoneHeadX;
+          const worldY = transformedY + currBoneHeadY;
+
+          skinnedX += worldX * weight;
+          skinnedY += worldY * weight;
         });
 
         vertices.value[i * 4] = skinnedX;
@@ -832,10 +879,15 @@ const app = Vue.createApp({
     const selectTool = (tool) => {
       if (activeTool.value === 'bone-animate' && tool !== 'bone-animate') {
         resetMeshToOriginal();
+        resetSkeletonToOriginal(); // 新增的重置骨架邏輯
       }
       activeTool.value = tool;
     };
-
+    const resetSkeletonToOriginal = () => {
+      if (originalSkeletonVertices.value.length > 0) {
+        skeletonVertices.value = [...originalSkeletonVertices.value];
+      }
+    };
     const resetMeshToOriginal = () => {
       if (originalVertices.value.length > 0) {
         for (let i = 0; i < vertices.value.length; i++) {
@@ -1078,7 +1130,7 @@ const app = Vue.createApp({
                   }
                 }
                 if (parentBoneIndex === -1) {
-                  parentBoneIndex = 0; // Default to root bone
+                  parentBoneIndex = 0; // Default to first bone
                 }
               }
               boneParents.value.push(parentBoneIndex);
@@ -1161,39 +1213,35 @@ const app = Vue.createApp({
             const deltaY = yNDC - prevHeadY;
             skeletonVertices.value[boneIndex * 4 + 2] += deltaX;
             skeletonVertices.value[boneIndex * 4 + 3] += deltaY;
-            const applyDeltaToChildren = (parentIndex) => {
-              if (boneChildren.value[parentIndex]) {
-                boneChildren.value[parentIndex].forEach(childIndex => {
-                  skeletonVertices.value[childIndex * 4] += deltaX;
-                  skeletonVertices.value[childIndex * 4 + 1] += deltaY;
-                  skeletonVertices.value[childIndex * 4 + 2] += deltaX;
-                  skeletonVertices.value[childIndex * 4 + 3] += deltaY;
-                  applyDeltaToChildren(childIndex);
-                });
-              }
-            };
-            applyDeltaToChildren(boneIndex);
+            applyTransformToChildren(boneIndex, deltaX, deltaY, 0, 0, 0);
           } else if (boneEndBeingDragged.value === 'tail') {
             const prevTailX = skeletonVertices.value[boneIndex * 4 + 2];
             const prevTailY = skeletonVertices.value[boneIndex * 4 + 3];
             skeletonVertices.value[boneIndex * 4 + 2] = xNDC;
             skeletonVertices.value[boneIndex * 4 + 3] = yNDC;
-            const newTailX = xNDC;
-            const newTailY = yNDC;
+            const deltaX = xNDC - prevTailX;
+            const deltaY = yNDC - prevTailY;
+
             if (boneChildren.value[boneIndex]) {
               boneChildren.value[boneIndex].forEach(childIndex => {
-                const childBindHeadX = originalSkeletonVertices.value[childIndex * 4];
-                const childBindHeadY = originalSkeletonVertices.value[childIndex * 4 + 1];
-                const childBindTailX = originalSkeletonVertices.value[childIndex * 4 + 2];
-                const childBindTailY = originalSkeletonVertices.value[childIndex * 4 + 3];
-                const dx = childBindTailX - childBindHeadX;
-                const dy = childBindTailY - childBindHeadY;
-                skeletonVertices.value[childIndex * 4] = newTailX;
-                skeletonVertices.value[childIndex * 4 + 1] = newTailY;
-                skeletonVertices.value[childIndex * 4 + 2] = newTailX + dx;
-                skeletonVertices.value[childIndex * 4 + 3] = newTailY + dy;
+                // 移動子骨架的頭部到新的尾部位置
+                skeletonVertices.value[childIndex * 4] = xNDC;
+                skeletonVertices.value[childIndex * 4 + 1] = yNDC;
+
+                // 計算子骨架尾部相對於頭部的當前相對位置
+                const currentHeadX = skeletonVertices.value[childIndex * 4];
+                const currentHeadY = skeletonVertices.value[childIndex * 4 + 1];
+                const currentTailX = skeletonVertices.value[childIndex * 4 + 2];
+                const currentTailY = skeletonVertices.value[childIndex * 4 + 3];
+                const relTailX = currentTailX - currentHeadX;
+                const relTailY = currentTailY - currentHeadY;
+
+                // 將相對位置應用到新的頭部位置，更新尾部
+                skeletonVertices.value[childIndex * 4 + 2] = xNDC + relTailX;
+                skeletonVertices.value[childIndex * 4 + 3] = yNDC + relTailY;
               });
             }
+            updateMeshForSkeletonPose();
           } else if (boneEndBeingDragged.value === 'middle') {
             if (e.buttons === 1) {
               const deltaX = xNDC - startPosX;
@@ -1202,18 +1250,7 @@ const app = Vue.createApp({
               skeletonVertices.value[boneIndex * 4 + 1] += deltaY;
               skeletonVertices.value[boneIndex * 4 + 2] += deltaX;
               skeletonVertices.value[boneIndex * 4 + 3] += deltaY;
-              const applyDeltaToChildren = (parentIndex) => {
-                if (boneChildren.value[parentIndex]) {
-                  boneChildren.value[parentIndex].forEach(childIndex => {
-                    skeletonVertices.value[childIndex * 4] += deltaX;
-                    skeletonVertices.value[childIndex * 4 + 1] += deltaY;
-                    skeletonVertices.value[childIndex * 4 + 2] += deltaX;
-                    skeletonVertices.value[childIndex * 4 + 3] += deltaY;
-                    applyDeltaToChildren(childIndex);
-                  });
-                }
-              };
-              applyDeltaToChildren(boneIndex);
+              applyTransformToChildren(boneIndex, deltaX, deltaY, 0, 0, 0);
               startPosX = xNDC;
               startPosY = yNDC;
             } else if (e.buttons === 2) {
@@ -1229,24 +1266,7 @@ const app = Vue.createApp({
               skeletonVertices.value[boneIndex * 4 + 2] = rotatedTail.x;
               skeletonVertices.value[boneIndex * 4 + 3] = rotatedTail.y;
 
-              const rotateChildren = (parentIndex, angle) => {
-                if (boneChildren.value[parentIndex]) {
-                  boneChildren.value[parentIndex].forEach(childIndex => {
-                    const childHeadX = skeletonVertices.value[childIndex * 4];
-                    const childHeadY = skeletonVertices.value[childIndex * 4 + 1];
-                    const childTailX = skeletonVertices.value[childIndex * 4 + 2];
-                    const childTailY = skeletonVertices.value[childIndex * 4 + 3];
-                    const rotatedHead = rotatePoint(headX, headY, childHeadX, childHeadY, angle);
-                    const rotatedTail = rotatePoint(headX, headY, childTailX, childTailY, angle);
-                    skeletonVertices.value[childIndex * 4] = rotatedHead.x;
-                    skeletonVertices.value[childIndex * 4 + 1] = rotatedHead.y;
-                    skeletonVertices.value[childIndex * 4 + 2] = rotatedTail.x;
-                    skeletonVertices.value[childIndex * 4 + 3] = rotatedTail.y;
-                    rotateChildren(childIndex, angle);
-                  });
-                }
-              };
-              rotateChildren(boneIndex, rotationAngle);
+              applyTransformToChildren(boneIndex, 0, 0, rotationAngle, headX, headY);
               startPosX = xNDC;
               startPosY = yNDC;
             }
@@ -1347,12 +1367,10 @@ const app = Vue.createApp({
         gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
         gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
-        // Draw all bones in green by default
         gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 0, 1);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
         gl.drawElements(gl.LINES, skeletonIndicesArray.length, gl.UNSIGNED_SHORT, 0);
 
-        // Highlight parent bone in blue if selected
         if (selectedBone.value >= 0) {
           const parentIndex = boneParents.value[selectedBone.value];
           if (parentIndex >= 0) {
@@ -1361,13 +1379,11 @@ const app = Vue.createApp({
             gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, parentStart * 2);
           }
 
-          // Highlight selected bone in red
           const selectedStart = selectedBone.value * 2;
           gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
           gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, selectedStart * 2);
         }
 
-        // Draw head and tail points
         gl.uniform1f(gl.getUniformLocation(skeletonProgram, 'uPointSize'), 7.0);
         gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 0, 1);
         const headVertices = [];
