@@ -36,18 +36,20 @@ const shaders = {
       `,
   skeletonVertex: `
         attribute vec2 aPosition;
+        uniform float uPointSize;
         void main() {
           gl_Position = vec4(aPosition, 0.0, 1.0);
+          gl_PointSize = uPointSize;
         }
       `,
   skeletonFragment: `
         precision mediump float;
+        uniform vec4 uColor;
         void main() {
-          gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); // Green color for skeleton
+          gl_FragColor = uColor;
         }
       `
 };
-
 const compileShader = (gl, source, type) => {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -691,58 +693,41 @@ const app = Vue.createApp({
       };
     }
   },
-  setup() {
-    // Refs for WebGL objects
+ setup() {
     const gl = ref(null);
     const texture = ref(null);
     const selectedVertex = ref(-1);
-
-    // Tool selection state
     const activeTool = ref('grab-point');
-
-    // Add ref for image data to check transparency
     const imageData = ref(null);
     const imageWidth = ref(0);
     const imageHeight = ref(0);
-
-    // Programs
     const program = ref(null);
     const colorProgram = ref(null);
     const skeletonProgram = ref(null);
-
-    // Geometry data
     const vertices = ref([]);
     const originalVertices = ref([]);
     const indices = ref([]);
     const linesIndices = ref([]);
     const skeletonVertices = ref([]);
     const skeletonIndices = ref([]);
-
-    // Animation state
     const selectedBone = ref(-1);
     const boneEndBeingDragged = ref(null);
     const originalSkeletonVertices = ref([]);
-
-    // Bone hierarchy
     const boneParents = ref([]);
     const boneChildren = ref([]);
     const isShiftPressed = ref(false);
-
-    // Buffers
     const vbo = ref(null);
     const ebo = ref(null);
     const eboLines = ref(null);
-
-    // Vertex influences for skinning
     const vertexInfluences = ref([]);
 
-    // Compute vertex influences with Gaussian falloff
     const computeVertexInfluences = () => {
       const numVertices = vertices.value.length / 4;
       const numBones = originalSkeletonVertices.value.length / 4;
       const sigma = 0.1;
       const minWeightThreshold = 0.01;
       const maxInfluences = 4;
+      const rootBoneIndex = 0;
 
       vertexInfluences.value = [];
 
@@ -751,7 +736,11 @@ const app = Vue.createApp({
         const vertexX = originalVertices.value[i * 4];
         const vertexY = originalVertices.value[i * 4 + 1];
 
+        influences.push({ boneIndex: rootBoneIndex, weight: 1.0 });
+
         for (let boneIndex = 0; boneIndex < numBones; boneIndex++) {
+          if (boneIndex === rootBoneIndex) continue;
+
           const boneStartX = originalSkeletonVertices.value[boneIndex * 4];
           const boneStartY = originalSkeletonVertices.value[boneIndex * 4 + 1];
           const boneEndX = originalSkeletonVertices.value[boneIndex * 4 + 2];
@@ -769,19 +758,14 @@ const app = Vue.createApp({
           }
         }
 
-        if (influences.length > 0) {
-          influences.sort((a, b) => b.weight - a.weight);
-          const topInfluences = influences.slice(0, maxInfluences);
-          const totalWeight = topInfluences.reduce((sum, inf) => sum + inf.weight, 0);
-          topInfluences.forEach(inf => inf.weight /= totalWeight);
-          vertexInfluences.value[i] = topInfluences;
-        } else {
-          vertexInfluences.value[i] = [];
-        }
+        influences.sort((a, b) => b.weight - a.weight);
+        const topInfluences = influences.slice(0, maxInfluences);
+        const totalWeight = topInfluences.reduce((sum, inf) => sum + inf.weight, 0);
+        topInfluences.forEach(inf => inf.weight /= totalWeight);
+        vertexInfluences.value[i] = topInfluences;
       }
     };
 
-    // Update mesh based on skeleton pose
     const updateMeshForSkeletonPose = () => {
       const numVertices = vertices.value.length / 4;
       for (let i = 0; i < numVertices; i++) {
@@ -830,7 +814,6 @@ const app = Vue.createApp({
       gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
     };
 
-    // Set vertex bone weight
     const setVertexBoneWeight = (vertexIndex, boneIndex, newWeight) => {
       const influences = vertexInfluences.value[vertexIndex];
       if (influences) {
@@ -846,7 +829,6 @@ const app = Vue.createApp({
       }
     };
 
-    // Select active tool
     const selectTool = (tool) => {
       if (activeTool.value === 'bone-animate' && tool !== 'bone-animate') {
         resetMeshToOriginal();
@@ -854,7 +836,6 @@ const app = Vue.createApp({
       activeTool.value = tool;
     };
 
-    // Reset mesh to original positions
     const resetMeshToOriginal = () => {
       if (originalVertices.value.length > 0) {
         for (let i = 0; i < vertices.value.length; i++) {
@@ -870,7 +851,6 @@ const app = Vue.createApp({
       }
     };
 
-    // Create buffers for the mesh grid
     const createBuffers = (gl) => {
       const rows = 10, cols = 10;
       const xStep = 2.0 / (cols - 1);
@@ -981,20 +961,32 @@ const app = Vue.createApp({
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
     };
 
-    // Create skeleton buffers
     const createSkeletonBuffers = (gl) => {
+      const skeletonVerticesArray = [];
+      const skeletonIndicesArray = [];
+
+      for (let i = 0; i < skeletonVertices.value.length; i += 4) {
+        const headX = skeletonVertices.value[i];
+        const headY = skeletonVertices.value[i + 1];
+        const tailX = skeletonVertices.value[i + 2];
+        const tailY = skeletonVertices.value[i + 3];
+
+        const baseIndex = skeletonVerticesArray.length / 2;
+        skeletonVerticesArray.push(headX, headY, tailX, tailY);
+        skeletonIndicesArray.push(baseIndex, baseIndex + 1);
+      }
+
       const skeletonVbo = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(skeletonVertices.value), gl.DYNAMIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(skeletonVerticesArray), gl.DYNAMIC_DRAW);
 
       const skeletonEbo = gl.createBuffer();
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(skeletonIndices.value), gl.STATIC_DRAW);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(skeletonIndicesArray), gl.STATIC_DRAW);
 
-      return { skeletonVbo, skeletonEbo };
+      return { skeletonVbo, skeletonEbo, skeletonVerticesArray, skeletonIndicesArray };
     };
 
-    // Utility functions
     const calculateDistance = (x1, y1, x2, y2) => Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
     const calculateAngle = (x1, y1, x2, y2) => Math.atan2(y2 - y1, x2 - x1);
     const rotatePoint = (cx, cy, x, y, angle) => {
@@ -1016,7 +1008,6 @@ const app = Vue.createApp({
       return Math.sqrt((px - nearestX) ** 2 + (py - nearestY) ** 2);
     };
 
-    // Keyboard event handlers
     const handleKeyDown = (e) => {
       if (e.key === 'Shift') {
         isShiftPressed.value = true;
@@ -1029,7 +1020,6 @@ const app = Vue.createApp({
       }
     };
 
-    // Canvas events
     const setupCanvasEvents = (canvas, gl, container) => {
       let isDragging = false;
       let localSelectedVertex = -1;
@@ -1062,16 +1052,41 @@ const app = Vue.createApp({
           } else if (activeTool.value === 'bone-create') {
             isDragging = true;
             const newBoneIndex = lineIndex;
-            if (isShiftPressed.value && newBoneIndex > 0) {
-              const parentBoneIndex = newBoneIndex - 1;
+            let parentBoneIndex = -1;
+
+            if (newBoneIndex === 0) {
+              parentBoneIndex = -1; // First bone has no parent
+              boneParents.value.push(parentBoneIndex);
+              skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
+            } else {
+              if (isShiftPressed.value) {
+                parentBoneIndex = newBoneIndex - 1; // Previous bone as parent
+              } else {
+                // Check if an existing bone is clicked
+                for (let i = 0; i < skeletonVertices.value.length; i += 4) {
+                  const headX = skeletonVertices.value[i];
+                  const headY = skeletonVertices.value[i + 1];
+                  const tailX = skeletonVertices.value[i + 2];
+                  const tailY = skeletonVertices.value[i + 3];
+
+                  const distToHead = calculateDistance(xNDC, yNDC, headX, headY);
+                  const distToTail = calculateDistance(xNDC, yNDC, tailX, tailY);
+
+                  if (distToHead < 0.05 || distToTail < 0.05) {
+                    parentBoneIndex = i / 4;
+                    break;
+                  }
+                }
+                if (parentBoneIndex === -1) {
+                  parentBoneIndex = 0; // Default to root bone
+                }
+              }
               boneParents.value.push(parentBoneIndex);
               const parentTailX = skeletonVertices.value[parentBoneIndex * 4 + 2];
               const parentTailY = skeletonVertices.value[parentBoneIndex * 4 + 3];
               skeletonVertices.value.push(parentTailX, parentTailY, parentTailX, parentTailY);
-            } else {
-              boneParents.value.push(-1);
-              skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
             }
+
             if (skeletonIndices.value.length <= newBoneIndex * 2) {
               skeletonIndices.value.push(newBoneIndex * 2, newBoneIndex * 2 + 1);
             }
@@ -1086,7 +1101,6 @@ const app = Vue.createApp({
               const tailX = skeletonVertices.value[i + 2];
               const tailY = skeletonVertices.value[i + 3];
 
-              // 檢查是否點擊頭部
               let dx = headX - xNDC;
               let dy = headY - yNDC;
               let dist = dx * dx + dy * dy;
@@ -1096,7 +1110,6 @@ const app = Vue.createApp({
                 break;
               }
 
-              // 檢查是否點擊尾部
               dx = tailX - xNDC;
               dy = tailY - yNDC;
               dist = dx * dx + dy * dy;
@@ -1106,7 +1119,6 @@ const app = Vue.createApp({
                 break;
               }
 
-              // 檢查是否點擊在骨骼中間
               const distToSegment = distanceFromPointToSegment(xNDC, yNDC, headX, headY, tailX, tailY);
               if (distToSegment < 0.05 && distToSegment < minDistToSegment) {
                 minDistToSegment = distToSegment;
@@ -1126,13 +1138,7 @@ const app = Vue.createApp({
       };
 
       const handleMouseMove = (e) => {
-
-        if (!isDragging) {
-          if (e.button === 2) {
-            console.log(" right button but not dragging... return ");
-          }
-          return;
-        }
+        if (!isDragging) return;
         const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
 
         if (activeTool.value === 'grab-point' && localSelectedVertex !== -1) {
@@ -1189,9 +1195,7 @@ const app = Vue.createApp({
               });
             }
           } else if (boneEndBeingDragged.value === 'middle') {
-            console.log("e button: ", e.button);
-            if (e.buttons === 1) { // 左鍵拖動：移動
-              console.log("hi translate .. ");
+            if (e.buttons === 1) {
               const deltaX = xNDC - startPosX;
               const deltaY = yNDC - startPosY;
               skeletonVertices.value[boneIndex * 4] += deltaX;
@@ -1212,22 +1216,19 @@ const app = Vue.createApp({
               applyDeltaToChildren(boneIndex);
               startPosX = xNDC;
               startPosY = yNDC;
-            } else if (e.buttons === 2) { // 右鍵拖動：旋轉
-              console.log("hi rotate...");
+            } else if (e.buttons === 2) {
               const headX = skeletonVertices.value[boneIndex * 4];
               const headY = skeletonVertices.value[boneIndex * 4 + 1];
               const prevAngle = Math.atan2(startPosY - headY, startPosX - headX);
               const currentAngle = Math.atan2(yNDC - headY, xNDC - headX);
               const rotationAngle = currentAngle - prevAngle;
 
-              // 旋轉當前骨骼的尾部
               const tailX = skeletonVertices.value[boneIndex * 4 + 2];
               const tailY = skeletonVertices.value[boneIndex * 4 + 3];
               const rotatedTail = rotatePoint(headX, headY, tailX, tailY, rotationAngle);
               skeletonVertices.value[boneIndex * 4 + 2] = rotatedTail.x;
               skeletonVertices.value[boneIndex * 4 + 3] = rotatedTail.y;
 
-              // 旋轉子骨骼
               const rotateChildren = (parentIndex, angle) => {
                 if (boneChildren.value[parentIndex]) {
                   boneChildren.value[parentIndex].forEach(childIndex => {
@@ -1252,15 +1253,13 @@ const app = Vue.createApp({
           }
           updateMeshForSkeletonPose();
         }
-
-
       };
 
       const handleMouseUp = () => {
         if (activeTool.value === 'bone-create' && isDragging) {
           const newBoneIndex = lineIndex;
-          if (boneParents.value[newBoneIndex] !== -1) {
-            const parentIndex = boneParents.value[newBoneIndex];
+          const parentIndex = boneParents.value[newBoneIndex];
+          if (parentIndex !== -1) {
             if (!boneChildren.value[parentIndex]) {
               boneChildren.value[parentIndex] = [];
             }
@@ -1299,7 +1298,6 @@ const app = Vue.createApp({
       });
     };
 
-    // Render function
     const render = (gl, program, colorProgram, skeletonProgram) => {
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -1342,22 +1340,39 @@ const app = Vue.createApp({
 
       if (skeletonVertices.value.length > 0) {
         gl.useProgram(skeletonProgram);
-        const skeletonBuffer = createSkeletonBuffers(gl);
+        const { skeletonVbo, skeletonEbo, skeletonVerticesArray, skeletonIndicesArray } = createSkeletonBuffers(gl);
 
         const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
         gl.enableVertexAttribArray(skeletonPosAttrib);
+        gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
         gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
+        // Draw all bones in green by default
         gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 0, 1);
-        gl.bindBuffer(gl.ARRAY_BUFFER, skeletonBuffer.skeletonVbo);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonBuffer.skeletonEbo);
-        gl.drawElements(gl.LINES, skeletonIndices.value.length, gl.UNSIGNED_SHORT, 0);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
+        gl.drawElements(gl.LINES, skeletonIndicesArray.length, gl.UNSIGNED_SHORT, 0);
 
+        // Highlight parent bone in blue if selected
+        if (selectedBone.value >= 0) {
+          const parentIndex = boneParents.value[selectedBone.value];
+          if (parentIndex >= 0) {
+            const parentStart = parentIndex * 2;
+            gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 0, 1, 1);
+            gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, parentStart * 2);
+          }
+
+          // Highlight selected bone in red
+          const selectedStart = selectedBone.value * 2;
+          gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
+          gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, selectedStart * 2);
+        }
+
+        // Draw head and tail points
         gl.uniform1f(gl.getUniformLocation(skeletonProgram, 'uPointSize'), 7.0);
         gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 0, 1);
         const headVertices = [];
-        for (let i = 0; i < skeletonVertices.value.length; i += 4) {
-          headVertices.push(skeletonVertices.value[i], skeletonVertices.value[i + 1]);
+        for (let i = 0; i < skeletonVerticesArray.length; i += 4) {
+          headVertices.push(skeletonVerticesArray[i], skeletonVerticesArray[i + 1]);
         }
         const headVbo = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, headVbo);
@@ -1367,8 +1382,8 @@ const app = Vue.createApp({
 
         gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 0.5, 1, 1);
         const tailVertices = [];
-        for (let i = 0; i < skeletonVertices.value.length; i += 4) {
-          tailVertices.push(skeletonVertices.value[i + 2], skeletonVertices.value[i + 3]);
+        for (let i = 0; i < skeletonVerticesArray.length; i += 4) {
+          tailVertices.push(skeletonVerticesArray[i + 2], skeletonVerticesArray[i + 3]);
         }
         const tailVbo = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, tailVbo);
@@ -1380,7 +1395,6 @@ const app = Vue.createApp({
       requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
     };
 
-    // Download image function
     const downloadImage = () => {
       const webglContext = gl.value;
       const canvas = document.getElementById('webgl');
@@ -1445,7 +1459,6 @@ const app = Vue.createApp({
       requestAnimationFrame(cleanRender);
     };
 
-    // Initialize on mount
     onMounted(async () => {
       const canvas = document.getElementById('webgl');
       const container = canvas.closest('.image-container');
@@ -1476,6 +1489,7 @@ const app = Vue.createApp({
       setVertexBoneWeight
     };
   }
+
 });
 
 // 掛載應用
