@@ -258,7 +258,7 @@ void applyGridDeformationToImage(const cv::UMat& inputImage, cv::UMat& outputIma
     // 使用 OpenCL 加速 remap
     cv::remap(inputImage, outputImage, map_x, map_y, cv::INTER_LINEAR);
     totalTimer.stop();
-    std::cout << "總執行時間: " << totalTimer.getTimeMilli() << " ms\n" << std::endl;
+    //std::cout << "總執行時間: " << totalTimer.getTimeMilli() << " ms\n" << std::endl;
 
 }
 /*
@@ -913,7 +913,7 @@ void updateImagePost(bool cloneOriginImage = true) {
     drawGrid(image_show, g_triangle_set);
 
     tm.stop();
-    std::cout << "UpdateImagePost time: " << tm.getTimeMilli() << " ms" << std::endl;
+   // std::cout << "UpdateImagePost time: " << tm.getTimeMilli() << " ms" << std::endl;
 
     for (const auto& bone : state.bones) {
         line(image_show, bone.head, bone.tail, Scalar(255,255,0,255), 2);
@@ -1059,6 +1059,7 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
         else if (mg_match(hm->uri, mg_str("/png"), NULL)) {
 
 
+            /*
             std::vector<uchar> buffer;
             if (!imencode(".png", image_show, buffer)) {
                 mg_http_reply(conn, 500, "Content-Type: application/json\r\n",
@@ -1074,6 +1075,10 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
                     "\", \"timestamp\": " + std::to_string(time(NULL)) + "}";
 
             mg_http_reply(conn, 200, "Content-Type: application/json\r\n", "%s", response.c_str());
+            */
+            mg_http_reply(conn, 200, "Content-Type: application/json\r\n",
+                "{\"status\": \"ok\"}");
+            return;
         }
         else if (mg_match(hm->uri, mg_str("/api/points"), NULL)) // one click ( mouse down then up )
         {
@@ -1167,7 +1172,7 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
             {
                 firstClick = mousePos;
 
-                std::cout<<" click start bone mode !  "<<mousePos<<std::endl;
+                std::cout<<" click start bone mode !  "<<mousePos<<" data: "<<data<<std::endl;
 
                 double minDist = INFINITY;
                 for (auto& bone : state.bones) {
@@ -1193,13 +1198,14 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
                     } else if (toTail < threshold) {
                         state.mode = AppState::DRAG_TAIL;
                     }
-                    /*else if (flags & EVENT_FLAG_CTRLKEY) {  // 按住Ctrl旋转
-                               state->mode = AppState::ROTATE;
-                               Point mid = (state->originalHead + state->originalTail) * 0.5;
-                               state->rotateCenter = mid;
-                               Point vecInit = state->dragStart - mid;
-                               state->initialAngle = atan2(vecInit.y, vecInit.x);
-                           }*/
+                    else if (data["ctrlKey"]==true) {  // 按住Ctrl旋转
+                        std::cout << " rotate? " << endl;
+                               state.mode = AppState::ROTATE;
+                               Point mid = (state.originalHead + state.originalTail) * 0.5;
+                               state.rotateCenter = mid;
+                               Point vecInit = state.dragStart - mid;
+                               state.initialAngle = atan2(vecInit.y, vecInit.x);
+                           }
                     else {
                         state.mode = AppState::TRANSLATE;
                     }
@@ -1240,7 +1246,24 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
                     ///applyGridDeformationToImage(image,image_post);
                     //updateImagePost(false);
                     // cv::Mat deformed = deformImageWithGrid(gridNodes, image,image.rows, image.cols);
+                    
+                      
+                        //select_triangle_set.clear();
 
+                        for (auto& tri : selectNode->triangles)
+                        {
+                            select_triangle_set.insert(tri);
+                        }
+                        applyGridDeformationToImage(image, image_post, select_triangle_set);
+                        //std::cout << "deform done ... " << std::endl;
+                        updateImagePost(true);
+                        // cv::Mat deformed = deformImageWithGrid(gridNodes, image,image.rows, image.cols);
+
+                       // std::cout << "redraw done " << std::endl;
+                        static KDTree kdTree;
+                        kdTree.modifyNode(selectNode, selectNode->position_modified);
+                      
+                        updateImagePost(true);
                     // std::cout<<"deform done ... "<<std::endl;
                 }
             }
@@ -1272,6 +1295,7 @@ void http_handler(struct mg_connection* conn, int ev, void* ev_data, void* fn_da
                     break;
                 }
                 }
+                updateImagePost(true);
             }
 
             mg_http_reply(conn, 200, "Content-Type: application/json\r\n", result.dump().c_str());
@@ -1478,6 +1502,10 @@ int main() {
     displayOpenCLDeviceInfo();
     startOclIfExist();
 
+    std::cout << " try read ... " << std::endl;
+    Mat testRead = imread("png3.png");
+    cout << " test size : " << testRead.size() << std::endl;
+    /*
     std::cout << "OpenCL enabled: " << cv::ocl::useOpenCL() << std::endl;
     // grayscaleWithOpenCL("test.jpg");
     std::cout << " go go hh ..." << std::endl;
@@ -1498,9 +1526,8 @@ int main() {
 
     std::cout << "Hierarchy JSON:\n" << hierarchyJson.dump(4) << std::endl;
 
-
-    struct mg_mgr mgr;
-    mg_mgr_init(&mgr);
+   
+   
 
     image = imread("png3.png", IMREAD_UNCHANGED).getUMat(cv::ACCESS_READ);
     image_post = image.clone();
@@ -1510,6 +1537,9 @@ int main() {
     std::cout << " init grid point! " << std::endl;
     findNearestGridNodeOptimized(gridNodes, { 0,0 });
     // 設置HTTP服務器監聽地址和端口
+     */
+    struct mg_mgr mgr;
+    mg_mgr_init(&mgr);
     const char* listen_addr = "http://0.0.0.0:8000";
     mg_http_listen(&mgr, listen_addr, (mg_event_handler_t)http_handler, NULL);
 
