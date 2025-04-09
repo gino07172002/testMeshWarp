@@ -13,7 +13,6 @@ const selectedBoneForEditing = ref(-1);
 const editingBoneEnd = ref(null);
 
 let lineIndex = 0;
-
 // 📦 外部依賴（由 app.js 呼叫 initBone 設定）
 let gl, program, texture, vbo, ebo, indices;
 let resetMeshToOriginal, updateMeshForSkeletonPose;
@@ -70,7 +69,7 @@ function readBones() {
     vertexInfluences.value = boneData.vertexInfluences.map(inf =>
       inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
     );
-    updateMeshForSkeletonPose?.();
+    glsInstance.updateMeshForSkeletonPose?.();
   }
 }
 
@@ -136,6 +135,53 @@ function downloadImage() {
   requestAnimationFrame(cleanRender);
 }
 
+class bones {
+  resetSkeletonToOriginal() {
+    if (originalSkeletonVertices.value.length > 0) {
+      skeletonVertices.value = [...originalSkeletonVertices.value];
+    }
+  };
+
+  applyTransformToChildren(parentIndex, deltaX, deltaY, rotationAngle, pivotX, pivotY) {
+    if (boneChildren.value[parentIndex]) {
+      boneChildren.value[parentIndex].forEach(childIndex => {
+        const childHeadX = skeletonVertices.value[childIndex * 4];
+        const childHeadY = skeletonVertices.value[childIndex * 4 + 1];
+        const childTailX = skeletonVertices.value[childIndex * 4 + 2];
+        const childTailY = skeletonVertices.value[childIndex * 4 + 3];
+
+        skeletonVertices.value[childIndex * 4] += deltaX;
+        skeletonVertices.value[childIndex * 4 + 1] += deltaY;
+        skeletonVertices.value[childIndex * 4 + 2] += deltaX;
+        skeletonVertices.value[childIndex * 4 + 3] += deltaY;
+
+        if (rotationAngle !== 0) {
+          const rotatedHead = this.rotatePoint(pivotX, pivotY, childHeadX, childHeadY, rotationAngle);
+          const rotatedTail = this.rotatePoint(pivotX, pivotY, childTailX, childTailY, rotationAngle);
+          skeletonVertices.value[childIndex * 4] = rotatedHead.x;
+          skeletonVertices.value[childIndex * 4 + 1] = rotatedHead.y;
+          skeletonVertices.value[childIndex * 4 + 2] = rotatedTail.x;
+          skeletonVertices.value[childIndex * 4 + 3] = rotatedTail.y;
+        }
+
+        this.applyTransformToChildren(childIndex, deltaX, deltaY, rotationAngle, pivotX, pivotY);
+      });
+    }
+  };
+
+  calculateDistance(x1, y1, x2, y2) { Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2)) };
+  calculateAngle(x1, y1, x2, y2) { Math.atan2(y2 - y1, x2 - x1) };
+  rotatePoint(cx, cy, x, y, angle) {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const dx = x - cx;
+    const dy = y - cy;
+    const rx = dx * cos - dy * sin;
+    const ry = dx * sin + dy * cos;
+    return { x: rx + cx, y: ry + cy };
+  };
+}
+
 // ✅ 匯出
 export {
   initBone,
@@ -150,5 +196,7 @@ export {
   clearBones,
   saveBones,
   readBones,
-  downloadImage
+  downloadImage,
+
 };
+export default bones;
