@@ -544,13 +544,15 @@ const app = Vue.createApp({
         this.status = '沒有選擇圖層';
       }
     },
-
-    // 新增關鍵幀
     addKeyframe() {
       this.keyframeCounter++;
+      const newPosition = 50 * this.keyframeCounter; // 示例位置計算
+      // 移除任何位於 newPosition 的現有關鍵幀
+      this.keyframes = this.keyframes.filter(k => k.position !== newPosition);
+      // 添加新的關鍵幀
       this.keyframes.push({
         id: this.keyframeCounter,
-        position: 50 * this.keyframeCounter
+        position: newPosition
       });
       this.status = `新增關鍵幀: ${this.keyframeCounter}`;
     },
@@ -566,23 +568,61 @@ const app = Vue.createApp({
       alert('新增時間軸元件功能觸發');
     },
 
-    // 時間軸拖曳功能
+    // 開始拖曳
     startDrag(e) {
-      this.isDragging = true;
-      this.startX = e.pageX - this.$refs.timelineTracks.offsetLeft;
-      this.scrollLeft = this.$refs.timelineTracks.scrollLeft;
+      const target = e.target;
+      const container = this.$refs.timelineTracks;
+      const containerLeft = container.getBoundingClientRect().left;
+      const scrollLeft = container.scrollLeft;
+
+      if (target.classList.contains('keyframe')) {
+        // 開始拖曳關鍵幀
+        this.isDraggingKeyframe = true;
+        this.draggingKeyframeId = parseInt(target.getAttribute('data-id'));
+        this.startMouseX = e.pageX - containerLeft + scrollLeft;
+        this.startKeyframePosition = this.keyframes.find(k => k.id === this.draggingKeyframeId).position;
+      } else {
+        // 開始滾動時間軸
+        this.isDragging = true;
+        this.startX = e.pageX - containerLeft;
+        this.scrollLeft = scrollLeft;
+      }
     },
 
+    // 拖曳中
     onDrag(e) {
-      if (!this.isDragging) return;
-      e.preventDefault();
-      const x = e.pageX - this.$refs.timelineTracks.offsetLeft;
-      const walk = (x - this.startX);
-      this.$refs.timelineTracks.scrollLeft = this.scrollLeft - walk;
+      const container = this.$refs.timelineTracks;
+      const containerLeft = container.getBoundingClientRect().left;
+      const scrollLeft = container.scrollLeft;
+
+      if (this.isDraggingKeyframe) {
+        // 更新關鍵幀位置
+        const currentMouseX = e.pageX - containerLeft + scrollLeft;
+        const deltaX = currentMouseX - this.startMouseX;
+        const newPosition = (this.startKeyframePosition + (deltaX-deltaX%50));
+        console.log("new position :",newPosition);
+        const keyframe = this.keyframes.find(k => k.id === this.draggingKeyframeId);
+        keyframe.position = newPosition;
+      } else if (this.isDragging) {
+        // 滾動時間軸
+        e.preventDefault();
+        const x = e.pageX - containerLeft;
+        const walk = (x - this.startX);
+        this.$refs.timelineTracks.scrollLeft = this.scrollLeft - walk;
+      }
     },
 
+    // 停止拖曳
     stopDrag() {
+      if (this.isDraggingKeyframe) {
+        const draggedKeyframe = this.keyframes.find(k => k.id === this.draggingKeyframeId);
+        const finalPosition = draggedKeyframe.position;
+        // 移除任何其他位於 finalPosition 的關鍵幀
+        this.keyframes = this.keyframes.filter(k => k.id === this.draggingKeyframeId || k.position !== finalPosition);
+      }
       this.isDragging = false;
+      this.isDraggingKeyframe = false;
+      this.draggingKeyframeId = null;
     },
 
     // 將專案儲存到伺服器的API示例
