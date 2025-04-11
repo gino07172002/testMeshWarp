@@ -139,7 +139,6 @@
 
         </div>
 
-        <!-- 動畫時間軸 -->
         <div class="timeline">
           <div class="timeline-header">
             <div class="timeline-title">動畫時間軸</div>
@@ -154,15 +153,14 @@
                 {{ layer.name }}
               </div>
             </div>
-            <div class="timeline-tracks" ref="timelineTracks" @mousedown="startDrag" @mousemove="onDrag"
-              @mouseup="stopDrag" @mouseleave="stopDrag">
+            <div class="timeline-tracks" ref="timelineTracks" @mousedown="startDrag" @mousemove="onDrag" @mouseup="stopDrag" @mouseleave="stopDrag">
               <div v-for="keyframe in keyframes" :key="keyframe.id" class="keyframe"
-                :style="{ left: keyframe.position + 'px' }" :title="'Keyframe ' + keyframe.id"
-                @click.stop="selectKeyframe(keyframe.id)"></div>
+                   :style="{ left: keyframe.position + 'px' }" :data-id="keyframe.id" :title="'Keyframe ' + keyframe.id"
+                   @click.stop="selectKeyframe(keyframe.id)"></div>
             </div>
           </div>
         </div>
-
+        
         <!-- 狀態列 -->
         <div class="status-bar">
           <div class="status-item">狀態: {{ status }}</div>
