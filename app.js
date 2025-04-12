@@ -39,6 +39,7 @@ import {
 
 import gls from './useWebGL.js'; // 導入 GLS 類
 import bones from './useBone.js'
+import Timeline from './timeline.js';
 
 // Shader sources
 const shaders = {
@@ -176,31 +177,31 @@ const app = Vue.createApp({
       imageData: '',
       lastTimestamp: 0,
       status: '準備中',
-      activeTool: null,
       points: [],
       fileDropdown: false,
       editDropdown: false,
       selectedLayerId: null,
       layers: [],
       layerCounter: 0,
-      keyframes: [],
       keyframeCounter: 0,
       isDragging: false,
       startX: 0,
       scrollLeft: 0,
       dragStartX: 0,
       dragStartY: 0,
-      points: [],
       fileDropdown: false,
       editDropdown: false,
       selectedLayerId: null,
-      layers: [],
       layerCounter: 0,
-      keyframes: [],
       keyframeCounter: 0,
       isDragging: false,
       startX: 0,
       scrollLeft: 0,
+      playheadPosition: 0, // 播放頭位置
+      timelineLength: 1000, // 時間軸總長度 (px)
+      isPlaying: false, // 是否正在播放
+      animationStartTime: null, // 動畫開始時間
+      timeline: null,
       hierarchicalData: {
         children: [
           {
@@ -225,8 +226,21 @@ const app = Vue.createApp({
     this.startImageUpdates();
     // 初始化時新增一個預設圖層
     this.addLayer();
+    this.timeline = new Timeline();
   },
-
+  computed: {
+    keyframes() {
+      return this.timeline?.keyframes || [];
+    },
+    boneTree() {
+      // 找到所有根骨頭（無父骨頭的骨頭）
+      const rootBones = boneParents.value
+        .map((parent, index) => (parent === -1 ? index : null))
+        .filter(index => index !== null);
+      // 對每個根骨頭構建樹形結構
+      return rootBones.map(rootIndex => this.buildBoneTree(rootIndex));
+    }
+  },
   beforeUnmount() {
     clearInterval(this.updateTimer);
   },
@@ -297,41 +311,10 @@ const app = Vue.createApp({
       this.closeAllDropdowns();
     },
     updateImage(newUrl) {
-     // this.imageUrl = newUrl;
+      // this.imageUrl = newUrl;
       this.cacheBuster = Date.now(); // 更新 cacheBuster 來強制刷新
     },
     // 選擇工具
-    /*
-    selectTool(tool) {
-      console.log(" hi  ", tool);
-      this.activeTool = this.activeTool === tool ? null : tool;
-      this.status = `選擇工具: ${tool}`;
-
-      const projectData = {
-        tool: tool
-      };
-
-      fetch('/api/tool1', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(projectData)
-      })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            this.status = '專案儲存成功!';
-          } else {
-            this.status = '專案儲存失敗: ' + data.message;
-          }
-        })
-        .catch(error => {
-          this.status = '專案儲存失敗: ' + error.message;
-          console.error('儲存專案時發生錯誤:', error);
-        });
-    },
-    */
     getMousePosition(event) {
       const rect = this.$refs.imageContainer.getBoundingClientRect();
       // Calculate the scroll position of the container
@@ -545,85 +528,32 @@ const app = Vue.createApp({
       }
     },
     addKeyframe() {
-      this.keyframeCounter++;
-      const newPosition = 50 * this.keyframeCounter; // 示例位置計算
-      // 移除任何位於 newPosition 的現有關鍵幀
-      this.keyframes = this.keyframes.filter(k => k.position !== newPosition);
-      // 添加新的關鍵幀
-      this.keyframes.push({
-        id: this.keyframeCounter,
-        position: newPosition
-      });
-      this.status = `新增關鍵幀: ${this.keyframeCounter}`;
+      console.log(" hi key frame ");
+      this.timeline.addKeyframe();
     },
-
-    // 選擇關鍵幀
     selectKeyframe(id) {
-      this.status = `選擇關鍵幀: ${id}`;
-    },
+      this.timeline.selectKeyframe(id);
 
-    // 新增時間軸元件
+    },
+    playAnimation() {
+      this.timeline.playAnimation();
+    },
+    stopAnimation() {
+      this.timeline.stopAnimation();
+    },
+    startDrag(e) {
+      this.timeline.startDrag(e, this.$refs.timelineTracks);
+    },
+    onDrag(e) {
+      this.timeline.onDrag(e, this.$refs.timelineTracks);
+    },
+    stopDrag() {
+      this.timeline.stopDrag();
+    },
     addTimelineComponent() {
-      this.status = '新增時間軸元件';
       alert('新增時間軸元件功能觸發');
     },
 
-    // 開始拖曳
-    startDrag(e) {
-      const target = e.target;
-      const container = this.$refs.timelineTracks;
-      const containerLeft = container.getBoundingClientRect().left;
-      const scrollLeft = container.scrollLeft;
-
-      if (target.classList.contains('keyframe')) {
-        // 開始拖曳關鍵幀
-        this.isDraggingKeyframe = true;
-        this.draggingKeyframeId = parseInt(target.getAttribute('data-id'));
-        this.startMouseX = e.pageX - containerLeft + scrollLeft;
-        this.startKeyframePosition = this.keyframes.find(k => k.id === this.draggingKeyframeId).position;
-      } else {
-        // 開始滾動時間軸
-        this.isDragging = true;
-        this.startX = e.pageX - containerLeft;
-        this.scrollLeft = scrollLeft;
-      }
-    },
-
-    // 拖曳中
-    onDrag(e) {
-      const container = this.$refs.timelineTracks;
-      const containerLeft = container.getBoundingClientRect().left;
-      const scrollLeft = container.scrollLeft;
-
-      if (this.isDraggingKeyframe) {
-        // 更新關鍵幀位置
-        const currentMouseX = e.pageX - containerLeft + scrollLeft;
-        const deltaX = currentMouseX - this.startMouseX;
-        const newPosition = (this.startKeyframePosition + (deltaX-deltaX%50));
-        console.log("new position :",newPosition);
-        const keyframe = this.keyframes.find(k => k.id === this.draggingKeyframeId);
-        keyframe.position = newPosition;
-      } else if (this.isDragging) {
-        // 滾動時間軸
-        e.preventDefault();
-        const x = e.pageX - containerLeft;
-        const walk = (x - this.startX);
-        this.$refs.timelineTracks.scrollLeft = this.scrollLeft - walk;
-      }
-    },
-
-    // 停止拖曳
-    stopDrag() {
-      if (this.isDraggingKeyframe) {
-        const draggedKeyframe = this.keyframes.find(k => k.id === this.draggingKeyframeId);
-        const finalPosition = draggedKeyframe.position;
-        // 移除任何其他位於 finalPosition 的關鍵幀
-        this.keyframes = this.keyframes.filter(k => k.id === this.draggingKeyframeId || k.position !== finalPosition);
-      }
-      this.isDragging = false;
-      this.isDraggingKeyframe = false;
-      this.draggingKeyframeId = null;
-    },
 
     // 將專案儲存到伺服器的API示例
     saveProjectToServer() {
@@ -631,7 +561,7 @@ const app = Vue.createApp({
 
       const projectData = {
         layers: this.layers,
-        keyframes: this.keyframes,
+        keyframes: timeline.keyframes,
         points: this.points
       };
 
@@ -722,10 +652,34 @@ const app = Vue.createApp({
         hasChildren: hasChildren,
         children: hasChildren ? node.children.map(child => this.renderHierarchicalData(child, nodeId)) : []
       };
-    }
+    },
+    buildBoneTree(boneIndex) {
+      console.log(`Building tree for bone ${boneIndex}`);
+      const boneId = `bone${boneIndex}`;
+      const boneName = `Bone ${boneIndex}`;
+      const children = boneChildren.value[boneIndex] || [];
+      console.log(`Children of bone ${boneIndex}:`, children);
+      return {
+        id: boneId,
+        name: boneName,
+        children: children.map(childIndex => this.buildBoneTree(childIndex))
+      };
+    },
+    toggleNode(nodeId) {
+      if (this.expandedNodes.includes(nodeId)) {
+        this.expandedNodes = this.expandedNodes.filter(id => id !== nodeId);
+      } else {
+        this.expandedNodes.push(nodeId);
+      }
+    },
+    handleNameClick(name) {
+      const boneIndex = parseInt(name.split(' ')[1]); // 從 "Bone 0" 中提取索引
+      selectedBoneForEditing.value = boneIndex; // 設置選中的骨頭
+      console.log('Selected bone for editing:', boneIndex);
+    },
   },
   setup() {
-   // const gl = ref(null);
+    // const gl = ref(null);
     const selectedVertex = ref(-1);
     const activeTool = ref('grab-point');
 
@@ -736,12 +690,12 @@ const app = Vue.createApp({
     var parentBoneIndex = -1;
     var lineIndex = 0;
     const minBoneLength = 0.1;
-    
+
     const glsInstance = new gls();
     const bonesInstance = new bones();
 
-  
-    
+
+
 
     const selectTool = (tool) => {
       if (activeTool.value === 'bone-animate' && tool !== 'bone-animate') {
@@ -771,7 +725,7 @@ const app = Vue.createApp({
       }
     };
 
-    const setupCanvasEvents = (canvas, gl, container)=> {
+    const setupCanvasEvents = (canvas, gl, container) => {
       let isDragging = false;
       let localSelectedVertex = -1;
       let startPosX = 0;
@@ -805,14 +759,16 @@ const app = Vue.createApp({
             selectedBoneForEditing.value = -1;
             editingBoneEnd.value = null;
 
+
             for (let i = 0; i < skeletonVertices.value.length; i += 4) {
               const headX = skeletonVertices.value[i];
               const headY = skeletonVertices.value[i + 1];
               const tailX = skeletonVertices.value[i + 2];
               const tailY = skeletonVertices.value[i + 3];
 
-              const distToHead = bonesInstance. calculateDistance(xNDC, yNDC, headX, headY);
-              const distToTail = bonesInstance. calculateDistance(xNDC, yNDC, tailX, tailY);
+              const distToHead = bonesInstance.calculateDistance(xNDC, yNDC, headX, headY);
+              const distToTail = bonesInstance.calculateDistance(xNDC, yNDC, tailX, tailY);
+
 
               if (distToHead < 0.1) {
                 selectedBoneForEditing.value = i / 4;
@@ -883,7 +839,7 @@ const app = Vue.createApp({
                 break;
               }
 
-              const distToSegment =glsInstance.distanceFromPointToSegment(xNDC, yNDC, headX, headY, tailX, tailY);
+              const distToSegment = glsInstance.distanceFromPointToSegment(xNDC, yNDC, headX, headY, tailX, tailY);
               if (distToSegment < 0.1 && distToSegment < minDistToSegment) {
                 minDistToSegment = distToSegment;
                 selectedBone.value = i / 4;
@@ -947,7 +903,7 @@ const app = Vue.createApp({
 
               const tailX = skeletonVertices.value[boneIndex * 4 + 2];
               const tailY = skeletonVertices.value[boneIndex * 4 + 3];
-              const rotatedTail =bonesInstance. rotatePoint(headX, headY, tailX, tailY, rotationAngle);
+              const rotatedTail = bonesInstance.rotatePoint(headX, headY, tailX, tailY, rotationAngle);
               skeletonVertices.value[boneIndex * 4 + 2] = rotatedTail.x;
               skeletonVertices.value[boneIndex * 4 + 3] = rotatedTail.y;
 
@@ -990,7 +946,7 @@ const app = Vue.createApp({
                 skeletonVertices.value[newBoneStart + 2],
                 skeletonVertices.value[newBoneStart + 3]
               );
-             glsInstance.computeVertexInfluences();
+              glsInstance.computeVertexInfluences();
             }
           }
         }
@@ -1061,7 +1017,7 @@ const app = Vue.createApp({
 
       if (skeletonVertices.value.length > 0) {
         gl.useProgram(skeletonProgram);
-        const { skeletonVbo, skeletonEbo, skeletonVerticesArray, skeletonIndicesArray } =glsInstance.createSkeletonBuffers(gl);
+        const { skeletonVbo, skeletonEbo, skeletonVerticesArray, skeletonIndicesArray } = glsInstance.createSkeletonBuffers(gl);
 
         const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
         gl.enableVertexAttribArray(skeletonPosAttrib);
@@ -1111,7 +1067,7 @@ const app = Vue.createApp({
 
       requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
     };
- 
+
 
     onMounted(async () => {
       const canvas = document.getElementById('webgl');
@@ -1119,9 +1075,9 @@ const app = Vue.createApp({
       const webglContext = canvas.getContext('webgl');
       gl.value = webglContext;
 
-      program.value =  glsInstance.createProgram(webglContext, shaders.vertex, shaders.fragment);
-      colorProgram.value =  glsInstance.createProgram(webglContext, shaders.colorVertex, shaders.colorFragment);
-      skeletonProgram.value =  glsInstance.createProgram(webglContext, shaders.skeletonVertex, shaders.skeletonFragment);
+      program.value = glsInstance.createProgram(webglContext, shaders.vertex, shaders.fragment);
+      colorProgram.value = glsInstance.createProgram(webglContext, shaders.colorVertex, shaders.colorFragment);
+      skeletonProgram.value = glsInstance.createProgram(webglContext, shaders.skeletonVertex, shaders.skeletonFragment);
 
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
@@ -1129,7 +1085,7 @@ const app = Vue.createApp({
       try {
         texture.value = await loadTexture(webglContext, './png3.png', imageData, imageWidth, imageHeight);
         glsInstance.createBuffers(webglContext);
-       
+
         setupCanvasEvents(canvas, webglContext, container);
         render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
         initBone(gl, program, texture, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
@@ -1140,16 +1096,54 @@ const app = Vue.createApp({
     });
 
     return {
-     selectTool,
+      selectTool,
       clearBones,
       saveBones,
       readBones,
-  
+      activeTool
     };
 
   }
 
 });
+const TreeItem = {
+  props: ['node', 'expandedNodes'],
+  template: `
+   <div class="tree-item">
+      <div class="tree-item-header">
+        <span class="tree-toggle-icon" 
+              :class="{ 'expanded': expandedNodes.includes(node.id) }" 
+              @click.stop="toggleNode(node.id)" 
+              v-if="node.children && node.children.length > 0">▶</span>
+        <span class="tree-item-name" 
+              @click.stop="handleNameClick(node.name)">{{ node.name }}</span>
+      </div>
+      <div class="tree-children" 
+           v-if="expandedNodes.includes(node.id)">
+        <tree-item 
+          v-for="child in node.children" 
+          :key="child.id" 
+          :node="child" 
+          :expanded-nodes="expandedNodes" 
+          @toggle-node="toggleNode" 
+          @name-click="handleNameClick">
+        </tree-item>
+      </div>
+    </div>
+  `,
+  methods: {
+    toggleNode(nodeId) {
+      console.log('Toggling node:', nodeId);
+      this.$emit('toggle-node', nodeId);
+    },
+    handleNameClick(name) {
+      console.log('Clicked name:', name);
+      this.$emit('name-click', name);
+    }
+  }
+};
 
+// 在主組件中註冊
+app.component('tree-item', TreeItem);
 // 掛載應用
 export default app;

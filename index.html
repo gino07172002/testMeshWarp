@@ -41,19 +41,25 @@
       <div class="main-container">
         <!-- 左側工具 -->
         <div class="toolbar">
-          <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')"  @contextmenu.prevent>grab-point</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }" @click="selectTool('bone-create')"  @contextmenu.prevent>bone-create</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-animate' }" @click="selectTool('bone-animate')"  @contextmenu.prevent>bone-animate</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-clear' }" @click="selectTool('bone-clear')"  @contextmenu.prevent>bone-clear</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-save' }" @click="selectTool('bone-save')"  @contextmenu.prevent>bone-save</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-read' }" @click="selectTool('bone-read')"  @contextmenu.prevent>bone-read</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')"
+            @contextmenu.prevent>grab-point</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }" @click="selectTool('bone-create')"
+            @contextmenu.prevent>bone-create</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-animate' }"
+            @click="selectTool('bone-animate')" @contextmenu.prevent>bone-animate</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-clear' }" @click="selectTool('bone-clear')"
+            @contextmenu.prevent>bone-clear</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-save' }" @click="selectTool('bone-save')"
+            @contextmenu.prevent>bone-save</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-read' }" @click="selectTool('bone-read')"
+            @contextmenu.prevent>bone-read</button>
         </div>
 
         <!-- 中間畫布 -->
-        <div class="canvas-area"  @contextmenu.prevent>
+        <div class="canvas-area" @contextmenu.prevent>
           <div class="image-container" ref="imageContainer" @contextmenu.prevent>
-            
-            <canvas class="image-canvas"  id="webgl" width="640" height="480" @contextmenu.prevent></canvas>
+
+            <canvas class="image-canvas" id="webgl" width="640" height="480" @contextmenu.prevent></canvas>
             <!--
             <br>
             <button @click="downloadImage" class="download-btn">Download Deformed Image</button>
@@ -79,100 +85,91 @@
 
 
 
-          <!-- 右側圖層 -->
-          <div class="layers-panel">
-            <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
-              <div class="panel-title">階層式物件</div>
+        <!-- 右側圖層 -->
+        <div class="layers-panel">
+          <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
+            <div class="panel-title">階層式物件</div>
+            <div class="layers-container">
+              <tree-item 
+                v-for="root in boneTree" 
+                :key="root.id" 
+                :node="root" 
+                :expanded-nodes="expandedNodes" 
+                @toggle-node="toggleNode" 
+                @name-click="handleNameClick">
+              </tree-item>
+            </div>
+          </div>
+
+
+          <div class="panel-section layers-section" style="height: 400px; flex: 0 0 400px;">
+            <div class="panel-title">圖層</div>
+            <div class="layers-content">
               <div class="layers-container">
-                <div class="tree-item">
-                  <div class="tree-item-header">
-                    <span class="tree-toggle-icon" :class="{ 'expanded': expandedNodes.includes('root') }"
-                      @click.stop="toggleNode('root')">▶</span>
-                    <span class="tree-item-name" @click.stop="handleNameClick('Root')">Root</span>
-                  </div>
-                  <div class="tree-children" v-if="expandedNodes.includes('root')">
-                    <div class="tree-item">
-                      <div class="tree-item-header">
-                        <span class="tree-toggle-icon" :class="{ 'expanded': expandedNodes.includes('child1') }"
-                          @click.stop="toggleNode('child1')">▶</span>
-                        <span class="tree-item-name" @click.stop="handleNameClick('Child1')">Child1</span>
-                      </div>
-                      <div class="tree-children" v-if="expandedNodes.includes('child1')">
-                        <div class="tree-item">
-                          <div class="tree-item-header">
-                            <span class="tree-item-name" @click.stop="handleNameClick('GrandChild')">GrandChild</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="tree-item">
-                      <div class="tree-item-header">
-                        <span class="tree-item-name" @click.stop="handleNameClick('Child2')">Child2</span>
-                      </div>
-                    </div>
-                  </div>
+                <div v-for="layer in layers" :key="layer.id" class="layer-item"
+                  :class="{ active: layer.id === selectedLayerId }" @click="selectLayer(layer.id)">
+                  {{ layer.name }}
                 </div>
               </div>
-            </div>
-
-
-            <div class="panel-section layers-section" style="height: 400px; flex: 0 0 400px;">
-              <div class="panel-title">圖層</div>
-              <div class="layers-content">
-                <div class="layers-container">
-                  <div v-for="layer in layers" :key="layer.id" class="layer-item"
-                    :class="{ active: layer.id === selectedLayerId }" @click="selectLayer(layer.id)">
-                    {{ layer.name }}
-                  </div>
-                </div>
-                <div class="layers-actions">
-                  <button class="layer-btn" @click="addLayer">新增圖層</button>
-                  <button class="layer-btn" @click="deleteLayer">刪除選中圖層</button>
-                  <button class="layer-btn" @click="saveLayerToServer">儲存圖層到伺服器</button>
-                </div>
+              <div class="layers-actions">
+                <button class="layer-btn" @click="addLayer">新增圖層</button>
+                <button class="layer-btn" @click="deleteLayer">刪除選中圖層</button>
+                <button class="layer-btn" @click="saveLayerToServer">儲存圖層到伺服器</button>
               </div>
-            </div>
-          </div>
-
-
-
-
-        </div>
-
-        <div class="timeline">
-          <div class="timeline-header">
-            <div class="timeline-title">動畫時間軸</div>
-            <div class="timeline-controls">
-              <button class="timeline-btn" @click="addKeyframe">新增Key點</button>
-              <button class="timeline-btn" @click="addTimelineComponent">新增時間軸元件</button>
-            </div>
-          </div>
-          <div class="timeline-content">
-            <div class="timeline-layers">
-              <div v-for="layer in layers" :key="'timeline-' + layer.id" class="timeline-layer-item">
-                {{ layer.name }}
-              </div>
-            </div>
-            <div class="timeline-tracks" ref="timelineTracks" @mousedown="startDrag" @mousemove="onDrag" @mouseup="stopDrag" @mouseleave="stopDrag">
-              <div v-for="keyframe in keyframes" :key="keyframe.id" class="keyframe"
-                   :style="{ left: keyframe.position + 'px' }" :data-id="keyframe.id" :title="'Keyframe ' + keyframe.id"
-                   @click.stop="selectKeyframe(keyframe.id)"></div>
             </div>
           </div>
         </div>
-        
-        <!-- 狀態列 -->
-        <div class="status-bar">
-          <div class="status-item">狀態: {{ status }}</div>
+
+
+
+
+      </div>
+
+      <div class="timeline">
+        <div class="timeline-header">
+          <div class="timeline-title">動畫時間軸</div>
+          <div class="timeline-controls">
+            <button class="timeline-btn" @click="addKeyframe">新增Key點</button>
+            <button class="timeline-btn" @click="addTimelineComponent">新增時間軸元件</button>
+            <!-- 新增播放控制按鈕 -->
+            <button class="timeline-btn" @click="playAnimation">播放動畫</button>
+            <button class="timeline-btn" @click="stopAnimation">停止動畫</button>
+            
+          </div>
+        </div>
+        <div class="timeline-content">
+          <div class="timeline-layers">
+            <div v-for="layer in layers" :key="'timeline-' + layer.id" class="timeline-layer-item">
+              {{ layer.name }}
+            </div>
+          </div>
+          <div class="timeline-tracks" ref="timelineTracks" @mousedown="startDrag" @mousemove="onDrag" @mouseup="stopDrag" @mouseleave="stopDrag">
+            <!-- 新增時間軸刻度 -->
+            <div class="timeline-scale" :style="{ width: timelineLength + 'px' }">
+              <span v-for="n in Math.ceil(timelineLength / 50)" :key="n" class="scale-mark" :style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
+            </div>
+            <!-- 關鍵幀 -->
+            <div v-for="keyframe in keyframes" :key="keyframe.id" class="keyframe"
+                 :style="{ left: keyframe.position + 'px' }" :data-id="keyframe.id" :title="'Keyframe ' + keyframe.id"
+                 @click.stop="selectKeyframe(keyframe.id)"></div>
+            <!-- 新增播放頭 -->
+            <div class="playhead" :style="{ left: playheadPosition + 'px' }"></div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <script type="module">
-      // 創建應用
-      import app from './app.js';
-      app.mount('#app');
-    </script>
+      <!-- 狀態列 -->
+      <div class="status-bar">
+        <div class="status-item">狀態: {{ status }}</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // 創建應用
+    import app from './app.js';
+    app.mount('#app');
+  </script>
 </body>
 
 </html>
