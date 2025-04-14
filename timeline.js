@@ -1,8 +1,13 @@
+//timeline.js
+
 import {
     skeletonVertices,
-    initBone
+    initBone,
+    selectedBoneForEditing
   } from './useBone.js';
-  
+
+  import { selectedBone } from './app.js'; // 直接導入 selectedBone
+
   export default class Timeline {
     constructor(options = {}) {
       this.keyframes = [];
@@ -23,7 +28,7 @@ import {
     }
   
     addKeyframe() {
-        console.log("timeline add class...");
+        console.log("hi selected bone at addkeyframe : ",selectedBone.value);
       this.keyframeCounter++;
       const newPosition = 50 * this.keyframeCounter;
       this.keyframes = this.keyframes.filter(k => k.position !== newPosition);

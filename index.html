@@ -60,24 +60,7 @@
           <div class="image-container" ref="imageContainer" @contextmenu.prevent>
 
             <canvas class="image-canvas" id="webgl" width="640" height="480" @contextmenu.prevent></canvas>
-            <!--
-            <br>
-            <button @click="downloadImage" class="download-btn">Download Deformed Image</button>
-            <img class="image-canvas" id="main-image" :src="imageData" alt="讀取圖片" @mousedown="handleCanvasMouseDown"
-              @mousemove="handleCanvasMouseMove" @mouseup="handleCanvasMouseUp" @contextmenu.prevent>-->
 
-            <!-- 此覆蓋層用於呈現點擊新增的圓圈
-            <div class="overlay-canvas">
-              <div v-for="(point, index) in points" :key="index" class="point" :style="{
-                  position: 'absolute',
-                  width: '10px',
-                  height: '10px',
-                  borderRadius: '50%',
-                  backgroundColor: 'red',
-                  left: point.x + 'px',
-                  top: point.y + 'px'
-                }"></div>
-            </div> -->
           </div>
           <!-- 清除所有點的按鈕 -->
           <button @click="clearPoints" style="position:absolute; top:10px; right:10px; z-index:100;">清除點</button>
@@ -90,26 +73,21 @@
           <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
             <div class="panel-title">階層式物件</div>
             <div class="layers-container">
-              <tree-item 
-                v-for="root in boneTree" 
-                :key="root.id" 
-                :node="root" 
-                :expanded-nodes="expandedNodes" 
-                @toggle-node="toggleNode" 
-                @name-click="handleNameClick">
+              <tree-item v-for="root in boneTree" :key="root.id" :node="root" :expanded-nodes="expandedNodes"
+                :selected-bone="selectedBone" @toggle-node="toggleNode" @name-click="handleNameClick">
               </tree-item>
             </div>
           </div>
+
 
 
           <div class="panel-section layers-section" style="height: 400px; flex: 0 0 400px;">
             <div class="panel-title">圖層</div>
             <div class="layers-content">
               <div class="layers-container">
-                <div v-for="layer in layers" :key="layer.id" class="layer-item"
-                  :class="{ active: layer.id === selectedLayerId }" @click="selectLayer(layer.id)">
-                  {{ layer.name }}
-                </div>
+                
+
+              
               </div>
               <div class="layers-actions">
                 <button class="layer-btn" @click="addLayer">新增圖層</button>
@@ -134,24 +112,27 @@
             <!-- 新增播放控制按鈕 -->
             <button class="timeline-btn" @click="playAnimation">播放動畫</button>
             <button class="timeline-btn" @click="stopAnimation">停止動畫</button>
-            
+
           </div>
         </div>
         <div class="timeline-content">
           <div class="timeline-layers">
-            <div v-for="layer in layers" :key="'timeline-' + layer.id" class="timeline-layer-item">
-              {{ layer.name }}
-            </div>
+
+            <tree-item   v-for="root in boneTree" :key="'timeline-' +root.id" :node="root" :expanded-nodes="expandedNodes"
+            :selected-bone="selectedBone" @toggle-node="toggleNode" @name-click="handleNameClick">
+          </tree-item>
           </div>
-          <div class="timeline-tracks" ref="timelineTracks" @mousedown="startDrag" @mousemove="onDrag" @mouseup="stopDrag" @mouseleave="stopDrag">
+          <div class="timeline-tracks" ref="timelineTracks" @mousedown="startDrag" @mousemove="onDrag"
+            @mouseup="stopDrag" @mouseleave="stopDrag">
             <!-- 新增時間軸刻度 -->
             <div class="timeline-scale" :style="{ width: timelineLength + 'px' }">
-              <span v-for="n in Math.ceil(timelineLength / 50)" :key="n" class="scale-mark" :style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
+              <span v-for="n in Math.ceil(timelineLength / 50)" :key="n" class="scale-mark"
+                :style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
             </div>
             <!-- 關鍵幀 -->
             <div v-for="keyframe in keyframes" :key="keyframe.id" class="keyframe"
-                 :style="{ left: keyframe.position + 'px' }" :data-id="keyframe.id" :title="'Keyframe ' + keyframe.id"
-                 @click.stop="selectKeyframe(keyframe.id)"></div>
+              :style="{ left: keyframe.position + 'px' }" :data-id="keyframe.id" :title="'Keyframe ' + keyframe.id"
+              @click.stop="selectKeyframe(keyframe.id)"></div>
             <!-- 新增播放頭 -->
             <div class="playhead" :style="{ left: playheadPosition + 'px' }"></div>
           </div>
