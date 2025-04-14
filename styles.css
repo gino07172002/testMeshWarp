@@ -302,15 +302,62 @@ body {
     cursor: pointer;
   }
 
-.timeline {
-    height: 120px;
+  .timeline {
+    height: 300px; /* 增加高度以容納多層軌道 */
     background-color: #333;
     border-top: 1px solid #3a3a3a;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-}
-
+  }
+  
+  .timeline-header {
+    display: flex;
+    align-items: center;
+    padding: 5px;
+    background-color: #1a1a1a;
+  }
+  
+  .timeline-scale {
+    position: absolute;
+    top: -20px;
+    height: 20px;
+    pointer-events: none;
+  }
+  
+  .timeline-tracks {
+    position: relative;
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: auto; /* 允許垂直滾動以查看所有軌道 */
+  }
+  
+  .timeline-track {
+    position: absolute;
+    height: 20px;
+    width: 100%;
+    background-color: #444;
+    border-bottom: 1px solid #555;
+  }
+  
+  .keyframe {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background-color: #ff0;
+    border-radius: 50%;
+    cursor: pointer;
+    top: 5px; /* 居中於軌道 */
+  }
+  
+  .playhead {
+    position: absolute;
+    width: 2px;
+    height: 100%;
+    background-color: red;
+    top: 0;
+    pointer-events: none;
+  }
 .timeline-header {
     display: flex;
     align-items: center;
