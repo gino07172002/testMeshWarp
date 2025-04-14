@@ -1,5 +1,5 @@
 const { createApp, onMounted, ref } = Vue;
-export const selectedBone = ref(-1); 
+export const selectedBone = ref(-1);
 
 import {
   initBone,
@@ -213,7 +213,9 @@ const app = Vue.createApp({
         .map((parent, index) => (parent === -1 ? index : null))
         .filter(index => index !== null);
       return rootBones.map(rootIndex => this.buildBoneTree(rootIndex));
-    }
+    },
+
+   
   },
   beforeUnmount() {
     clearInterval(this.updateTimer);
@@ -635,10 +637,10 @@ const app = Vue.createApp({
                 skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
                 selectedBone.value = newBoneIndex;
               } else {
-                
-                console.log("hi parent Bone :",parentBoneIndex," select bone:",selectedBone.value);
-                if(selectedBone.value!=-1)
-                  parentBoneIndex=selectedBone.value;
+
+                console.log("hi parent Bone :", parentBoneIndex, " select bone:", selectedBone.value);
+                if (selectedBone.value != -1)
+                  parentBoneIndex = selectedBone.value;
                 boneParents.value.push(parentBoneIndex);
                 if (isShiftPressed.value) {
                   const parentTailX = skeletonVertices.value[parentBoneIndex * 4 + 2];
