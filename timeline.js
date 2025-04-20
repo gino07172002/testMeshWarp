@@ -28,28 +28,36 @@ export default class Timeline {
 
   // 添加關鍵幀，根據當前選中的骨骼
   addKeyframe() {
+    console.log("test this...");
     if (!selectedBone.value) {
       alert('請先選擇一個骨骼');
       return;
     }
-    const boneId = selectedBone.value.id;
+  ///  console.log(" what'my select bone .",JSON.stringify(selectedBone.value));
+    const boneId = selectedBone.value;
     if (!this.keyframes[boneId]) {
       this.keyframes[boneId] = [];
     }
     this.keyframeCounter++;
     const newPosition = 50 * this.keyframeCounter;
     const skeletonPose = [...skeletonVertices.value];
+   
+    console.log("what's my bone id ? ",boneId);
     this.keyframes[boneId].push({
       id: this.keyframeCounter,
       position: newPosition,
       skeletonPose: skeletonPose,
     });
-    console.log("key frame count : ", this.keyframeCounter);
+    console.log("this frame size:",this.keyframes[boneId].length);
+    //console.log("hi keyframes? ",JSON.stringify(this.keyframes[boneId]));
+    //console.log("key frame count : ", this.keyframeCounter);
     this.status = `新增關鍵幀: ${this.keyframeCounter} 給骨骼: ${boneId}`;
+    console.log("timeline.keyframes size: ",JSON.stringify(this.keyframes[boneId]));
   }
 
   // 選擇關鍵幀，根據骨骼ID和關鍵幀ID
   selectKeyframe(boneId, keyframeId) {
+    console.log(" hi select key frame",boneId,keyframeId);
     const keyframe = this.keyframes[boneId]?.find(k => k.id === keyframeId);
     if (keyframe && keyframe.skeletonPose) {
       skeletonVertices.value = [...keyframe.skeletonPose];
@@ -98,6 +106,7 @@ export default class Timeline {
 
   // 開始拖曳
   startDrag(e, container) {
+    console.log(" hi start dragging... ");
     const target = e.target;
     const containerLeft = container.getBoundingClientRect().left;
     const scrollLeft = container.scrollLeft;
@@ -107,6 +116,8 @@ export default class Timeline {
       this.draggingKeyframeId = parseInt(target.getAttribute('data-id'));
       this.draggingBoneId = target.getAttribute('data-bone-id');
       this.startMouseX = e.pageX - containerLeft + scrollLeft;
+      console.log(" key frame size: ",JSON.stringify(this.keyframes));
+      console.log(" key frame size2: ",this.keyframes[this.draggingBoneId].length);
       this.startKeyframePosition = this.keyframes[this.draggingBoneId].find(k => k.id === this.draggingKeyframeId).position;
     } else {
       this.isDragging = true;

@@ -85,9 +85,9 @@
             <div class="panel-title">圖層</div>
             <div class="layers-content">
               <div class="layers-container">
-                
 
-              
+
+
               </div>
               <div class="layers-actions">
                 <button class="layer-btn" @click="addLayer">新增圖層</button>
@@ -97,54 +97,70 @@
             </div>
           </div>
         </div>
-
-
-
-
       </div>
 
-      <div class="timeline">
+      <div class="timeline" v-on:contextmenu.prevent>
         <div class="timeline-header">
           <div class="timeline-title">動畫時間軸</div>
           <div class="timeline-controls">
-            <button class="timeline-btn" @click="addKeyframe">新增Key點</button>
-            <button class="timeline-btn" @click="addTimelineComponent">新增時間軸元件</button>
-            <button class="timeline-btn" @click="playAnimation">播放動畫</button>
-            <button class="timeline-btn" @click="stopAnimation">停止動畫</button>
+            <button class="timeline-btn" v-on:click="addKeyframe">新增Key點</button>
+            <button class="timeline-btn" v-on:click="addTimelineComponent">新增時間軸元件</button>
+            <button class="timeline-btn" v-on:click="playAnimation">播放動畫</button>
+            <button class="timeline-btn" v-on:click="stopAnimation">停止動畫</button>
           </div>
         </div>
         <div class="timeline-content">
-          <div class="timeline-layers">
-            <tree-item v-for="root in boneTree" :key="'timeline-' + root.id" :node="root" :expanded-nodes="expandedNodes"
-              :selected-bone="selectedBone" @toggle-node="toggleNode" @name-click="handleNameClick">
-            </tree-item>
+          <div class="timeline-layers" id="timelineLayers">
+            <div v-for="bone in flattenedBones" v-bind:key="'layer-' + bone.id" class="tree-item-content"
+              v-bind:class="{ 'selected': selectedBone && selectedBone.id === bone.id }" v-on:click="selectBone(bone)">
+              <span v-for="n in bone.level" class="tree-indent"></span>
+              <span v-if="bone.children && bone.children.length" class="layer-toggle"
+                v-on:click.stop="toggleNode(bone)">
+                {{ expandedNodes.includes(bone.id) ? '▼' : '►' }}
+              </span>
+              <span v-else class="tree-indent"></span>
+              <span>{{ bone.name }}</span>
+            </div>
           </div>
-          <div class="timeline-tracks" ref="timelineTracks" @mousedown="startDrag" @mousemove="onDrag"
-            @mouseup="stopDrag" @mouseleave="stopDrag">
-            <!-- 時間軸刻度 -->
-            <div class="timeline-scale" :style="{ width: timelineLength + 'px' }">
-              <span v-for="n in Math.ceil(timelineLength / 50)" :key="n" class="scale-mark"
-                :style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
+          <div class="timeline-tracks" id="timelineTracks" ref="timelineTracks" v-on:mousedown="startDrag"
+            v-on:mousemove="onDrag" v-on:mouseup="stopDrag" v-on:mouseleave="stopDrag">
+            <div class="timeline-scale" v-bind:style="{ width: timelineLength + 'px' }">
+              <span v-for="n in Math.ceil(timelineLength / 50)" v-bind:key="n" class="scale-mark"
+                v-bind:style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
             </div>
-            <!-- 為每個骨骼創建軌道
-            <div v-for="bone in flattenedBones" :key="'track-' + bone.id" class="timeline-track"
-              :style="{ top: bone.trackY + 'px' }">
-              <div v-for="keyframe in keyframes[bone.id]" :key="keyframe.id" class="keyframe"
-                :style="{ left: keyframe.position + 'px' }" :data-id="keyframe.id" :data-bone-id="bone.id"
-                :title="'Keyframe ' + keyframe.id" @click.stop="selectKeyframe(bone.id, keyframe.id)"></div>
+            
+            <div id="trackContainer" ref="trackContainer" @mousedown="timeline.startDrag($event, $refs.trackContainer)"
+              class="timeline-container">
+              <div v-for="bone in flattenedBones" v-bind:key="'track-' + bone.id" class="timeline-track"
+                v-bind:style="{ top: bone.trackY + 'px' }">
+                <div v-for="keyframe in timeline.keyframes[bone.id]" v-bind:key="keyframe.id" class="keyframe"
+                  @mousedown.stop="timeline.startDrag($event, $refs.trackContainer)"
+                  v-bind:style="{ left: keyframe.position + 'px' }"
+                  v-bind:class="{ 'selected': timeline.selectedKeyframe?.id === keyframe.id }"
+                  v-bind:title="'Keyframe ' + keyframe.id">
+                </div>
+              </div>
             </div>
-             -->
-            <!-- 播放頭 -->
-            <div class="playhead" :style="{ left: playheadPosition + 'px' }"></div>
+
+            <div id="timeSelection" class="time-selection"
+              v-bind:style="{ display: timeSelection.active ? 'block' : 'none', left: timeSelection.start + 'px', width: (timeSelection.end - timeSelection.start) + 'px' }">
+            </div>
+            <!--
+            <div id="playhead" class="playhead" v-bind:style="{ left: playheadPosition + 'px' }"
+                 v-on:mousedown="startPlayheadDrag"></div>
+            <div id="timeIndicator" class="current-time-indicator" v-bind:style="{ left: playheadPosition + 'px' }">
+              {{ (playheadPosition / 50).toFixed(2) }}s -->
           </div>
         </div>
       </div>
-
-      <!-- 狀態列 -->
-      <div class="status-bar">
-        <div class="status-item">狀態: {{ status }}</div>
-      </div>
     </div>
+
+
+    <!-- 狀態列 -->
+    <div class="status-bar">
+      <div class="status-item">狀態: {{ status }}</div>
+    </div>
+  </div>
   </div>
 
   <script type="module">

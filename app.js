@@ -176,8 +176,12 @@ const app = Vue.createApp({
       dragStartY: 0,
       playheadPosition: 0,
       timelineLength: 1000,
-      isPlaying: false,
-      animationStartTime: null,
+      playheadPosition: 0,
+      dragInfo: { dragging: false, startX: 0, type: null },
+      timeSelection: { active: false, start: 0, end: 0 },
+      animationPlaying: false,
+      animationStartTime: 0,
+      nextKeyframeId: 10,
       timeline: null,
       hierarchicalData: {
         children: [
@@ -214,8 +218,15 @@ const app = Vue.createApp({
         .filter(index => index !== null);
       return rootBones.map(rootIndex => this.buildBoneTree(rootIndex));
     },
+    flattenedBones() {
+      let result = [];
+      this.boneTree.forEach(root => {
+        this.timeline.getFlattenedBones(root, 0, result);
+      });
+      console.log(" hi flattenBones: ", JSON.stringify(result));
+      return result;
+    }
 
-   
   },
   beforeUnmount() {
     clearInterval(this.updateTimer);
@@ -410,29 +421,83 @@ const app = Vue.createApp({
         this.status = '沒有選擇圖層';
       }
     },
+    selectBone(bone) {
+      this.selectedBone = bone;
+      this.selectedKeyframe = null;
+    },
+    selectKeyframe(boneId, keyframeId) {
+      const bone = this.flattenedBones.find(b => b.id === boneId);
+      if (bone) {
+        this.selectedBone = bone;
+        this.selectedKeyframe = this.timeline.keyframes[boneId]?.find(k => k.id === keyframeId) || null;
+      }
+    },
     addKeyframe() {
-      this.timeline.addKeyframe();
-    },
-    selectKeyframe(id) {
-      this.timeline.selectKeyframe(id);
-    },
-    playAnimation() {
-      this.timeline.playAnimation();
-    },
-    stopAnimation() {
-      this.timeline.stopAnimation();
-    },
-    startDrag(e) {
-      this.timeline.startDrag(e, this.$refs.timelineTracks);
-    },
-    onDrag(e) {
-      this.timeline.onDrag(e, this.$refs.timelineTracks);
-    },
-    stopDrag() {
-      this.timeline.stopDrag();
+      if (!this.selectedBone) {
+        alert('請先選擇一個骨骼');
+        return;
+      }
+      if (!this.timeline.keyframes[this.selectedBone.id]) {
+        this.timeline.keyframes[this.selectedBone.id] = [];
+      }
+      const newKeyframe = {
+        id: this.nextKeyframeId++,
+        position: this.playheadPosition,
+        time: this.playheadPosition / 50
+      };
+      this.timeline.keyframes[this.selectedBone.id].push(newKeyframe);
+      this.selectKeyframe(this.selectedBone.id, newKeyframe.id);
     },
     addTimelineComponent() {
-      alert('新增時間軸元件功能觸發');
+      alert('新增時間軸元件功能');
+    },
+    playAnimation() {
+      if (this.animationPlaying) return;
+      this.animationPlaying = true;
+      this.animationStartTime = performance.now();
+      const animate = (timestamp) => {
+        if (!this.animationPlaying) return;
+        const elapsed = timestamp - this.animationStartTime;
+        this.playheadPosition = (elapsed / 20) % this.timelineLength;
+        requestAnimationFrame(animate);
+      };
+      requestAnimationFrame(animate);
+    },
+    stopAnimation() {
+      this.animationPlaying = false;
+    },
+    startDrag(event) {
+      const tracksRect = this.$refs.timelineTracks.getBoundingClientRect();
+      const offsetX = event.clientX - tracksRect.left;
+      this.dragInfo = { dragging: true, startX: event.clientX, type: 'selection', offsetX };
+      this.timeSelection = { active: true, start: offsetX, end: offsetX };
+      this.playheadPosition = offsetX;
+    },
+    startPlayheadDrag(event) {
+      event.stopPropagation();
+      this.dragInfo = { dragging: true, startX: event.clientX, type: 'playhead' };
+    },
+    onDrag(event) {
+      if (!this.dragInfo.dragging) return;
+      const tracksRect = this.$refs.timelineTracks.getBoundingClientRect();
+      let newPosition = event.clientX - tracksRect.left;
+      newPosition = Math.max(0, Math.min(newPosition, this.timelineLength));
+
+      if (this.dragInfo.type === 'playhead') {
+        this.playheadPosition = newPosition;
+      } else if (this.dragInfo.type === 'selection') {
+        if (newPosition >= this.dragInfo.offsetX) {
+          this.timeSelection.start = this.dragInfo.offsetX;
+          this.timeSelection.end = newPosition;
+        } else {
+          this.timeSelection.start = newPosition;
+          this.timeSelection.end = this.dragInfo.offsetX;
+        }
+        this.playheadPosition = newPosition;
+      }
+    },
+    stopDrag() {
+      this.dragInfo.dragging = false;
     },
     saveProjectToServer() {
       this.status = '正在儲存專案...';
