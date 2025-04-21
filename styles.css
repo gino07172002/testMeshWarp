@@ -463,6 +463,41 @@ body {
     z-index: 1;
 }
 
+.timeline-range-container {
+    position: absolute;
+    top: 0;
+    height: 24px;
+    pointer-events: none;
+  }
+  
+  .timeline-range {
+    position: absolute;
+    height: 4px;
+    bottom: 0;
+    background-color: rgba(65, 137, 230, 0.3);
+    pointer-events: none;
+  }
+  
+  .range-handle {
+    position: absolute;
+    width: 8px;
+    height: 24px;
+    background-color: #4189e6;
+    cursor: ew-resize;
+    pointer-events: all;
+    transform: translateX(-4px);
+  }
+  
+  .start-handle {
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+  }
+  
+  .end-handle {
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+  }
+
 .scale-mark {
     position: absolute;
     top: 6px;

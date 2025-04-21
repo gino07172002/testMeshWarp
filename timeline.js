@@ -16,7 +16,11 @@ export default class Timeline {
     this.playheadPosition = 0;
     this.isPlaying = false;
     this.animationStartTime = null;
-
+    this.timeRange = {
+      start: 0,
+      end: 500,
+      dragging: null
+    };
     this.status = '';
 
     // 拖曳用
@@ -24,6 +28,8 @@ export default class Timeline {
     this.isDraggingKeyframe = false;
     this.draggingKeyframeId = null;
     this.draggingBoneId = null; // 新增，用於追踪拖曳的骨骼ID
+
+    console.log(" hi make timeline! ");
   }
 
   // 添加關鍵幀，根據當前選中的骨骼
@@ -41,6 +47,7 @@ export default class Timeline {
     this.keyframeCounter++;
     const newPosition = 50 * this.keyframeCounter;
     const skeletonPose = [...skeletonVertices.value];
+
    
     console.log("what's my bone id ? ",boneId);
     this.keyframes[boneId].push({
@@ -106,37 +113,45 @@ export default class Timeline {
 
   // 開始拖曳
   startDrag(e, container) {
-    console.log(" hi start dragging... ");
+    console.log("hi start dragging...");
     const target = e.target;
     const containerLeft = container.getBoundingClientRect().left;
     const scrollLeft = container.scrollLeft;
-
+    
     if (target.classList.contains('keyframe')) {
+      const keyframeId = parseInt(target.getAttribute('data-id'));
+      const boneId = target.getAttribute('data-bone-id');
+      const keyframe = this.keyframes[boneId].find(k => k.id === keyframeId);
+      
       this.isDraggingKeyframe = true;
-      this.draggingKeyframeId = parseInt(target.getAttribute('data-id'));
-      this.draggingBoneId = target.getAttribute('data-bone-id');
+      this.draggingKeyframe = keyframe; // Store direct reference to keyframe
+      this.draggingBoneId = boneId;
       this.startMouseX = e.pageX - containerLeft + scrollLeft;
-      console.log(" key frame size: ",JSON.stringify(this.keyframes));
-      console.log(" key frame size2: ",this.keyframes[this.draggingBoneId].length);
-      this.startKeyframePosition = this.keyframes[this.draggingBoneId].find(k => k.id === this.draggingKeyframeId).position;
+      this.startKeyframePosition = keyframe.position;
+      
+      // Select the keyframe being dragged
+      this.selectKeyframe(boneId, keyframeId);
     } else {
       this.isDragging = true;
       this.startX = e.pageX - containerLeft;
       this.scrollLeft = scrollLeft;
     }
   }
-
+  
   // 拖曳中
   onDrag(e, container) {
+
+    //console.log("on dragging.... is drag?  ", this.isDragging);
     const containerLeft = container.getBoundingClientRect().left;
     const scrollLeft = container.scrollLeft;
-
-    if (this.isDraggingKeyframe) {
+    
+    if (this.isDraggingKeyframe && this.draggingKeyframe) {
       const currentMouseX = e.pageX - containerLeft + scrollLeft;
       const deltaX = currentMouseX - this.startMouseX;
       const newPosition = Math.max(0, this.startKeyframePosition + (deltaX - deltaX % 50));
-      const keyframe = this.keyframes[this.draggingBoneId].find(k => k.id === this.draggingKeyframeId);
-      keyframe.position = newPosition;
+      
+      // Directly update the keyframe position using the stored reference
+      this.draggingKeyframe.position = newPosition;
     } else if (this.isDragging) {
       e.preventDefault();
       const x = e.pageX - containerLeft;
@@ -144,20 +159,35 @@ export default class Timeline {
       container.scrollLeft = this.scrollLeft - walk;
     }
   }
-
+  
   // 停止拖曳
   stopDrag() {
-    if (this.isDraggingKeyframe) {
-      const draggedKeyframe = this.keyframes[this.draggingBoneId].find(k => k.id === this.draggingKeyframeId);
-      const finalPosition = draggedKeyframe.position;
+    if (this.isDraggingKeyframe && this.draggingKeyframe && this.draggingBoneId) {
+      const finalPosition = this.draggingKeyframe.position;
+      
+      // Remove any other keyframes at the same position
       this.keyframes[this.draggingBoneId] = this.keyframes[this.draggingBoneId].filter(
-        k => k.id === this.draggingKeyframeId || k.position !== finalPosition
+        k => k === this.draggingKeyframe || k.position !== finalPosition
       );
     }
+    
     this.isDragging = false;
     this.isDraggingKeyframe = false;
-    this.draggingKeyframeId = null;
+    this.draggingKeyframe = null;
     this.draggingBoneId = null;
+  }
+  
+  selectKeyframe(boneId, keyframeId) {
+    console.log("hi select key frame", boneId, keyframeId);
+    const keyframe = this.keyframes[boneId]?.find(k => k.id === keyframeId);
+    
+    if (keyframe && keyframe.skeletonPose) {
+      skeletonVertices.value = [...keyframe.skeletonPose];
+      initBone()?.prototype.updateMeshForSkeletonPose?.();
+    }
+    
+    this.selectedKeyframe = keyframe; // Store reference to selected keyframe
+    this.status = `選擇關鍵幀: ${keyframeId} 給骨骼: ${boneId}`;
   }
 
   // 新增方法：展平骨骼樹並計算Y位置
