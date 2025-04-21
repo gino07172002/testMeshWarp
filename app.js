@@ -202,15 +202,19 @@ const app = Vue.createApp({
       expandedNodes: []
     };
   },
-  mounted() {
+  async  mounted() {
     document.addEventListener('click', this.handleClickOutside);
     this.startImageUpdates();
     this.addLayer();
+    console.log("somehow mount here ... ");
     this.timeline = new Timeline();
   },
   computed: {
     keyframes() {
       return this.timeline?.keyframes || [];
+    },
+    timeRange(){
+      return this.timeline?.timeRange || {  qq:123};
     },
     boneTree() {
       const rootBones = boneParents.value

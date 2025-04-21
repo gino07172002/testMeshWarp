@@ -111,33 +111,35 @@
         </div>
         <div class="timeline-content">
           <div class="timeline-layers" id="timelineLayers">
+
+
             <div v-for="bone in flattenedBones" v-bind:key="'layer-' + bone.id" class="tree-item-content"
               v-bind:class="{ 'selected': selectedBone && selectedBone.id === bone.id }" v-on:click="selectBone(bone)">
-              <span v-for="n in bone.level" class="tree-indent"></span>
-              <span v-if="bone.children && bone.children.length" class="layer-toggle"
-                v-on:click.stop="toggleNode(bone)">
-                {{ expandedNodes.includes(bone.id) ? '▼' : '►' }}
-              </span>
-              <span v-else class="tree-indent"></span>
-              <span>{{ bone.name }}</span>
+              <span>{{ bone.id}}</span>
+
             </div>
           </div>
+
+
           <div class="timeline-tracks" id="timelineTracks" ref="timelineTracks" v-on:mousedown="startDrag"
             v-on:mousemove="onDrag" v-on:mouseup="stopDrag" v-on:mouseleave="stopDrag">
             <div class="timeline-scale" v-bind:style="{ width: timelineLength + 'px' }">
               <span v-for="n in Math.ceil(timelineLength / 50)" v-bind:key="n" class="scale-mark"
                 v-bind:style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
+                
             </div>
-            
+
             <div id="trackContainer" ref="trackContainer" @mousedown="timeline.startDrag($event, $refs.trackContainer)"
-              class="timeline-container">
+              @mousemove="timeline.onDrag($event, $refs.trackContainer)" @mouseup="timeline.stopDrag()"
+              @mouseleave="timeline.stopDrag()" class="timeline-container">
               <div v-for="bone in flattenedBones" v-bind:key="'track-' + bone.id" class="timeline-track"
                 v-bind:style="{ top: bone.trackY + 'px' }">
                 <div v-for="keyframe in timeline.keyframes[bone.id]" v-bind:key="keyframe.id" class="keyframe"
                   @mousedown.stop="timeline.startDrag($event, $refs.trackContainer)"
                   v-bind:style="{ left: keyframe.position + 'px' }"
-                  v-bind:class="{ 'selected': timeline.selectedKeyframe?.id === keyframe.id }"
-                  v-bind:title="'Keyframe ' + keyframe.id">
+                  v-bind:class="{ 'selected': timeline.selectedKeyframe === keyframe }"
+                  v-bind:title="'Keyframe ' + keyframe.id" :data-id="keyframe.id" :data-bone-id="bone.id">
+              
                 </div>
               </div>
             </div>
@@ -145,11 +147,11 @@
             <div id="timeSelection" class="time-selection"
               v-bind:style="{ display: timeSelection.active ? 'block' : 'none', left: timeSelection.start + 'px', width: (timeSelection.end - timeSelection.start) + 'px' }">
             </div>
-            <!--
+
             <div id="playhead" class="playhead" v-bind:style="{ left: playheadPosition + 'px' }"
                  v-on:mousedown="startPlayheadDrag"></div>
             <div id="timeIndicator" class="current-time-indicator" v-bind:style="{ left: playheadPosition + 'px' }">
-              {{ (playheadPosition / 50).toFixed(2) }}s -->
+              {{ (playheadPosition / 50).toFixed(2) }}s  
           </div>
         </div>
       </div>
