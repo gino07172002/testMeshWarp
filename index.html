@@ -104,14 +104,10 @@
           <div class="timeline-title">動畫時間軸</div>
           <div class="timeline-controls">
             <button class="timeline-btn" v-on:click="timeline.addKeyframe">新增Key點</button>
-            <button class="timeline-btn" v-on:click="addKeyframe">新增Key點2</button>
-            <button class="timeline-btn" v-on:click="addTimelineComponent">新增時間軸元件</button>
-            <button class="timeline-btn" v-on:click="playAnimation">播放動畫</button>
-            <button class="timeline-btn" v-on:click="timeline.playAnimation">播放動畫2</button>
-            <button class="timeline-btn" v-on:click="stopAnimation">停止動畫</button>
-            <button class="timeline-btn" v-on:click="timeline.stopAnimation">停止動畫2</button>
+            <button class="timeline-btn" v-on:click="timeline.playAnimation">播放動畫</button>
             <button class="timeline-btn" v-on:click="testCountFn">{{timeline.testCount}}</button>
             <button class="timeline-btn" v-on:click="timeline.testCountFn">{{timeline.testCount}}</button>
+            <button class="timeline-btn" v-on:click="showBone">show bone</button>
           </div>
         </div>
         <div class="timeline-content">
@@ -152,11 +148,11 @@
             </div>
 
             <div id="timeSelection" class="time-selection"
-              v-bind:style="{ display: timeSelection.active ? 'block' : 'none', left: timeSelection.start + 'px', width: (timeSelection.end - timeSelection.start) + 'px' }">
+              v-bind:style="{ display: timeline.timeSelection.active ? 'block' : 'none', left: timeline.timeSelection.start + 'px', width: (timeline.timeSelection.end - timeline.timeSelection.start) + 'px' }">
             </div>
-
+            
             <div id="playhead" class="playhead" v-bind:style="{ left: timeline.playheadPosition + 'px' }"
-              v-on:mousedown="startPlayheadDrag"> 
+              v-on:mousedown="timeline.startPlayheadDrag"> 
             </div>
 
 

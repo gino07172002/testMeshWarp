@@ -38,9 +38,9 @@ import {
 } from './useWebGL.js';
 
 import gls from './useWebGL.js';
-import bones from './useBone.js';
+import Bones from './useBone.js';
 import Timeline from './timeline.js';
-
+import ImageCanvasManager from './ImageCanvasManager.js';
 // Shader sources
 const shaders = {
   vertex: `
@@ -160,6 +160,7 @@ const app = Vue.createApp({
   data() {
     return {
       imageData: '',
+      imageCanvasManager: null,
       lastTimestamp: 0,
       status: '準備中',
       points: [],
@@ -204,11 +205,15 @@ const app = Vue.createApp({
     };
   },
   async mounted() {
-    document.addEventListener('click', this.handleClickOutside);
-    this.startImageUpdates();
+    //document.addEventListener('click', this.handleClickOutside);
+   // this.startImageUpdates();
+   //this.imageCanvasManager = new ImageCanvasManager(this);
+  // this.imageCanvasManager.initialize();
     this.addLayer();
     console.log("somehow mount here ... ");
- //   this.timeline = reactive(new Timeline());
+  },
+  beforeUnmount() {
+    //this.imageCanvasManager.cleanup();
   },
   computed: {
     keyframes() {
@@ -240,163 +245,7 @@ const app = Vue.createApp({
     document.removeEventListener('click', this.handleClickOutside);
   },
   methods: {
-    fetchImage() {
-      // Placeholder for image fetching
-    },
-    startImageUpdates() {
-      this.fetchImage();
-      this.updateTimer = setInterval(() => {
-        this.fetchImage();
-      }, 200);
-    },
-    handleCanvasClick(event) {
-      this.fetchImage();
-    },
-    closeAllDropdowns() {
-      this.fileDropdown = false;
-      this.editDropdown = false;
-    },
-    toggleDropdown(dropdown) {
-      this.closeAllDropdowns();
-      if (dropdown === 'fileDropdown') {
-        this.fileDropdown = !this.fileDropdown;
-      } else if (dropdown === 'editDropdown') {
-        this.editDropdown = !this.editDropdown;
-      }
-    },
-    handleFileAction(action) {
-      this.status = `執行檔案動作: ${action}`;
-      this.closeAllDropdowns();
-      if (action === 'save') {
-        this.saveProjectToServer();
-      }
-    },
-    handleEditAction(action) {
-      this.status = `執行編輯動作: ${action}`;
-      this.closeAllDropdowns();
-    },
-    updateImage(newUrl) {
-      this.cacheBuster = Date.now();
-    },
-    getMousePosition(event) {
-      const rect = this.$refs.imageContainer.getBoundingClientRect();
-      const scrollLeft = this.$refs.imageContainer.scrollLeft;
-      const scrollTop = this.$refs.imageContainer.scrollTop;
-      const x = event.clientX - rect.left + scrollLeft;
-      const y = event.clientY - rect.top + scrollTop;
-      return { x, y };
-    },
-    handleCanvasMouseDown(event) {
-      const { x, y } = this.getMousePosition(event);
-      event.preventDefault();
-      if (event.button === 0) {
-        this.isDragging = true;
-        this.dragStartX = x;
-        this.dragStartY = y;
-        this.status = `開始拖曳: x=${x}, y=${y}`;
-        fetch('/api/clickStart', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            x,
-            y,
-            scw: this.$refs.imageContainer.scrollWidth,
-            sch: this.$refs.imageContainer.scrollHeight
-          })
-        });
-      } else if (event.button === 2) {
-        this.status = `右鍵點擊: x=${x}, y=${y}`;
-        if (this.points.length > 0) {
-          this.points.pop();
-          this.status = `右鍵移除最後一個點，剩餘 ${this.points.length} 個點`;
-        }
-      }
-      this.updateImage('/png');
-    },
-    handleCanvasMouseMove(e) {
-      if (!this.isDragging) return;
-      const { x, y } = this.getMousePosition(e);
-      if (e.ctrlKey) {
-        this.status = `拖曳中with ctrl : x=${x}, y=${y}`;
-      } else {
-        this.status = `拖曳中: x=${x}, y=${y}`;
-      }
-      this.sendDragToServer(x, y, e);
-    },
-    handleCanvasMouseUp(e) {
-      const { x, y } = this.getMousePosition(e);
-      if (e.button === 0) {
-        if (this.isDragging) {
-          this.isDragging = false;
-          const dx = x - this.dragStartX;
-          const dy = y - this.dragStartY;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance < 5) {
-            this.handleLeftClick(x, y, e);
-          } else {
-            this.handleDragEnd(x, y, e);
-          }
-        }
-      }
-    },
-    handleLeftClick(x, y) {
-      this.status = `左鍵點擊: x=${x}, y=${y}`;
-      this.points.push({ x, y });
-      this.sendPointToServer(x, y);
-    },
-    getBasePayload(x, y, event) {
-      const payload = {
-        x,
-        y,
-        scw: this.$refs.imageContainer.scrollWidth,
-        sch: this.$refs.imageContainer.scrollHeight
-      };
-      ['ctrlKey', 'shiftKey', 'altKey'].forEach(key => {
-        if (event && event[key]) {
-          payload[key] = true;
-        }
-      });
-      return payload;
-    },
-    handleDragEnd(x, y, event) {
-      const payload = this.getBasePayload(x, y, event);
-      this.status = `拖曳結束: 從 (${this.dragStartX}, ${this.dragStartY}) 到 (${x}, ${y})`;
-      fetch('/api/dragDone', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    },
-    sendPointToServer(x, y, event) {
-      const payload = this.getBasePayload(x, y, event);
-      fetch('/api/points', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-        .then(response => response.json())
-        .then(data => {
-          this.points.push({ x: data.x, y: data.y });
-          this.status = `最近的網格點: x=${data.x}, y=${data.y}`;
-        })
-        .catch(error => {
-          this.status = 'point bad: ' + error.message;
-        });
-    },
-    sendDragToServer(x, y, event) {
-      const payload = this.getBasePayload(x, y, event);
-      fetch('/api/drag', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    },
-    clearPoints() {
-      this.points = [];
-      this.status = '已清除所有點';
-    },
+    
     addLayer() {
       this.layerCounter++;
       const newLayer = {
@@ -437,96 +286,12 @@ const app = Vue.createApp({
         this.selectedKeyframe = this.timeline.keyframes[boneId]?.find(k => k.id === keyframeId) || null;
       }
     },
-    addKeyframe() {
-      if (!this.selectedBone) {
-        alert('請先選擇一個骨骼');
-        return;
-      }
-      if (!this.timeline.keyframes[this.selectedBone.id]) {
-        this.timeline.keyframes[this.selectedBone.id] = [];
-      }
-      const newKeyframe = {
-        id: this.nextKeyframeId++,
-        position: this.timeline.playheadPosition,
-        time: this.timeline.playheadPosition / 50
-      };
-      this.timeline.keyframes[this.selectedBone.id].push(newKeyframe);
-      console.log("button2 bone id ", JSON.stringify(this.selectedBone.id));
-      console.log("key frame size button2 : ", this.timeline.keyframes[this.selectedBone.id].length);
-      this.selectKeyframe(this.selectedBone.id, newKeyframe.id);
-    },
-    addTimelineComponent() {
-      alert('新增時間軸元件功能');
-    },
     testCountFn()
     {
       console.log(" in app testCountFn");
       this.timeline.testCount++;
     //  this.timeline.testCountFn();
       //this.$forceUpdate();
-    },
-    playAnimation() {
-      if (this.timeline.isPlaying) return;
-      
-      // 計算新的動畫起始時間，基於當前播放位置
-      const currentTime = performance.now();
-      this.timeline.isPlaying = true;
-      this.animationStartTime = currentTime - (this.timeline.playheadPosition * 20);
-      
-      const animate = (timestamp) => {
-        if (!this.timeline.isPlaying) return;
-        
-        // 計算經過時間與播放位置
-        const elapsed = timestamp - this.animationStartTime;
-        this.timeline.playheadPosition = (elapsed / 20) % this.timelineLength;
-        
-        requestAnimationFrame(animate);
-      };
-      
-      requestAnimationFrame(animate);
-    },
-    stopAnimation() {
-      this.timeline.isPlaying = false;
-    },
-    startDrag(event) {
-      const tracksRect = this.$refs.timelineTracks.getBoundingClientRect();
-      const offsetX = event.clientX - tracksRect.left;
-      this.timeline.dragInfo = { dragging: true, startX: event.clientX, type: 'selection', offsetX };
-      this.timeSelection = { active: true, start: offsetX, end: offsetX };
-      this.timeline.playheadPosition = offsetX;
-
-
-    },
-    startPlayheadDrag(event) {
-      event.stopPropagation();
-      this.timeline.dragInfo = { dragging: true, startX: event.clientX, type: 'playhead' };
-    },
-    onDrag(event) {
-      if (!this.timeline.dragInfo)
-        return;
-
-      if (!this.timeline.dragInfo.dragging) return;
-      const tracksRect = this.$refs.timelineTracks.getBoundingClientRect();
-      let newPosition = event.clientX - tracksRect.left;
-      newPosition = Math.max(0, Math.min(newPosition, this.timelineLength));
-
-      if (this.timeline.dragInfo.type === 'playhead') {
-        this.timeline.playheadPosition = newPosition;
-      } else if (this.timeline.dragInfo.type === 'selection') {
-        if (newPosition >= this.timeline.dragInfo.offsetX) {
-          this.timeSelection.start = this.timeline.dragInfo.offsetX;
-          this.timeSelection.end = newPosition;
-        } else {
-          this.timeSelection.start = newPosition;
-          this.timeSelection.end = this.timeline.dragInfo.offsetX;
-        }
-        this.timeline.playheadPosition = newPosition;
-      }
-    },
-    stopDrag() {
-      if (!this.timeline.dragInfo)
-        return;
-      this.timeline.dragInfo.dragging = false;
     },
     saveProjectToServer() {
       this.status = '正在儲存專案...';
@@ -620,6 +385,10 @@ const app = Vue.createApp({
     },
     handleNameClick(boneIndex) {
       this.selectedBone = boneIndex;
+    },
+     showBone(){
+      console.log("hi show bone");
+      console.log("hi bone ",JSON.stringify(this.boneTree));
     }
   },
   setup() {
@@ -634,8 +403,11 @@ const app = Vue.createApp({
     const minBoneLength = 0.1;
 
     const glsInstance = new gls();
-    const bonesInstance = new bones();
-
+    const bonesInstance = new Bones({
+      onUpdate: () => this.$forceUpdate(), // 當 timeline 內部數據更新時強制更新 Vue
+      vueInstance: this
+    });
+   
     const selectTool = (tool) => {
       if (activeTool.value === 'bone-animate' && tool !== 'bone-animate') {
         glsInstance.resetMeshToOriginal();
@@ -662,7 +434,7 @@ const app = Vue.createApp({
         isShiftPressed.value = false;
       }
     };
-
+   
     const setupCanvasEvents = (canvas, gl, container) => {
       let isDragging = false;
       let localSelectedVertex = -1;
@@ -712,6 +484,7 @@ const app = Vue.createApp({
                 isEditingExistingBone.value = true;
                 parentBoneIndex = boneParents.value[i / 4];
                 selectedBone.value = i / 4;
+              
                 break;
               } else if (distToTail < 0.1) {
                 selectedBoneForEditing.value = i / 4;
@@ -750,6 +523,11 @@ const app = Vue.createApp({
                 skeletonIndices.value.push(newBoneIndex * 2, newBoneIndex * 2 + 1);
               }
               parentBoneIndex = newBoneIndex;
+            }
+            else
+            {
+              //show a select bone for debug
+             
             }
           } else if (activeTool.value === 'bone-animate') {
             let minDistToSegment = Infinity;

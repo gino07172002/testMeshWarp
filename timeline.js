@@ -19,6 +19,7 @@ export default class Timeline {
     this.dragInfo = null;
     this.isPlaying = false;
     this.animationStartTime = null;
+    this.timeSelection = { active: false, start: 0, end: 0 };
     this.timeRange = {
       start: 0,
       end: 500,
@@ -32,7 +33,6 @@ export default class Timeline {
     this.addKeyframe = this.addKeyframe.bind(this);
     this.playAnimation = this.playAnimation.bind(this);
     this.animate = this.animate.bind(this);
-    this.stopAnimation = this.stopAnimation.bind(this);
     this.testCountFn = this.testCountFn.bind(this);
     this.startPlayheadDrag = this.startPlayheadDrag.bind(this);
     this.onPlayheadDrag = this.onPlayheadDrag.bind(this);
@@ -88,30 +88,6 @@ export default class Timeline {
     this.dragInfo.dragging = false;
   }
 
-  /*
-  onPlayheadDrag(event) {
-    if (!this.dragInfo) return;
-    if (!this.dragInfo.dragging) return;
-
-    const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
-    let newPosition = event.clientX - tracksRect.left;
-    newPosition = Math.max(0, Math.min(newPosition, this.timelineLength));
-
-    if (this.dragInfo.type === 'playhead') {
-      this.playheadPosition = newPosition;
-    } else if (this.dragInfo.type === 'selection') {
-      if (newPosition >= this.dragInfo.offsetX) {
-        this.timeSelection.start = this.dragInfo.offsetX;
-        this.timeSelection.end = newPosition;
-      } else {
-        this.timeSelection.start = newPosition;
-        this.timeSelection.end = this.dragInfo.offsetX;
-      }
-      this.playheadPosition = newPosition;
-    }
-    this.onUpdate();
-  }
-  */
   onPlayheadDrag(event) {
     if (!this.dragInfo || !this.dragInfo.dragging) return;
     const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
@@ -164,6 +140,11 @@ export default class Timeline {
   }
 
   playAnimation() {
+    if(this.isPlaying)
+    {
+      this.isPlaying=false;
+      return;
+    }
     console.log("play animation in timeline!  ");
     this.isPlaying = true;
     const currentTime = Date.now();
@@ -172,24 +153,6 @@ export default class Timeline {
     this.animate();
   }
 
-  stopAnimation() {
-    this.isPlaying = false;
-    this.playheadPosition = 0;
-  }
-/*
-  animate() {
-    if (!this.isPlaying) return;
-
-    const elapsedTime = Date.now() - this.animationStartTime;
-    const totalDuration = (this.timelineLength * 20);
-    const loopedTime = elapsedTime % totalDuration;
-    this.playheadPosition = loopedTime / 20;
-
-   // console.log("this.playheadPosition ", this.playheadPosition);
-    requestAnimationFrame(() => this.animate());
-    this.onUpdate();
-  }
-  */
   animate() {
     if (!this.isPlaying) return;
     const elapsedTime = Date.now() - this.animationStartTime;
@@ -293,40 +256,68 @@ export default class Timeline {
 
   // 新增方法：獲取當前時間點前的關鍵幀資訊
   getKeyframesBeforeCurrentTime() {
-    console.log(" interpolation ... ");
     const currentTime = this.playheadPosition;
     const keyframeInfo = [];
-
-    // 遍歷所有骨骼的關鍵幀
+  
     Object.keys(this.keyframes).forEach(boneId => {
-      const keyframes = this.keyframes[boneId]
-        .filter(k => k.position <= currentTime)
-        .sort((a, b) => a.position - b.position);
-
-      if (keyframes.length > 0) {
-        // 找到最接近當前時間點的關鍵幀
-        const lastKeyframe = keyframes[keyframes.length - 1];
-        const prevKeyframe = keyframes.length > 1 ? keyframes[keyframes.length - 2] : null;
-
-        let interpolationRatio = 0;
-        if (prevKeyframe && lastKeyframe.position > prevKeyframe.position) {
-          interpolationRatio = (currentTime - prevKeyframe.position) / (lastKeyframe.position - prevKeyframe.position);
-          interpolationRatio = Math.max(0, Math.min(1, interpolationRatio));
-        } else if (lastKeyframe.position === currentTime) {
-          interpolationRatio = 1;
+      const originalKeyframes = this.keyframes[boneId];
+      if (!originalKeyframes || originalKeyframes.length === 0) return;
+  
+      // 1. 按 position 升序排序关键帧
+      const sortedKeyframes = [...originalKeyframes].sort((a, b) => a.position - b.position);
+  
+      // 2. 使用二分查找找到第一个大於 currentTime 的關鍵幀
+      let low = 0;
+      let high = sortedKeyframes.length;
+      while (low < high) {
+        const mid = Math.floor((low + high) / 2);
+        if (sortedKeyframes[mid].position > currentTime) {
+          high = mid;
+        } else {
+          low = mid + 1;
         }
-
+      }
+      const firstGreaterIndex = low;
+  
+      let prevKeyframe = null;
+      let nextKeyframe = null;
+      let interpolationRatio = 0;
+  
+      // 3. 處理三種情況
+      if (firstGreaterIndex === 0) {
+        // 情況1: currentTime 在所有關鍵幀之前
+        nextKeyframe = sortedKeyframes[0];
+        interpolationRatio = 1;
+      } else if (firstGreaterIndex === sortedKeyframes.length) {
+        // 情況2: currentTime 在所有關鍵幀之後
+        prevKeyframe = sortedKeyframes[sortedKeyframes.length - 1];
+        interpolationRatio = 1;
+      } else {
+        // 情況3: currentTime 在關鍵幀之間
+        prevKeyframe = sortedKeyframes[firstGreaterIndex - 1];
+        nextKeyframe = sortedKeyframes[firstGreaterIndex];
+        interpolationRatio = (currentTime - prevKeyframe.position) / 
+                           (nextKeyframe.position - prevKeyframe.position);
+      }
+  
+      // 4. 確保 interpolationRatio 在 0~1 範圍
+      interpolationRatio = Math.max(0, Math.min(1, interpolationRatio));
+  
+      // 5. 記錄關鍵幀信息
+      const currentKeyframe = prevKeyframe || nextKeyframe;
+      if (currentKeyframe) {
         keyframeInfo.push({
           boneId: boneId,
-          keyframeIndex: this.keyframes[boneId].indexOf(lastKeyframe),
-          keyframeId: lastKeyframe.id,
-          position: lastKeyframe.position,
+          keyframeIndex: originalKeyframes.indexOf(currentKeyframe),
+          keyframeId: currentKeyframe.id,
+          position: currentKeyframe.position,
           interpolationRatio: interpolationRatio
         });
       }
     });
-
-    this.currentKeyframeInfo = keyframeInfo; // 儲存到實例變數
+  
+    this.currentKeyframeInfo = keyframeInfo;
+    console.log("key frame info :",JSON.stringify(keyframeInfo));
     return keyframeInfo;
   }
 }
