@@ -1,7 +1,7 @@
 //useBone.js
 
 const { ref } = Vue;
-
+import gls from './useWebGL.js';
 // 📦 全域狀態
 const skeletonVertices = ref([]);
 const originalSkeletonVertices = ref([]);
@@ -69,7 +69,7 @@ function readBones() {
     vertexInfluences.value = boneData.vertexInfluences.map(inf =>
       inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
     );
-    glsInstance.updateMeshForSkeletonPose?.();
+    gls.updateMeshForSkeletonPose?.();
   }
 }
 
@@ -135,12 +135,25 @@ function downloadImage() {
   requestAnimationFrame(cleanRender);
 }
 
-class bones {
+export default class Bones {
+  constructor(options = {}) {
+    // Bind methods to this instance
+    this.resetSkeletonToOriginal = this.resetSkeletonToOriginal.bind(this);
+    this.applyTransformToChildren = this.applyTransformToChildren.bind(this);
+    this.calculateDistance = this.calculateDistance.bind(this);
+    this.calculateAngle = this.calculateAngle.bind(this);
+    this.rotatePoint = this.rotatePoint.bind(this);
+    
+    // callbacks to get vue functions
+    this.onUpdate = options.onUpdate || function () {};
+    this.vueInstance = options.vueInstance || null;
+  }
+
   resetSkeletonToOriginal() {
     if (originalSkeletonVertices.value.length > 0) {
       skeletonVertices.value = [...originalSkeletonVertices.value];
     }
-  };
+  }
 
   applyTransformToChildren(parentIndex, deltaX, deltaY, rotationAngle, pivotX, pivotY) {
     if (boneChildren.value[parentIndex]) {
@@ -167,10 +180,16 @@ class bones {
         this.applyTransformToChildren(childIndex, deltaX, deltaY, rotationAngle, pivotX, pivotY);
       });
     }
-  };
+  }
 
-  calculateDistance(x1, y1, x2, y2) { return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2)) };
-  calculateAngle(x1, y1, x2, y2) { return Math.atan2(y2 - y1, x2 - x1) };
+  calculateDistance(x1, y1, x2, y2) { 
+    return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2)) 
+  }
+  
+  calculateAngle(x1, y1, x2, y2) { 
+    return Math.atan2(y2 - y1, x2 - x1) 
+  }
+  
   rotatePoint(cx, cy, x, y, angle) {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
@@ -179,8 +198,11 @@ class bones {
     const rx = dx * cos - dy * sin;
     const ry = dx * sin + dy * cos;
     return { x: rx + cx, y: ry + cy };
-  };
+  }
 }
+
+// Create a default bones instance
+//const bonesInstance = new Bones();
 
 // ✅ 匯出
 export {
@@ -197,6 +219,6 @@ export {
   saveBones,
   readBones,
   downloadImage,
-
+  Bones
 };
-export default bones;
+
