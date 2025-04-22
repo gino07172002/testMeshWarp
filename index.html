@@ -99,14 +99,19 @@
         </div>
       </div>
 
-      <div class="timeline" v-on:contextmenu.prevent>
+      <div v-if="timeline" class="timeline" v-on:contextmenu.prevent>
         <div class="timeline-header">
           <div class="timeline-title">動畫時間軸</div>
           <div class="timeline-controls">
-            <button class="timeline-btn" v-on:click="addKeyframe">新增Key點</button>
+            <button class="timeline-btn" v-on:click="timeline.addKeyframe">新增Key點</button>
+            <button class="timeline-btn" v-on:click="addKeyframe">新增Key點2</button>
             <button class="timeline-btn" v-on:click="addTimelineComponent">新增時間軸元件</button>
             <button class="timeline-btn" v-on:click="playAnimation">播放動畫</button>
+            <button class="timeline-btn" v-on:click="timeline.playAnimation">播放動畫2</button>
             <button class="timeline-btn" v-on:click="stopAnimation">停止動畫</button>
+            <button class="timeline-btn" v-on:click="timeline.stopAnimation">停止動畫2</button>
+            <button class="timeline-btn" v-on:click="testCountFn">{{timeline.testCount}}</button>
+            <button class="timeline-btn" v-on:click="timeline.testCountFn">{{timeline.testCount}}</button>
           </div>
         </div>
         <div class="timeline-content">
@@ -121,12 +126,14 @@
           </div>
 
 
-          <div class="timeline-tracks" id="timelineTracks" ref="timelineTracks" v-on:mousedown="startDrag"
-            v-on:mousemove="onDrag" v-on:mouseup="stopDrag" v-on:mouseleave="stopDrag">
+          <div class="timeline-tracks" id="timelineTracks" ref="timelineTracks" v-on:mousedown="timeline.startPlayheadDrag"
+            v-on:mousemove="timeline.onPlayheadDrag" v-on:mouseup="timeline.stopPlayheadDrag" v-on:mouseleave="timeline.stopPlayheadDrag">
+
+
             <div class="timeline-scale" v-bind:style="{ width: timelineLength + 'px' }">
               <span v-for="n in Math.ceil(timelineLength / 50)" v-bind:key="n" class="scale-mark"
                 v-bind:style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
-                
+
             </div>
 
             <div id="trackContainer" ref="trackContainer" @mousedown="timeline.startDrag($event, $refs.trackContainer)"
@@ -139,7 +146,7 @@
                   v-bind:style="{ left: keyframe.position + 'px' }"
                   v-bind:class="{ 'selected': timeline.selectedKeyframe === keyframe }"
                   v-bind:title="'Keyframe ' + keyframe.id" :data-id="keyframe.id" :data-bone-id="bone.id">
-              
+
                 </div>
               </div>
             </div>
@@ -148,21 +155,25 @@
               v-bind:style="{ display: timeSelection.active ? 'block' : 'none', left: timeSelection.start + 'px', width: (timeSelection.end - timeSelection.start) + 'px' }">
             </div>
 
-            <div id="playhead" class="playhead" v-bind:style="{ left: playheadPosition + 'px' }"
-                 v-on:mousedown="startPlayheadDrag"></div>
-            <div id="timeIndicator" class="current-time-indicator" v-bind:style="{ left: playheadPosition + 'px' }">
-              {{ (playheadPosition / 50).toFixed(2) }}s  
+            <div id="playhead" class="playhead" v-bind:style="{ left: timeline.playheadPosition + 'px' }"
+              v-on:mousedown="startPlayheadDrag"> 
+            </div>
+
+
+            <div id="timeIndicator" class="current-time-indicator"
+              v-bind:style="{ left: timeline.playheadPosition + 'px' }">
+              {{ (timeline.playheadPosition / 50).toFixed(2) }}s
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
 
-    <!-- 狀態列 -->
-    <div class="status-bar">
-      <div class="status-item">狀態: {{ status }}</div>
+      <!-- 狀態列 -->
+      <div class="status-bar">
+        <div class="status-item">狀態: {{ status }}</div>
+      </div>
     </div>
-  </div>
   </div>
 
   <script type="module">

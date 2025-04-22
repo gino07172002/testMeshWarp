@@ -1,4 +1,4 @@
-const { createApp, onMounted, ref } = Vue;
+const { createApp, onMounted, ref ,reactive} = Vue;
 export const selectedBone = ref(-1);
 
 import {
@@ -155,7 +155,7 @@ const loadTexture = (gl, url, imageData, imageWidth, imageHeight) => {
     image.src = url;
   });
 };
-
+const timeline = ref(new Timeline());
 const app = Vue.createApp({
   data() {
     return {
@@ -174,15 +174,16 @@ const app = Vue.createApp({
       scrollLeft: 0,
       dragStartX: 0,
       dragStartY: 0,
-      playheadPosition: 0,
       timelineLength: 1000,
-      playheadPosition: 0,
       dragInfo: { dragging: false, startX: 0, type: null },
       timeSelection: { active: false, start: 0, end: 0 },
       animationPlaying: false,
       animationStartTime: 0,
       nextKeyframeId: 10,
-      timeline: null,
+      timeline: new Timeline({
+        onUpdate: () => this.$forceUpdate(), // 當 timeline 內部數據更新時強制更新 Vue
+        vueInstance: this
+      }),
       hierarchicalData: {
         children: [
           {
@@ -202,19 +203,19 @@ const app = Vue.createApp({
       expandedNodes: []
     };
   },
-  async  mounted() {
+  async mounted() {
     document.addEventListener('click', this.handleClickOutside);
     this.startImageUpdates();
     this.addLayer();
     console.log("somehow mount here ... ");
-    this.timeline = new Timeline();
+ //   this.timeline = reactive(new Timeline());
   },
   computed: {
     keyframes() {
       return this.timeline?.keyframes || [];
     },
-    timeRange(){
-      return this.timeline?.timeRange || {  qq:123};
+    timeRange() {
+      return this.timeline?.timeRange || { qq: 123 };
     },
     boneTree() {
       const rootBones = boneParents.value
@@ -446,62 +447,86 @@ const app = Vue.createApp({
       }
       const newKeyframe = {
         id: this.nextKeyframeId++,
-        position: this.playheadPosition,
-        time: this.playheadPosition / 50
+        position: this.timeline.playheadPosition,
+        time: this.timeline.playheadPosition / 50
       };
       this.timeline.keyframes[this.selectedBone.id].push(newKeyframe);
+      console.log("button2 bone id ", JSON.stringify(this.selectedBone.id));
+      console.log("key frame size button2 : ", this.timeline.keyframes[this.selectedBone.id].length);
       this.selectKeyframe(this.selectedBone.id, newKeyframe.id);
     },
     addTimelineComponent() {
       alert('新增時間軸元件功能');
     },
+    testCountFn()
+    {
+      console.log(" in app testCountFn");
+      this.timeline.testCount++;
+    //  this.timeline.testCountFn();
+      //this.$forceUpdate();
+    },
     playAnimation() {
-      if (this.animationPlaying) return;
-      this.animationPlaying = true;
-      this.animationStartTime = performance.now();
+      if (this.timeline.isPlaying) return;
+      
+      // 計算新的動畫起始時間，基於當前播放位置
+      const currentTime = performance.now();
+      this.timeline.isPlaying = true;
+      this.animationStartTime = currentTime - (this.timeline.playheadPosition * 20);
+      
       const animate = (timestamp) => {
-        if (!this.animationPlaying) return;
+        if (!this.timeline.isPlaying) return;
+        
+        // 計算經過時間與播放位置
         const elapsed = timestamp - this.animationStartTime;
-        this.playheadPosition = (elapsed / 20) % this.timelineLength;
+        this.timeline.playheadPosition = (elapsed / 20) % this.timelineLength;
+        
         requestAnimationFrame(animate);
       };
+      
       requestAnimationFrame(animate);
     },
     stopAnimation() {
-      this.animationPlaying = false;
+      this.timeline.isPlaying = false;
     },
     startDrag(event) {
       const tracksRect = this.$refs.timelineTracks.getBoundingClientRect();
       const offsetX = event.clientX - tracksRect.left;
-      this.dragInfo = { dragging: true, startX: event.clientX, type: 'selection', offsetX };
+      this.timeline.dragInfo = { dragging: true, startX: event.clientX, type: 'selection', offsetX };
       this.timeSelection = { active: true, start: offsetX, end: offsetX };
-      this.playheadPosition = offsetX;
+      this.timeline.playheadPosition = offsetX;
+
+
     },
     startPlayheadDrag(event) {
       event.stopPropagation();
-      this.dragInfo = { dragging: true, startX: event.clientX, type: 'playhead' };
+      this.timeline.dragInfo = { dragging: true, startX: event.clientX, type: 'playhead' };
     },
     onDrag(event) {
-      if (!this.dragInfo.dragging) return;
+      if (!this.timeline.dragInfo)
+        return;
+
+      if (!this.timeline.dragInfo.dragging) return;
       const tracksRect = this.$refs.timelineTracks.getBoundingClientRect();
       let newPosition = event.clientX - tracksRect.left;
       newPosition = Math.max(0, Math.min(newPosition, this.timelineLength));
 
-      if (this.dragInfo.type === 'playhead') {
-        this.playheadPosition = newPosition;
-      } else if (this.dragInfo.type === 'selection') {
-        if (newPosition >= this.dragInfo.offsetX) {
-          this.timeSelection.start = this.dragInfo.offsetX;
+      if (this.timeline.dragInfo.type === 'playhead') {
+        this.timeline.playheadPosition = newPosition;
+      } else if (this.timeline.dragInfo.type === 'selection') {
+        if (newPosition >= this.timeline.dragInfo.offsetX) {
+          this.timeSelection.start = this.timeline.dragInfo.offsetX;
           this.timeSelection.end = newPosition;
         } else {
           this.timeSelection.start = newPosition;
-          this.timeSelection.end = this.dragInfo.offsetX;
+          this.timeSelection.end = this.timeline.dragInfo.offsetX;
         }
-        this.playheadPosition = newPosition;
+        this.timeline.playheadPosition = newPosition;
       }
     },
     stopDrag() {
-      this.dragInfo.dragging = false;
+      if (!this.timeline.dragInfo)
+        return;
+      this.timeline.dragInfo.dragging = false;
     },
     saveProjectToServer() {
       this.status = '正在儲存專案...';
@@ -1046,7 +1071,8 @@ const app = Vue.createApp({
       saveBones,
       readBones,
       activeTool,
-      selectedBone
+      selectedBone,
+
     };
   }
 });
