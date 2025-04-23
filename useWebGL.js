@@ -473,4 +473,4 @@ export {
   isAreaTransparent
 };
 
-export default gls;
+export default new gls();
