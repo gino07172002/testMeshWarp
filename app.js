@@ -1,4 +1,4 @@
-const { createApp, onMounted, ref ,reactive} = Vue;
+const { createApp, onMounted, ref, reactive } = Vue;
 export const selectedBone = ref(-1);
 
 import {
@@ -11,6 +11,7 @@ import {
   isEditingExistingBone,
   selectedBoneForEditing,
   editingBoneEnd,
+  boneEndBeingDragged,
   clearBones,
   saveBones,
   readBones,
@@ -37,10 +38,11 @@ import {
   imageHeight,
 } from './useWebGL.js';
 
-import gls from './useWebGL.js';
+import glsInstance from './useWebGL.js';
 import Bones from './useBone.js';
 import Timeline from './timeline.js';
 import ImageCanvasManager from './ImageCanvasManager.js';
+
 // Shader sources
 const shaders = {
   vertex: `
@@ -155,6 +157,7 @@ const loadTexture = (gl, url, imageData, imageWidth, imageHeight) => {
     image.src = url;
   });
 };
+
 const timeline = ref(new Timeline());
 const app = Vue.createApp({
   data() {
@@ -182,7 +185,7 @@ const app = Vue.createApp({
       animationStartTime: 0,
       nextKeyframeId: 10,
       timeline: new Timeline({
-        onUpdate: () => this.$forceUpdate(), // 當 timeline 內部數據更新時強制更新 Vue
+        onUpdate: () => this.$forceUpdate(),
         vueInstance: this
       }),
       hierarchicalData: {
@@ -205,15 +208,10 @@ const app = Vue.createApp({
     };
   },
   async mounted() {
-    //document.addEventListener('click', this.handleClickOutside);
-   // this.startImageUpdates();
-   //this.imageCanvasManager = new ImageCanvasManager(this);
-  // this.imageCanvasManager.initialize();
     this.addLayer();
     console.log("somehow mount here ... ");
   },
   beforeUnmount() {
-    //this.imageCanvasManager.cleanup();
   },
   computed: {
     keyframes() {
@@ -233,10 +231,8 @@ const app = Vue.createApp({
       this.boneTree.forEach(root => {
         this.timeline.getFlattenedBones(root, 0, result);
       });
-      console.log(" hi flattenBones: ", JSON.stringify(result));
       return result;
     }
-
   },
   beforeUnmount() {
     clearInterval(this.updateTimer);
@@ -245,7 +241,6 @@ const app = Vue.createApp({
     document.removeEventListener('click', this.handleClickOutside);
   },
   methods: {
-    
     addLayer() {
       this.layerCounter++;
       const newLayer = {
@@ -286,12 +281,9 @@ const app = Vue.createApp({
         this.selectedKeyframe = this.timeline.keyframes[boneId]?.find(k => k.id === keyframeId) || null;
       }
     },
-    testCountFn()
-    {
+    testCountFn() {
       console.log(" in app testCountFn");
       this.timeline.testCount++;
-    //  this.timeline.testCountFn();
-      //this.$forceUpdate();
     },
     saveProjectToServer() {
       this.status = '正在儲存專案...';
@@ -366,15 +358,34 @@ const app = Vue.createApp({
         children: hasChildren ? node.children.map(child => this.renderHierarchicalData(child, nodeId)) : []
       };
     },
-    buildBoneTree(boneIndex) {
+    buildBoneTree(boneIndex, parentId = null) {
       const boneId = `bone${boneIndex}`;
       const boneName = `Bone ${boneIndex}`;
+
+      const headX = skeletonVertices.value[boneIndex * 4];
+      const headY = skeletonVertices.value[boneIndex * 4 + 1];
+      const tailX = skeletonVertices.value[boneIndex * 4 + 2];
+      const tailY = skeletonVertices.value[boneIndex * 4 + 3];
+
       const children = boneChildren.value[boneIndex] || [];
       return {
         id: boneId,
         name: boneName,
-        children: children.map(childIndex => this.buildBoneTree(childIndex))
+        parentId: parentId,
+        head: { x: Math.round(headX * 100) / 100, y: Math.round(headY * 100) / 100 },
+        tail: { x: Math.round(tailX * 100) / 100, y: Math.round(tailY * 100) / 100 },
+        children: children.map(childIndex => this.buildBoneTree(childIndex, boneId))
       };
+    },
+    getParentBoneById(boneId) {
+      const targetBone = this.flattenedBones.find(b => b.id === boneId);
+      if (!targetBone?.parentId) return null;
+      return this.flattenedBones.find(b => b.id === targetBone.parentId);
+    },
+    getChildBonesById(boneId) {
+      const targetBone = this.flattenedBones.find(b => b.id === boneId);
+      if (!targetBone?.childIds?.length) return [];
+      return this.flattenedBones.filter(b => targetBone.childIds.includes(b.id));
     },
     toggleNode(nodeId) {
       if (this.expandedNodes.includes(nodeId)) {
@@ -386,28 +397,30 @@ const app = Vue.createApp({
     handleNameClick(boneIndex) {
       this.selectedBone = boneIndex;
     },
-     showBone(){
+    showBone() {
       console.log("hi show bone");
-      console.log("hi bone ",JSON.stringify(this.boneTree));
+      console.log("hi bone ", JSON.stringify(this.boneTree));
     }
   },
   setup() {
     const selectedVertex = ref(-1);
     const activeTool = ref('grab-point');
-    //const selectedBone = ref(-1); // Shared selected bone for canvas and hierarchy
     const skeletonIndices = ref([]);
-    const boneEndBeingDragged = ref(null);
     const isShiftPressed = ref(false);
-    let parentBoneIndex = -1;
-    let lineIndex = 0;
-    const minBoneLength = 0.1;
 
-    const glsInstance = new gls();
     const bonesInstance = new Bones({
-      onUpdate: () => this.$forceUpdate(), // 當 timeline 內部數據更新時強制更新 Vue
-      vueInstance: this
+      onUpdate: () => this.$forceUpdate(),
+      vueInstance: this,
+      gl: gl.value,
+      vertices: vertices,
+      vbo: vbo,
+      originalVertices: originalVertices,
+      selectedBone: selectedBone,
+      isShiftPressed: isShiftPressed,
+      skeletonIndices: skeletonIndices,
+      glsInstance: glsInstance,
     });
-   
+
     const selectTool = (tool) => {
       if (activeTool.value === 'bone-animate' && tool !== 'bone-animate') {
         glsInstance.resetMeshToOriginal();
@@ -434,7 +447,7 @@ const app = Vue.createApp({
         isShiftPressed.value = false;
       }
     };
-   
+
     const setupCanvasEvents = (canvas, gl, container) => {
       let isDragging = false;
       let localSelectedVertex = -1;
@@ -464,113 +477,14 @@ const app = Vue.createApp({
               selectedVertex.value = localSelectedVertex;
             }
           } else if (activeTool.value === 'bone-create') {
+            bonesInstance.handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
             isDragging = true;
-            isEditingExistingBone.value = false;
-            selectedBoneForEditing.value = -1;
-            editingBoneEnd.value = null;
-
-            for (let i = 0; i < skeletonVertices.value.length; i += 4) {
-              const headX = skeletonVertices.value[i];
-              const headY = skeletonVertices.value[i + 1];
-              const tailX = skeletonVertices.value[i + 2];
-              const tailY = skeletonVertices.value[i + 3];
-
-              const distToHead = bonesInstance.calculateDistance(xNDC, yNDC, headX, headY);
-              const distToTail = bonesInstance.calculateDistance(xNDC, yNDC, tailX, tailY);
-
-              if (distToHead < 0.1) {
-                selectedBoneForEditing.value = i / 4;
-                editingBoneEnd.value = 'head';
-                isEditingExistingBone.value = true;
-                parentBoneIndex = boneParents.value[i / 4];
-                selectedBone.value = i / 4;
-              
-                break;
-              } else if (distToTail < 0.1) {
-                selectedBoneForEditing.value = i / 4;
-                editingBoneEnd.value = 'tail';
-                isEditingExistingBone.value = true;
-                parentBoneIndex = i / 4;
-                selectedBone.value = i / 4;
-                break;
-              }
-            }
-
-            if (!isEditingExistingBone.value) {
-              const newBoneIndex = lineIndex;
-              if (newBoneIndex === 0) {
-                parentBoneIndex = -1;
-                boneParents.value.push(parentBoneIndex);
-                skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
-                selectedBone.value = newBoneIndex;
-              } else {
-
-                console.log("hi parent Bone :", parentBoneIndex, " select bone:", selectedBone.value);
-                if (selectedBone.value != -1)
-                  parentBoneIndex = selectedBone.value;
-                boneParents.value.push(parentBoneIndex);
-                if (isShiftPressed.value) {
-                  const parentTailX = skeletonVertices.value[parentBoneIndex * 4 + 2];
-                  const parentTailY = skeletonVertices.value[parentBoneIndex * 4 + 3];
-                  skeletonVertices.value.push(parentTailX, parentTailY, parentTailX, parentTailY);
-                } else {
-                  skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
-                }
-                selectedBone.value = newBoneIndex;
-              }
-
-              if (skeletonIndices.value.length <= newBoneIndex * 2) {
-                skeletonIndices.value.push(newBoneIndex * 2, newBoneIndex * 2 + 1);
-              }
-              parentBoneIndex = newBoneIndex;
-            }
-            else
-            {
-              //show a select bone for debug
-             
-            }
           } else if (activeTool.value === 'bone-animate') {
-            let minDistToSegment = Infinity;
-            selectedBone.value = -1;
-            boneEndBeingDragged.value = null;
-
-            for (let i = 0; i < skeletonVertices.value.length; i += 4) {
-              const headX = skeletonVertices.value[i];
-              const headY = skeletonVertices.value[i + 1];
-              const tailX = skeletonVertices.value[i + 2];
-              const tailY = skeletonVertices.value[i + 3];
-
-              let dx = headX - xNDC;
-              let dy = headY - yNDC;
-              let dist = dx * dx + dy * dy;
-              if (dist < 0.001) {
-                selectedBone.value = i / 4;
-                boneEndBeingDragged.value = 'head';
-                break;
-              }
-
-              dx = tailX - xNDC;
-              dy = tailY - yNDC;
-              dist = dx * dx + dy * dy;
-              if (dist < 0.001) {
-                selectedBone.value = i / 4;
-                boneEndBeingDragged.value = 'tail';
-                break;
-              }
-
-              const distToSegment = glsInstance.distanceFromPointToSegment(xNDC, yNDC, headX, headY, tailX, tailY);
-              if (distToSegment < 0.1 && distToSegment < minDistToSegment) {
-                minDistToSegment = distToSegment;
-                selectedBone.value = i / 4;
-                boneEndBeingDragged.value = 'middle';
-              }
-            }
-
+            bonesInstance.handleBoneAnimateMouseDown(xNDC, yNDC);
             if (selectedBone.value >= 0) {
               isDragging = true;
-              if (originalSkeletonVertices.value.length === 0) {
-                originalSkeletonVertices.value = [...skeletonVertices.value];
-              }
+              startPosX = xNDC;
+              startPosY = yNDC;
             }
           }
         }
@@ -587,96 +501,22 @@ const app = Vue.createApp({
           gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
           gl.bufferSubData(gl.ARRAY_BUFFER, index * 4, new Float32Array([xNDC, yNDC]));
         } else if (activeTool.value === 'bone-create') {
-          if (isEditingExistingBone.value && selectedBoneForEditing.value >= 0 && editingBoneEnd.value) {
-            const boneIndex = selectedBoneForEditing.value;
-            if (editingBoneEnd.value === 'head') {
-              skeletonVertices.value[boneIndex * 4] = xNDC;
-              skeletonVertices.value[boneIndex * 4 + 1] = yNDC;
-            } else if (editingBoneEnd.value === 'tail') {
-              skeletonVertices.value[boneIndex * 4 + 2] = xNDC;
-              skeletonVertices.value[boneIndex * 4 + 3] = yNDC;
-            }
-          } else {
-            skeletonVertices.value[lineIndex * 4 + 2] = xNDC;
-            skeletonVertices.value[lineIndex * 4 + 3] = yNDC;
-          }
-        } else if (activeTool.value === 'bone-animate' && selectedBone.value >= 0) {
-          const boneIndex = selectedBone.value;
-          if (boneEndBeingDragged.value === 'middle' || boneEndBeingDragged.value === 'tail') {
-            if (e.buttons === 2) {
-              const deltaX = xNDC - startPosX;
-              const deltaY = yNDC - startPosY;
-              skeletonVertices.value[boneIndex * 4] += deltaX;
-              skeletonVertices.value[boneIndex * 4 + 1] += deltaY;
-              skeletonVertices.value[boneIndex * 4 + 2] += deltaX;
-              skeletonVertices.value[boneIndex * 4 + 3] += deltaY;
-              bonesInstance.applyTransformToChildren(boneIndex, deltaX, deltaY, 0, 0, 0);
-              startPosX = xNDC;
-              startPosY = yNDC;
-            } else if (e.buttons === 1) {
-              const headX = skeletonVertices.value[boneIndex * 4];
-              const headY = skeletonVertices.value[boneIndex * 4 + 1];
-              const prevAngle = Math.atan2(startPosY - headY, startPosX - headX);
-              const currentAngle = Math.atan2(yNDC - headY, xNDC - headX);
-              const rotationAngle = currentAngle - prevAngle;
-
-              const tailX = skeletonVertices.value[boneIndex * 4 + 2];
-              const tailY = skeletonVertices.value[boneIndex * 4 + 3];
-              const rotatedTail = bonesInstance.rotatePoint(headX, headY, tailX, tailY, rotationAngle);
-              skeletonVertices.value[boneIndex * 4 + 2] = rotatedTail.x;
-              skeletonVertices.value[boneIndex * 4 + 3] = rotatedTail.y;
-
-              bonesInstance.applyTransformToChildren(boneIndex, 0, 0, rotationAngle, headX, headY);
-              startPosX = xNDC;
-              startPosY = yNDC;
-            }
-          }
-          glsInstance.updateMeshForSkeletonPose();
+          bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
+        } else if (activeTool.value === 'bone-animate') {
+          bonesInstance.handleBoneAnimateMouseMove(startPosX, startPosY, xNDC, yNDC, e.buttons);
+          startPosX = xNDC;
+          startPosY = yNDC;
         }
       };
 
       const handleMouseUp = () => {
         if (activeTool.value === 'bone-create' && isDragging) {
-          if (!isEditingExistingBone.value) {
-            const newBoneIndex = lineIndex;
-            const headX = skeletonVertices.value[newBoneIndex * 4];
-            const headY = skeletonVertices.value[newBoneIndex * 4 + 1];
-            const tailX = skeletonVertices.value[newBoneIndex * 4 + 2];
-            const tailY = skeletonVertices.value[newBoneIndex * 4 + 3];
-            const distance = Math.sqrt((tailX - headX) ** 2 + (tailY - headY) ** 2);
-
-            if (distance < minBoneLength) {
-              parentBoneIndex = boneParents.value[parentBoneIndex];
-              skeletonVertices.value.splice(newBoneIndex * 4, 4);
-              boneParents.value.pop();
-              selectedBone.value = -1;
-            } else {
-              const parentIndex = boneParents.value[newBoneIndex];
-              if (parentIndex !== -1) {
-                if (!boneChildren.value[parentIndex]) {
-                  boneChildren.value[parentIndex] = [];
-                }
-                boneChildren.value[parentIndex].push(newBoneIndex);
-              }
-              lineIndex++;
-              const newBoneStart = newBoneIndex * 4;
-              originalSkeletonVertices.value.push(
-                skeletonVertices.value[newBoneStart],
-                skeletonVertices.value[newBoneStart + 1],
-                skeletonVertices.value[newBoneStart + 2],
-                skeletonVertices.value[newBoneStart + 3]
-              );
-              glsInstance.computeVertexInfluences();
-            }
-          }
+          bonesInstance.handleBoneCreateMouseUp();
+        } else if (activeTool.value === 'bone-animate' && isDragging) {
+          bonesInstance.handleBoneAnimateMouseUp();
         }
-
         isDragging = false;
         selectedVertex.value = -1;
-        boneEndBeingDragged.value = null;
-        selectedBoneForEditing.value = -1;
-        editingBoneEnd.value = null;
-        isEditingExistingBone.value = false;
       };
 
       canvas.removeEventListener('mousedown', handleMouseDown);
@@ -850,10 +690,10 @@ const app = Vue.createApp({
       readBones,
       activeTool,
       selectedBone,
-
     };
   }
 });
+
 const TreeItem = {
   props: ['node', 'expandedNodes', 'selectedBone'],
   template: `
@@ -887,13 +727,10 @@ const TreeItem = {
     },
     checkIsSelected() {
       const boneIndex = parseInt(this.node.name.split(' ')[1]);
-      return boneIndex === this.selectedBone; // Use shared selectedBone
+      return boneIndex === this.selectedBone;
     }
   }
 };
 
-// 在主組件中註冊
 app.component('tree-item', TreeItem);
-// 掛載應用
 export default app;
-

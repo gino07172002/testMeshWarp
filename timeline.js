@@ -6,12 +6,15 @@ import {
 
 import { selectedBone } from './app.js';
 
+// Assuming updateMeshForSkeletonPose is available globally or passed via init
+let updateMeshForSkeletonPose;
+
 export default class Timeline {
   constructor(options = {}) {
     this.keyframes = {};
     this.layers = options.layers || [];
     this.timelineLength = options.timelineLength || 1000;
-    this.onUpdate = options.onUpdate || function () {};
+    this.onUpdate = options.onUpdate || function () { };
     this.vueInstance = options.vueInstance || null;
     this.keyframeCounter = 0;
     this.playheadPosition = 0;
@@ -37,6 +40,8 @@ export default class Timeline {
     this.startPlayheadDrag = this.startPlayheadDrag.bind(this);
     this.onPlayheadDrag = this.onPlayheadDrag.bind(this);
     this.stopPlayheadDrag = this.stopPlayheadDrag.bind(this);
+    // Initialize updateMeshForSkeletonPose if provided
+    updateMeshForSkeletonPose = options.updateMeshForSkeletonPose || function () {};
     console.log(" hi make timeline! ");
   }
 
@@ -56,22 +61,24 @@ export default class Timeline {
     if (!this.keyframes[boneId]) {
       this.keyframes[boneId] = [];
     }
-    this.onUpdate();
-    this.keyframeCounter++;
     const newPosition = this.playheadPosition;
-    const skeletonPose = [...skeletonVertices.value];
-
-    this.onUpdate();
-    console.log("what's my bone id ? ", JSON.stringify(boneId));
+    // Store only the current bone's pose (headX, headY, tailX, tailY)
+    const bonePose = [
+      skeletonVertices.value[boneId * 4],
+      skeletonVertices.value[boneId * 4 + 1],
+      skeletonVertices.value[boneId * 4 + 2],
+      skeletonVertices.value[boneId * 4 + 3]
+    ];
     this.keyframes[boneId].push({
       id: this.keyframeCounter,
       position: newPosition,
       time: newPosition / 50,
-      skeletonPose: skeletonPose
+      bonePose: bonePose
     });
-    console.log("this frame size:", this.keyframes[boneId].length);
+    this.keyframeCounter++;
     this.status = `新增關鍵幀: ${this.keyframeCounter} 給骨骼: ${boneId}`;
     this.onUpdate();
+    console.log("this frame size:", this.keyframes[boneId].length);
   }
 
   startPlayheadDrag(event) {
@@ -93,7 +100,7 @@ export default class Timeline {
     const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
     let newPosition = event.clientX - tracksRect.left;
     newPosition = Math.max(0, Math.min(newPosition, this.timelineLength));
-  
+
     if (this.dragInfo.type === 'playhead') {
       this.playheadPosition = newPosition;
     } else if (this.dragInfo.type === 'selection') {
@@ -106,43 +113,50 @@ export default class Timeline {
       }
       this.playheadPosition = newPosition;
     }
-  
-    // 獲取當前時間點的關鍵幀並更新姿態
+
+    // Update bone poses based on keyframes
     this.getKeyframesBeforeCurrentTime();
+    const newSkeletonVertices = [...skeletonVertices.value];
     this.currentKeyframeInfo.forEach(info => {
       const { boneId, keyframeIndex, interpolationRatio } = info;
       const keyframes = this.keyframes[boneId];
       const currentKeyframe = keyframes[keyframeIndex];
       const prevKeyframe = keyframeIndex > 0 ? keyframes[keyframeIndex - 1] : null;
-  
-      if (prevKeyframe && currentKeyframe.skeletonPose && prevKeyframe.skeletonPose) {
-        this.interpolateSkeletonPose(
-          prevKeyframe.skeletonPose,
-          currentKeyframe.skeletonPose,
-          interpolationRatio
-        );
-      } else if (currentKeyframe.skeletonPose) {
-        skeletonVertices.value = [...currentKeyframe.skeletonPose];
-        initBone()?.prototype.updateMeshForSkeletonPose?.();
+
+      let bonePose;
+      if (prevKeyframe && currentKeyframe.bonePose && prevKeyframe.bonePose) {
+        bonePose = this.interpolateBonePose(prevKeyframe.bonePose, currentKeyframe.bonePose, interpolationRatio);
+      } else if (currentKeyframe.bonePose) {
+        bonePose = currentKeyframe.bonePose;
+      }
+      if (bonePose) {
+        newSkeletonVertices[boneId * 4] = bonePose[0];
+        newSkeletonVertices[boneId * 4 + 1] = bonePose[1];
+        newSkeletonVertices[boneId * 4 + 2] = bonePose[2];
+        newSkeletonVertices[boneId * 4 + 3] = bonePose[3];
       }
     });
-  
+    skeletonVertices.value = newSkeletonVertices;
+    updateMeshForSkeletonPose();
     this.onUpdate();
   }
+
   selectKeyframe(boneId, keyframeId) {
     console.log(" hi select key frame", boneId, keyframeId);
     const keyframe = this.keyframes[boneId]?.find(k => k.id === keyframeId);
-    if (keyframe && keyframe.skeletonPose) {
-      skeletonVertices.value = [...keyframe.skeletonPose];
-      initBone()?.prototype.updateMeshForSkeletonPose?.();
+    if (keyframe && keyframe.bonePose) {
+      skeletonVertices.value[boneId * 4] = keyframe.bonePose[0];
+      skeletonVertices.value[boneId * 4 + 1] = keyframe.bonePose[1];
+      skeletonVertices.value[boneId * 4 + 2] = keyframe.bonePose[2];
+      skeletonVertices.value[boneId * 4 + 3] = keyframe.bonePose[3];
+      updateMeshForSkeletonPose();
     }
     this.status = `選擇關鍵幀: ${keyframeId} 給骨骼: ${boneId}`;
   }
 
   playAnimation() {
-    if(this.isPlaying)
-    {
-      this.isPlaying=false;
+    if (this.isPlaying) {
+      this.isPlaying = false;
       return;
     }
     console.log("play animation in timeline!  ");
@@ -159,38 +173,42 @@ export default class Timeline {
     const totalDuration = this.timelineLength * 20;
     const loopedTime = elapsedTime % totalDuration;
     this.playheadPosition = loopedTime / 20;
-  
-    // 獲取當前時間點的關鍵幀資訊
+
+    // Update bone poses based on keyframes
     this.getKeyframesBeforeCurrentTime();
+    const newSkeletonVertices = [...skeletonVertices.value];
     this.currentKeyframeInfo.forEach(info => {
       const { boneId, keyframeIndex, interpolationRatio } = info;
       const keyframes = this.keyframes[boneId];
       const currentKeyframe = keyframes[keyframeIndex];
       const prevKeyframe = keyframeIndex > 0 ? keyframes[keyframeIndex - 1] : null;
-  
-      if (prevKeyframe && currentKeyframe.skeletonPose && prevKeyframe.skeletonPose) {
-        this.interpolateSkeletonPose(
-          prevKeyframe.skeletonPose,
-          currentKeyframe.skeletonPose,
-          interpolationRatio
-        );
-      } else if (currentKeyframe.skeletonPose) {
-        skeletonVertices.value = [...currentKeyframe.skeletonPose];
-        initBone()?.prototype.updateMeshForSkeletonPose?.();
+
+      let bonePose;
+      if (prevKeyframe && currentKeyframe.bonePose && prevKeyframe.bonePose) {
+        bonePose = this.interpolateBonePose(prevKeyframe.bonePose, currentKeyframe.bonePose, interpolationRatio);
+      } else if (currentKeyframe.bonePose) {
+        bonePose = currentKeyframe.bonePose;
+      }
+      if (bonePose) {
+        newSkeletonVertices[boneId * 4] = bonePose[0];
+        newSkeletonVertices[boneId * 4 + 1] = bonePose[1];
+        newSkeletonVertices[boneId * 4 + 2] = bonePose[2];
+        newSkeletonVertices[boneId * 4 + 3] = bonePose[3];
       }
     });
-  
+    skeletonVertices.value = newSkeletonVertices;
+    updateMeshForSkeletonPose();
     requestAnimationFrame(() => this.animate());
     this.onUpdate();
   }
 
-  interpolateSkeletonPose(startPose, endPose, t) {
-    const newPose = [];
-    for (let i = 0; i < startPose.length; i++) {
-      newPose[i] = startPose[i] + (endPose[i] - startPose[i]) * t;
-    }
-    skeletonVertices.value = newPose;
-    initBone()?.prototype.updateMeshForSkeletonPose?.();
+  interpolateBonePose(startPose, endPose, t) {
+    return [
+      startPose[0] + (endPose[0] - startPose[0]) * t,
+      startPose[1] + (endPose[1] - startPose[1]) * t,
+      startPose[2] + (endPose[2] - startPose[2]) * t,
+      startPose[3] + (endPose[3] - startPose[3]) * t
+    ];
   }
 
   startDrag(e, container) {
@@ -249,24 +267,24 @@ export default class Timeline {
   }
 
   getFlattenedBones(node, depth = 0, result = []) {
-    result.push({ id: node.id, trackY: depth * 20 });
+    result.push({
+      id: node.id, trackY: depth * 20, childIds: node.children.map(child => child.id),
+      parentId: node.parentId
+    });
     node.children?.forEach(child => this.getFlattenedBones(child, depth + 1, result));
     return result;
   }
 
-  // 新增方法：獲取當前時間點前的關鍵幀資訊
   getKeyframesBeforeCurrentTime() {
     const currentTime = this.playheadPosition;
     const keyframeInfo = [];
-  
+
     Object.keys(this.keyframes).forEach(boneId => {
       const originalKeyframes = this.keyframes[boneId];
       if (!originalKeyframes || originalKeyframes.length === 0) return;
-  
-      // 1. 按 position 升序排序关键帧
+
       const sortedKeyframes = [...originalKeyframes].sort((a, b) => a.position - b.position);
-  
-      // 2. 使用二分查找找到第一个大於 currentTime 的關鍵幀
+
       let low = 0;
       let high = sortedKeyframes.length;
       while (low < high) {
@@ -278,32 +296,26 @@ export default class Timeline {
         }
       }
       const firstGreaterIndex = low;
-  
+
       let prevKeyframe = null;
       let nextKeyframe = null;
       let interpolationRatio = 0;
-  
-      // 3. 處理三種情況
+
       if (firstGreaterIndex === 0) {
-        // 情況1: currentTime 在所有關鍵幀之前
         nextKeyframe = sortedKeyframes[0];
         interpolationRatio = 1;
       } else if (firstGreaterIndex === sortedKeyframes.length) {
-        // 情況2: currentTime 在所有關鍵幀之後
         prevKeyframe = sortedKeyframes[sortedKeyframes.length - 1];
         interpolationRatio = 1;
       } else {
-        // 情況3: currentTime 在關鍵幀之間
         prevKeyframe = sortedKeyframes[firstGreaterIndex - 1];
         nextKeyframe = sortedKeyframes[firstGreaterIndex];
-        interpolationRatio = (currentTime - prevKeyframe.position) / 
-                           (nextKeyframe.position - prevKeyframe.position);
+        interpolationRatio = (currentTime - prevKeyframe.position) /
+          (nextKeyframe.position - prevKeyframe.position);
       }
-  
-      // 4. 確保 interpolationRatio 在 0~1 範圍
+
       interpolationRatio = Math.max(0, Math.min(1, interpolationRatio));
-  
-      // 5. 記錄關鍵幀信息
+
       const currentKeyframe = prevKeyframe || nextKeyframe;
       if (currentKeyframe) {
         keyframeInfo.push({
@@ -315,9 +327,9 @@ export default class Timeline {
         });
       }
     });
-  
+
     this.currentKeyframeInfo = keyframeInfo;
-    console.log("key frame info :",JSON.stringify(keyframeInfo));
+    console.log("key frame info :", JSON.stringify(keyframeInfo));
     return keyframeInfo;
   }
 }
