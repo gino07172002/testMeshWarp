@@ -3,6 +3,8 @@ import glsInstance from './useWebGL.js';
 
 // 📦 全域狀態
 const skeletonVertices = ref([]);
+const skeletonVerticesLast =ref([]);
+const allBones=ref([]);
 const originalSkeletonVertices = ref([]);
 const boneParents = ref([]);
 const boneChildren = ref([]);
@@ -160,6 +162,15 @@ export default class Bones {
     }
   }
 
+  restoreSkeletonVerticesFromLast() {
+    if (skeletonVerticesLast.value.length > 0) {
+      skeletonVertices.value = [...skeletonVerticesLast.value];
+      
+      console.log("skeleton vertices length : ",skeletonVertices.value.length);
+      this.glsInstance.updateMeshForSkeletonPose();
+    }
+  }
+
   applyTransformToChildren(parentIndex, deltaX, deltaY, rotationAngle, pivotX, pivotY) {
     if (boneChildren.value[parentIndex]) {
       boneChildren.value[parentIndex].forEach(childIndex => {
@@ -203,6 +214,32 @@ export default class Bones {
     const rx = dx * cos - dy * sin;
     const ry = dx * sin + dy * cos;
     return { x: rx + cx, y: ry + cy };
+  }
+
+ assignVerticesToBones() {
+    const vertices = skeletonVertices.value;
+    allBones.value = []; // 清空現有骨骼數據
+  
+    // 以 4 個單位為步長遍歷頂點數組
+    for (let i = 0; i < vertices.length; i += 4) {
+      // 確保有足夠的數據構成一個骨骼
+      if (i + 3 >= vertices.length) break;
+  
+      // 提取頭尾座標
+      const bone = {
+        head: {
+          x: vertices[i],
+          y: vertices[i + 1]
+        },
+        tail: {
+          x: vertices[i + 2],
+          y: vertices[i + 3]
+        }
+      };
+  
+      allBones.value.push(bone);
+    }
+    console.log(" hi all bones:",JSON.stringify(allBones.value));
   }
 
   // Bone Create Methods
@@ -371,7 +408,9 @@ export default class Bones {
           skeletonVertices.value[boneIndex * 4 + 2] += deltaX;
           skeletonVertices.value[boneIndex * 4 + 3] += deltaY;
           this.applyTransformToChildren(boneIndex, deltaX, deltaY, 0, 0, 0);
-        } else if (buttons === 1) { // Left mouse button for rotation
+        }
+        
+        else if (buttons === 1) { // Left mouse button for rotation
           const headX = skeletonVertices.value[boneIndex * 4];
           const headY = skeletonVertices.value[boneIndex * 4 + 1];
           const prevAngle = Math.atan2(prevY - headY, prevX - headX);
@@ -387,9 +426,15 @@ export default class Bones {
           this.applyTransformToChildren(boneIndex, 0, 0, rotationAngle, headX, headY);
         }
       }
-      this.glsInstance.updateMeshForSkeletonPose();
+
+      // Save full state to skeletonVerticesLast
+      skeletonVerticesLast.value = [...skeletonVertices.value];
+
+       this.glsInstance.updateMeshForSkeletonPose();
     }
   }
+
+ 
 
   handleBoneAnimateMouseUp() {
     boneEndBeingDragged.value = null;

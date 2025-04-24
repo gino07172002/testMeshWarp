@@ -231,6 +231,9 @@ const app = Vue.createApp({
       this.boneTree.forEach(root => {
         this.timeline.getFlattenedBones(root, 0, result);
       });
+
+    
+      console.log("flan bones: ",JSON.stringify(result));
       return result;
     }
   },
@@ -361,6 +364,7 @@ const app = Vue.createApp({
     buildBoneTree(boneIndex, parentId = null) {
       const boneId = `bone${boneIndex}`;
       const boneName = `Bone ${boneIndex}`;
+      const index=boneIndex;
 
       const headX = skeletonVertices.value[boneIndex * 4];
       const headY = skeletonVertices.value[boneIndex * 4 + 1];
@@ -372,6 +376,7 @@ const app = Vue.createApp({
         id: boneId,
         name: boneName,
         parentId: parentId,
+        index:boneIndex,
         head: { x: Math.round(headX * 100) / 100, y: Math.round(headY * 100) / 100 },
         tail: { x: Math.round(tailX * 100) / 100, y: Math.round(tailY * 100) / 100 },
         children: children.map(childIndex => this.buildBoneTree(childIndex, boneId))
@@ -422,10 +427,21 @@ const app = Vue.createApp({
     });
 
     const selectTool = (tool) => {
-      if (activeTool.value === 'bone-animate' && tool !== 'bone-animate') {
+      activeTool.value = tool;
+      console.log("switch to tool : ",tool);
+      if (activeTool.value === 'bone-animate') {
+        // 
+        //glsInstance.resetMeshToOriginal();
+     //   bonesInstance.resetSkeletonToOriginal();
+        bonesInstance.restoreSkeletonVerticesFromLast() ;
+      }
+      else if (tool === 'bone-create') {
         glsInstance.resetMeshToOriginal();
         bonesInstance.resetSkeletonToOriginal();
-      } else if (tool === 'bone-clear') {
+        // glsInstance.resetMeshToOriginal();
+        //  bonesInstance.resetSkeletonToOriginal();
+      }
+      else if (tool === 'bone-clear') {
         clearBones();
         selectedBone.value = -1;
       } else if (tool === 'bone-save') {
@@ -433,7 +449,7 @@ const app = Vue.createApp({
       } else if (tool === 'bone-read') {
         readBones();
       }
-      activeTool.value = tool;
+      
     };
 
     const handleKeyDown = (e) => {
@@ -512,6 +528,8 @@ const app = Vue.createApp({
       const handleMouseUp = () => {
         if (activeTool.value === 'bone-create' && isDragging) {
           bonesInstance.handleBoneCreateMouseUp();
+
+          bonesInstance.assignVerticesToBones();
         } else if (activeTool.value === 'bone-animate' && isDragging) {
           bonesInstance.handleBoneAnimateMouseUp();
         }

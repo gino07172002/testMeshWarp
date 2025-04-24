@@ -5,7 +5,7 @@ import {
 } from './useBone.js';
 
 import { selectedBone } from './app.js';
-
+import glsInstance from './useWebGL.js';
 // Assuming updateMeshForSkeletonPose is available globally or passed via init
 let updateMeshForSkeletonPose;
 
@@ -41,7 +41,7 @@ export default class Timeline {
     this.onPlayheadDrag = this.onPlayheadDrag.bind(this);
     this.stopPlayheadDrag = this.stopPlayheadDrag.bind(this);
     // Initialize updateMeshForSkeletonPose if provided
-    updateMeshForSkeletonPose = options.updateMeshForSkeletonPose || function () {};
+    updateMeshForSkeletonPose = options.updateMeshForSkeletonPose || function () { };
     console.log(" hi make timeline! ");
   }
 
@@ -51,8 +51,14 @@ export default class Timeline {
     this.onUpdate();
   }
 
+  getKeyframe(boneId) {
+    console.log(" hi get keyframe",boneId);
+    glsInstance.resetMeshToOriginal();
+
+  }
+
   addKeyframe() {
-    console.log("test this...");
+    console.log("test add keyframe ..");
     if (!selectedBone.value) {
       alert('請先選擇一個骨骼');
       return;
@@ -62,6 +68,8 @@ export default class Timeline {
       this.keyframes[boneId] = [];
     }
     const newPosition = this.playheadPosition;
+    console.log(" add frame : what : " ,JSON.stringify(skeletonVertices.value));
+    console.log("let's look select bone : ",JSON.stringify(selectedBone.value));
     // Store only the current bone's pose (headX, headY, tailX, tailY)
     const bonePose = [
       skeletonVertices.value[boneId * 4],
@@ -69,6 +77,7 @@ export default class Timeline {
       skeletonVertices.value[boneId * 4 + 2],
       skeletonVertices.value[boneId * 4 + 3]
     ];
+    console.log(" bone pose : ",JSON.stringify(bonePose));
     this.keyframes[boneId].push({
       id: this.keyframeCounter,
       position: newPosition,
@@ -134,7 +143,10 @@ export default class Timeline {
         newSkeletonVertices[boneId * 4 + 1] = bonePose[1];
         newSkeletonVertices[boneId * 4 + 2] = bonePose[2];
         newSkeletonVertices[boneId * 4 + 3] = bonePose[3];
+        console.log("bone pose: ",boneId," . . ",JSON.stringify(bonePose), " current key : ",JSON.stringify(currentKeyframe));
       }
+      if(boneId)
+      this.getKeyframe(boneId);
     });
     skeletonVertices.value = newSkeletonVertices;
     updateMeshForSkeletonPose();
@@ -269,7 +281,7 @@ export default class Timeline {
   getFlattenedBones(node, depth = 0, result = []) {
     result.push({
       id: node.id, trackY: depth * 20, childIds: node.children.map(child => child.id),
-      parentId: node.parentId
+      parentId: node.parentId,index:node.index
     });
     node.children?.forEach(child => this.getFlattenedBones(child, depth + 1, result));
     return result;
@@ -329,7 +341,7 @@ export default class Timeline {
     });
 
     this.currentKeyframeInfo = keyframeInfo;
-    console.log("key frame info :", JSON.stringify(keyframeInfo));
+    //console.log("key frame info :", JSON.stringify(keyframeInfo));
     return keyframeInfo;
   }
 }
