@@ -158,7 +158,7 @@ const loadTexture = (gl, url, imageData, imageWidth, imageHeight) => {
   });
 };
 
-const timeline = ref(new Timeline());
+//const timeline = ref(new Timeline());
 const app = Vue.createApp({
   data() {
     return {
@@ -184,9 +184,11 @@ const app = Vue.createApp({
       animationPlaying: false,
       animationStartTime: 0,
       nextKeyframeId: 10,
+      boneIdToIndexMap:{},
       timeline: new Timeline({
         onUpdate: () => this.$forceUpdate(),
-        vueInstance: this
+        vueInstance: this,
+        updateMeshForSkeletonPose:glsInstance.updateMeshForSkeletonPose,
       }),
       hierarchicalData: {
         children: [
@@ -224,7 +226,20 @@ const app = Vue.createApp({
       const rootBones = boneParents.value
         .map((parent, index) => (parent === -1 ? index : null))
         .filter(index => index !== null);
-      return rootBones.map(rootIndex => this.buildBoneTree(rootIndex));
+      
+      // 創建一個空的映射表
+      const boneIdToIndexMap = {};
+      
+      // 構建樹結構並填充映射表
+      const trees = rootBones.map(rootIndex => {
+        const tree = this.buildBoneTree(rootIndex, null, boneIdToIndexMap);
+        return tree;
+      });
+      
+      // 將映射表保存到組件實例中以便後續使用
+      this.boneIdToIndexMap = boneIdToIndexMap;
+      console.log(" bone id map : ",JSON.stringify(this.boneIdToIndexMap));
+      return trees;
     },
     flattenedBones() {
       let result = [];
@@ -361,25 +376,28 @@ const app = Vue.createApp({
         children: hasChildren ? node.children.map(child => this.renderHierarchicalData(child, nodeId)) : []
       };
     },
-    buildBoneTree(boneIndex, parentId = null) {
+    buildBoneTree(boneIndex, parentId = null, boneIdToIndexMap = {}) {
       const boneId = `bone${boneIndex}`;
       const boneName = `Bone ${boneIndex}`;
-      const index=boneIndex;
-
+      const index = boneIndex;
+    
+      // 將 boneId 和 boneIndex 的映射關係添加到表中
+      boneIdToIndexMap[boneId] = boneIndex;
+    
       const headX = skeletonVertices.value[boneIndex * 4];
       const headY = skeletonVertices.value[boneIndex * 4 + 1];
       const tailX = skeletonVertices.value[boneIndex * 4 + 2];
       const tailY = skeletonVertices.value[boneIndex * 4 + 3];
-
+    
       const children = boneChildren.value[boneIndex] || [];
       return {
         id: boneId,
         name: boneName,
         parentId: parentId,
-        index:boneIndex,
+        index: boneIndex,
         head: { x: Math.round(headX * 100) / 100, y: Math.round(headY * 100) / 100 },
         tail: { x: Math.round(tailX * 100) / 100, y: Math.round(tailY * 100) / 100 },
-        children: children.map(childIndex => this.buildBoneTree(childIndex, boneId))
+        children: children.map(childIndex => this.buildBoneTree(childIndex, boneId, boneIdToIndexMap))
       };
     },
     getParentBoneById(boneId) {
