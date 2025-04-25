@@ -41,7 +41,7 @@ export default class Timeline {
     this.onPlayheadDrag = this.onPlayheadDrag.bind(this);
     this.stopPlayheadDrag = this.stopPlayheadDrag.bind(this);
     // Initialize updateMeshForSkeletonPose if provided
-    updateMeshForSkeletonPose = options.updateMeshForSkeletonPose || function () { };
+    updateMeshForSkeletonPose = options.updateMeshForSkeletonPose || function () { console.log(" hi not this") };
     console.log(" hi make timeline! ");
   }
 
@@ -52,7 +52,7 @@ export default class Timeline {
   }
 
   getKeyframe(boneId) {
-    console.log(" hi get keyframe",boneId);
+    console.log(" hi get keyframe as index : ",boneId.index);
     glsInstance.resetMeshToOriginal();
 
   }
@@ -64,6 +64,7 @@ export default class Timeline {
       return;
     }
     const boneId = selectedBone.value.id;
+    var index = selectedBone.value.index;
     if (!this.keyframes[boneId]) {
       this.keyframes[boneId] = [];
     }
@@ -72,10 +73,10 @@ export default class Timeline {
     console.log("let's look select bone : ",JSON.stringify(selectedBone.value));
     // Store only the current bone's pose (headX, headY, tailX, tailY)
     const bonePose = [
-      skeletonVertices.value[boneId * 4],
-      skeletonVertices.value[boneId * 4 + 1],
-      skeletonVertices.value[boneId * 4 + 2],
-      skeletonVertices.value[boneId * 4 + 3]
+      skeletonVertices.value[ index * 4],
+      skeletonVertices.value[ index * 4 + 1],
+      skeletonVertices.value[ index * 4 + 2],
+      skeletonVertices.value[ index * 4 + 3]
     ];
     console.log(" bone pose : ",JSON.stringify(bonePose));
     this.keyframes[boneId].push({
@@ -139,14 +140,14 @@ export default class Timeline {
         bonePose = currentKeyframe.bonePose;
       }
       if (bonePose) {
-        newSkeletonVertices[boneId * 4] = bonePose[0];
-        newSkeletonVertices[boneId * 4 + 1] = bonePose[1];
-        newSkeletonVertices[boneId * 4 + 2] = bonePose[2];
-        newSkeletonVertices[boneId * 4 + 3] = bonePose[3];
-        console.log("bone pose: ",boneId," . . ",JSON.stringify(bonePose), " current key : ",JSON.stringify(currentKeyframe));
+        newSkeletonVertices[boneId.index * 4] = bonePose[0];
+        newSkeletonVertices[boneId.index * 4 + 1] = bonePose[1];
+        newSkeletonVertices[boneId.index * 4 + 2] = bonePose[2];
+        newSkeletonVertices[boneId.index * 4 + 3] = bonePose[3];
+        console.log("bone pose: ",JSON.stringify(boneId)," . . ",JSON.stringify(bonePose), " current key : ",JSON.stringify(currentKeyframe));
       }
-      if(boneId)
-      this.getKeyframe(boneId);
+      //if(boneId)
+      //this.getKeyframe(boneId);
     });
     skeletonVertices.value = newSkeletonVertices;
     updateMeshForSkeletonPose();
