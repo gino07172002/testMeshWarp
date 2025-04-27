@@ -5,9 +5,87 @@ import {
 } from './useBone.js';
 
 import { selectedBone } from './app.js';
+import { boneTree } from './app.js'
+import { boneIdToIndexMap } from './app.js';
 import glsInstance from './useWebGL.js';
 // Assuming updateMeshForSkeletonPose is available globally or passed via init
 let updateMeshForSkeletonPose;
+
+// Bone inheritance properties structure
+const boneInheritanceSettings = {};
+
+// Initialize default inheritance settings for a bone
+function initBoneInheritance(boneId) {
+  if (!boneInheritanceSettings[boneId]) {
+    boneInheritanceSettings[boneId] = {
+      inheritPosition: true,
+      inheritRotation: true,
+      inheritScale: true
+    };
+  }
+  return boneInheritanceSettings[boneId];
+}
+
+// Function to update a bone's inheritance settings
+export function setBoneInheritance(boneId, settings) {
+  const currentSettings = initBoneInheritance(boneId);
+  boneInheritanceSettings[boneId] = {
+    ...currentSettings,
+    ...settings
+  };
+}
+
+// Helper to get a bone's complete transform considering inheritance
+function getCompleteBoneTransform(boneId, transformMap, boneParentMap) {
+  const transform = transformMap[boneId];
+  if (!transform) return null;
+
+  // If bone has no parent or doesn't inherit anything, return its direct transform
+  const parentId = boneParentMap[boneId];
+  if (!parentId) return transform;
+
+  // Get inheritance settings
+  const inheritSettings = initBoneInheritance(boneId);
+
+  // If nothing is inherited, return direct transform
+  if (!inheritSettings.inheritPosition &&
+    !inheritSettings.inheritRotation &&
+    !inheritSettings.inheritScale) {
+    return transform;
+  }
+
+  // Get parent transform recursively
+  const parentTransform = getCompleteBoneTransform(parentId, transformMap, boneParentMap);
+  if (!parentTransform) return transform;
+
+  // Clone the transform to avoid modifying the original
+  const result = {
+    position: { ...transform.position },
+    rotation: transform.rotation,
+    scale: transform.scale
+  };
+
+  // Apply parent transformations based on inheritance settings
+  if (inheritSettings.inheritPosition) {
+    // Apply parent position
+    result.position = {
+      x: transform.position.x + parentTransform.position.x,
+      y: transform.position.y + parentTransform.position.y
+    };
+  }
+
+  if (inheritSettings.inheritRotation) {
+    // Add parent rotation (angles are additive)
+    result.rotation = transform.rotation + parentTransform.rotation;
+  }
+
+  if (inheritSettings.inheritScale) {
+    // Multiply scales
+    result.scale = transform.scale * parentTransform.scale;
+  }
+
+  return result;
+}
 
 export default class Timeline {
   constructor(options = {}) {
@@ -40,63 +118,228 @@ export default class Timeline {
     this.startPlayheadDrag = this.startPlayheadDrag.bind(this);
     this.onPlayheadDrag = this.onPlayheadDrag.bind(this);
     this.stopPlayheadDrag = this.stopPlayheadDrag.bind(this);
+    // Store bone parent-child relationships
+    this.boneParentMap = {};
     // Initialize updateMeshForSkeletonPose if provided
-    updateMeshForSkeletonPose = options.updateMeshForSkeletonPose || function () { console.log(" hi not this") };
-    console.log(" hi make timeline! ");
+    updateMeshForSkeletonPose = options.updateMeshForSkeletonPose || function () { console.log("updateMeshForSkeletonPose not provided") };
+    console.log("Timeline initialized");
+    // Store original bone positions for reference
+    this.originalBoneTransforms = {};
+
+    // Add a method to initialize original bone positions
+    this.initOriginalBonePositions = this.initOriginalBonePositions.bind(this);
+  }
+
+  // Method to build and update the bone parent map
+  updateBoneParentMap(rootBone) {
+    if (!rootBone) return;
+
+    const traverseBone = (bone) => {
+      bone.children.forEach(child => {
+        this.boneParentMap[child.id] = bone.id;
+        traverseBone(child);
+      });
+    };
+
+    traverseBone(rootBone);
+    console.log("Bone parent map updated:", this.boneParentMap);
   }
 
   testCountFn() {
     this.testCount = this.testCount + 1;
-    console.log("hi test Count : ", this.testCount);
+    console.log("Test Count: ", this.testCount);
     this.onUpdate();
   }
 
   getKeyframe(boneId) {
-    console.log(" hi get keyframe as index : ",boneId.index);
+    const index = boneIdToIndexMap[boneId];
+    console.log("Get keyframe for bone ID:", boneId, "with index:", index);
     glsInstance.resetMeshToOriginal();
-
   }
 
+  // Convert from head-tail coordinates to transform properties
+  vertexToBoneTransform(headX, headY, tailX, tailY) {
+    // Position is the head position
+    const position = { x: headX, y: headY };
+
+    // Calculate rotation (angle in radians)
+    const deltaX = tailX - headX;
+    const deltaY = tailY - headY;
+    const rotation = Math.atan2(deltaY, deltaX);
+
+    // Calculate scale (bone length)
+    const scale = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+    return { position, rotation, scale };
+  }
+
+  // Convert from transform properties back to head-tail coordinates
+  boneTransformToVertex(transform) {
+    const { position, rotation, scale } = transform;
+
+    // Head position
+    const headX = position.x;
+    const headY = position.y;
+
+    // Tail position (calculated from head, rotation and scale)
+    const tailX = headX + Math.cos(rotation) * scale;
+    const tailY = headY + Math.sin(rotation) * scale;
+
+    return [headX, headY, tailX, tailY];
+  }
+
+  // Get local transform (without parent influence)
+  getLocalBoneTransform(boneId, globalTransform) {
+    const parentId = this.boneParentMap[boneId];
+    if (!parentId) return globalTransform; // No parent, local = global
+
+    // Get inheritance settings
+    const inheritSettings = initBoneInheritance(boneId);
+
+    // Get parent transform from current skeleton
+    const parentIndex = boneIdToIndexMap[parentId];
+    const parentHeadX = skeletonVertices.value[parentIndex * 4];
+    const parentHeadY = skeletonVertices.value[parentIndex * 4 + 1];
+    const parentTailX = skeletonVertices.value[parentIndex * 4 + 2];
+    const parentTailY = skeletonVertices.value[parentIndex * 4 + 3];
+    const parentTransform = this.vertexToBoneTransform(
+      parentHeadX, parentHeadY, parentTailX, parentTailY
+    );
+
+    // Create local transform by removing parent influence
+    const localTransform = {
+      position: { ...globalTransform.position },
+      rotation: globalTransform.rotation,
+      scale: globalTransform.scale
+    };
+
+    // Remove parent influence based on inheritance settings
+    if (inheritSettings.inheritPosition) {
+      localTransform.position.x -= parentTransform.position.x;
+      localTransform.position.y -= parentTransform.position.y;
+    }
+
+    if (inheritSettings.inheritRotation) {
+      localTransform.rotation -= parentTransform.rotation;
+    }
+
+    if (inheritSettings.inheritScale) {
+      localTransform.scale /= parentTransform.scale;
+    }
+
+    return localTransform;
+  }
+  initOriginalBonePositions() {
+    // Loop through all bones in the skeleton
+    Object.keys(boneIdToIndexMap).forEach(boneId => {
+      const index = boneIdToIndexMap[boneId];
+
+      // Get original vertex positions
+      const headX = skeletonVertices.value[index * 4];
+      const headY = skeletonVertices.value[index * 4 + 1];
+      const tailX = skeletonVertices.value[index * 4 + 2];
+      const tailY = skeletonVertices.value[index * 4 + 3];
+
+      // Convert to transform data
+      const transform = this.vertexToBoneTransform(headX, headY, tailX, tailY);
+
+      // Store original transform for this bone
+      this.originalBoneTransforms[boneId] = transform;
+    });
+
+    console.log("Original bone positions initialized");
+  }
   addKeyframe() {
-    console.log("test add keyframe ..");
+    console.log("Adding keyframe...");
     if (!selectedBone.value) {
       alert('請先選擇一個骨骼');
       return;
     }
     const boneId = selectedBone.value.id;
-    var index = selectedBone.value.index;
+    const index = selectedBone.value.index;
+
     if (!this.keyframes[boneId]) {
       this.keyframes[boneId] = [];
     }
+
     const newPosition = this.playheadPosition;
-    console.log(" add frame : what : " ,JSON.stringify(skeletonVertices.value));
-    console.log("let's look select bone : ",JSON.stringify(selectedBone.value));
-    // Store only the current bone's pose (headX, headY, tailX, tailY)
-    const bonePose = [
-      skeletonVertices.value[ index * 4],
-      skeletonVertices.value[ index * 4 + 1],
-      skeletonVertices.value[ index * 4 + 2],
-      skeletonVertices.value[ index * 4 + 3]
-    ];
-    console.log(" bone pose : ",JSON.stringify(bonePose));
+    console.log("Adding frame for selected bone:", JSON.stringify(selectedBone.value));
+
+    // Get current bone vertex positions
+    const headX = skeletonVertices.value[index * 4];
+    const headY = skeletonVertices.value[index * 4 + 1];
+    const tailX = skeletonVertices.value[index * 4 + 2];
+    const tailY = skeletonVertices.value[index * 4 + 3];
+
+    // Convert to global transform data (position, rotation, scale)
+    const globalTransform = this.vertexToBoneTransform(headX, headY, tailX, tailY);
+
+    // Convert to local transform if bone has a parent
+    const localTransform = this.getLocalBoneTransform(boneId, globalTransform);
+
+    // Calculate transformation relative to original position
+    const originalTransform = this.originalBoneTransforms[boneId] || globalTransform;
+    const relativeTransform = this.calculateRelativeTransform(globalTransform, originalTransform);
+
+    console.log("Bone transform (local):", JSON.stringify(localTransform));
+    console.log("Bone transform (relative to original):", JSON.stringify(relativeTransform));
+
     this.keyframes[boneId].push({
       id: this.keyframeCounter,
       position: newPosition,
       time: newPosition / 50,
-      bonePose: bonePose
+      transform: localTransform, // Store local transform in keyframe
+      relativeTransform: relativeTransform // Store relative transform in keyframe
     });
+
     this.keyframeCounter++;
     this.status = `新增關鍵幀: ${this.keyframeCounter} 給骨骼: ${boneId}`;
     this.onUpdate();
-    console.log("this frame size:", this.keyframes[boneId].length);
+    console.log("Keyframes for this bone:", this.keyframes[boneId].length);
   }
+  calculateRelativeTransform(currentTransform, originalTransform) {
+    // Calculate position difference
+    const positionDiff = {
+      x: currentTransform.position.x - originalTransform.position.x,
+      y: currentTransform.position.y - originalTransform.position.y
+    };
 
+    // Calculate rotation difference
+    // Normalize angles to avoid issues with angle wrapping
+    let currentRotation = currentTransform.rotation;
+    let originalRotation = originalTransform.rotation;
+
+    while (currentRotation > Math.PI) currentRotation -= 2 * Math.PI;
+    while (currentRotation <= -Math.PI) currentRotation += 2 * Math.PI;
+
+    while (originalRotation > Math.PI) originalRotation -= 2 * Math.PI;
+    while (originalRotation <= -Math.PI) originalRotation += 2 * Math.PI;
+
+    // Calculate shortest path for rotation difference
+    let rotationDiff = currentRotation - originalRotation;
+    if (rotationDiff > Math.PI) rotationDiff -= 2 * Math.PI;
+    if (rotationDiff <= -Math.PI) rotationDiff += 2 * Math.PI;
+
+    // Calculate scale ratio
+    const scaleRatio = currentTransform.scale / originalTransform.scale;
+
+    return {
+      position: positionDiff,
+      rotation: rotationDiff,
+      scale: scaleRatio
+    };
+  }
   startPlayheadDrag(event) {
     const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
     const offsetX = event.clientX - tracksRect.left;
     this.dragInfo = { dragging: true, startX: event.clientX, type: 'selection', offsetX };
     this.timeSelection = { active: true, start: offsetX, end: offsetX };
     this.playheadPosition = offsetX;
+    console.log(" bone tree : ", JSON.stringify(boneTree));
+    if (Object.keys(boneTree).length != 0) {
+      this.updateSkeletonWithInheritance();
+    }
+
     this.onUpdate();
   }
 
@@ -106,7 +349,13 @@ export default class Timeline {
   }
 
   onPlayheadDrag(event) {
+
+
+
     if (!this.dragInfo || !this.dragInfo.dragging) return;
+
+
+
     const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
     let newPosition = event.clientX - tracksRect.left;
     newPosition = Math.max(0, Math.min(newPosition, this.timelineLength));
@@ -123,46 +372,182 @@ export default class Timeline {
       }
       this.playheadPosition = newPosition;
     }
+    if (Object.keys(boneTree).length != 0) {
+      this.updateSkeletonWithInheritance();
+    }
+    // Update bone poses based on keyframes with inheritance
 
-    // Update bone poses based on keyframes
+    this.onUpdate();
+  }
+  dfsTraverse(node, parent = null) {
+    if (!node) return;
+
+    // 印出當前節點的 id 和它的 parent
+    console.log(`id: ${node.id}, parent: ${parent ? parent.id : "null"}`);
+
+    // 遞歸遍歷子節點，並傳遞當前節點作為 parent
+    if (node.children && node.children.length > 0) {
+      for (const child of node.children) {
+        this.dfsTraverse(child, node); // 傳遞當前節點作為 parent
+      }
+    }
+  }
+
+  // New method to update the skeleton considering bone inheritance
+  updateSkeletonWithInheritance() {
+    //console.log(" bone tree : ",JSON.stringify(boneTree));
+    for (const key in boneTree) {
+      this.dfsTraverse(boneTree[key]);
+    }
+    // Get all keyframes before current time
     this.getKeyframesBeforeCurrentTime();
-    const newSkeletonVertices = [...skeletonVertices.value];
-    this.currentKeyframeInfo.forEach(info => {
-      const { boneId, keyframeIndex, interpolationRatio } = info;
-      const keyframes = this.keyframes[boneId];
-      const currentKeyframe = keyframes[keyframeIndex];
-      const prevKeyframe = keyframeIndex > 0 ? keyframes[keyframeIndex - 1] : null;
 
-      let bonePose;
-      if (prevKeyframe && currentKeyframe.bonePose && prevKeyframe.bonePose) {
-        bonePose = this.interpolateBonePose(prevKeyframe.bonePose, currentKeyframe.bonePose, interpolationRatio);
-      } else if (currentKeyframe.bonePose) {
-        bonePose = currentKeyframe.bonePose;
+    // Create a map of local transforms from current keyframe info
+    const localTransformMap = {};
+    this.currentKeyframeInfo.forEach(info => {
+      const { boneId, keyframe, nextKeyframe } = info;
+
+
+      let localTransform;
+      if (nextKeyframe && keyframe.position < this.playheadPosition &&
+        nextKeyframe.position > this.playheadPosition) {
+        // Interpolate between current and next keyframe
+        localTransform = this.interpolateBoneTransform(
+          keyframe.transform,
+          nextKeyframe.transform,
+          (this.playheadPosition - keyframe.position) / (nextKeyframe.position - keyframe.position)
+        );
+      } else {
+        // Use the closest keyframe if we're not between two keyframes
+        localTransform = keyframe.transform;
       }
-      if (bonePose) {
-        newSkeletonVertices[boneId.index * 4] = bonePose[0];
-        newSkeletonVertices[boneId.index * 4 + 1] = bonePose[1];
-        newSkeletonVertices[boneId.index * 4 + 2] = bonePose[2];
-        newSkeletonVertices[boneId.index * 4 + 3] = bonePose[3];
-        console.log("bone pose: ",JSON.stringify(boneId)," . . ",JSON.stringify(bonePose), " current key : ",JSON.stringify(currentKeyframe));
-      }
-      //if(boneId)
-      //this.getKeyframe(boneId);
+
+      localTransformMap[boneId] = localTransform;
     });
+
+    // Process bones in hierarchical order (parents before children)
+    // Get sorted bone IDs from parent to children
+    const sortedBoneIds = this.getSortedBoneIds();
+
+    // Apply transforms to bones considering hierarchy
+    const newSkeletonVertices = [...skeletonVertices.value];
+    sortedBoneIds.forEach(boneId => {
+      // Skip if no transform for this bone
+      if (!localTransformMap[boneId]) return;
+
+      // Get bone index
+      const index = boneIdToIndexMap[boneId];
+      if (index === undefined) {
+        console.error("Invalid bone ID:", boneId);
+        return;
+      }
+
+      // Get local transform
+      const localTransform = localTransformMap[boneId];
+
+      // Calculate global transform considering inheritance
+      const globalTransform = this.calculateGlobalTransform(boneId, localTransform, localTransformMap);
+
+      // Convert transform back to vertices
+      const vertices = this.boneTransformToVertex(globalTransform);
+      newSkeletonVertices[index * 4] = vertices[0];     // headX
+      newSkeletonVertices[index * 4 + 1] = vertices[1]; // headY
+      newSkeletonVertices[index * 4 + 2] = vertices[2]; // tailX
+      newSkeletonVertices[index * 4 + 3] = vertices[3]; // tailY
+    });
+
     skeletonVertices.value = newSkeletonVertices;
     updateMeshForSkeletonPose();
-    this.onUpdate();
+  }
+
+  // Helper to get bones sorted from parent to children
+  getSortedBoneIds() {
+    const boneIds = Object.keys(boneIdToIndexMap);
+    const visitedMap = {};
+    const sortedIds = [];
+
+    const visit = (boneId) => {
+      if (visitedMap[boneId]) return;
+      visitedMap[boneId] = true;
+
+      // Process parent first
+      const parentId = this.boneParentMap[boneId];
+      if (parentId && !visitedMap[parentId]) {
+        visit(parentId);
+      }
+
+      sortedIds.push(boneId);
+    };
+
+    // Process all bones
+    boneIds.forEach(boneId => {
+      if (!visitedMap[boneId]) {
+        visit(boneId);
+      }
+    });
+
+    return sortedIds;
+  }
+
+  // Calculate global transform from local transform considering inheritance
+  calculateGlobalTransform(boneId, localTransform, localTransformMap) {
+    // If no parent, local = global
+    const parentId = this.boneParentMap[boneId];
+    if (!parentId) return localTransform;
+
+    // Get inheritance settings
+    const inheritSettings = initBoneInheritance(boneId);
+
+    // Get parent's global transform
+    const parentIndex = boneIdToIndexMap[parentId];
+    const parentHeadX = skeletonVertices.value[parentIndex * 4];
+    const parentHeadY = skeletonVertices.value[parentIndex * 4 + 1];
+    const parentTailX = skeletonVertices.value[parentIndex * 4 + 2];
+    const parentTailY = skeletonVertices.value[parentIndex * 4 + 3];
+    const parentGlobalTransform = this.vertexToBoneTransform(
+      parentHeadX, parentHeadY, parentTailX, parentTailY
+    );
+
+    // Create global transform by applying parent influence based on inheritance settings
+    const globalTransform = {
+      position: { ...localTransform.position },
+      rotation: localTransform.rotation,
+      scale: localTransform.scale
+    };
+
+    // Apply parent influence based on inheritance settings
+    if (inheritSettings.inheritPosition) {
+      globalTransform.position.x += parentGlobalTransform.position.x;
+      globalTransform.position.y += parentGlobalTransform.position.y;
+    }
+
+    if (inheritSettings.inheritRotation) {
+      globalTransform.rotation += parentGlobalTransform.rotation;
+    }
+
+    if (inheritSettings.inheritScale) {
+      globalTransform.scale *= parentGlobalTransform.scale;
+    }
+
+    return globalTransform;
   }
 
   selectKeyframe(boneId, keyframeId) {
-    console.log(" hi select key frame", boneId, keyframeId);
+    console.log("Selecting keyframe:", boneId, keyframeId);
+
+    // Get the correct bone index from the map
+    const index = boneIdToIndexMap[boneId];
+    if (index === undefined) {
+      console.error("Invalid bone ID:", boneId);
+      return;
+    }
+
     const keyframe = this.keyframes[boneId]?.find(k => k.id === keyframeId);
-    if (keyframe && keyframe.bonePose) {
-      skeletonVertices.value[boneId * 4] = keyframe.bonePose[0];
-      skeletonVertices.value[boneId * 4 + 1] = keyframe.bonePose[1];
-      skeletonVertices.value[boneId * 4 + 2] = keyframe.bonePose[2];
-      skeletonVertices.value[boneId * 4 + 3] = keyframe.bonePose[3];
-      updateMeshForSkeletonPose();
+    if (keyframe && keyframe.transform) {
+      // For selecting a keyframe, we'll set the playhead position to the keyframe position
+      // and update the skeleton to show the pose at that time
+      this.playheadPosition = keyframe.position;
+      this.updateSkeletonWithInheritance();
     }
     this.status = `選擇關鍵幀: ${keyframeId} 給骨骼: ${boneId}`;
   }
@@ -172,7 +557,7 @@ export default class Timeline {
       this.isPlaying = false;
       return;
     }
-    console.log("play animation in timeline!  ");
+    console.log("Playing animation...");
     this.isPlaying = true;
     const currentTime = Date.now();
     const timePerUnit = 20;
@@ -187,45 +572,54 @@ export default class Timeline {
     const loopedTime = elapsedTime % totalDuration;
     this.playheadPosition = loopedTime / 20;
 
-    // Update bone poses based on keyframes
-    this.getKeyframesBeforeCurrentTime();
-    const newSkeletonVertices = [...skeletonVertices.value];
-    this.currentKeyframeInfo.forEach(info => {
-      const { boneId, keyframeIndex, interpolationRatio } = info;
-      const keyframes = this.keyframes[boneId];
-      const currentKeyframe = keyframes[keyframeIndex];
-      const prevKeyframe = keyframeIndex > 0 ? keyframes[keyframeIndex - 1] : null;
+    // Update bone poses with inheritance
+    this.updateSkeletonWithInheritance();
 
-      let bonePose;
-      if (prevKeyframe && currentKeyframe.bonePose && prevKeyframe.bonePose) {
-        bonePose = this.interpolateBonePose(prevKeyframe.bonePose, currentKeyframe.bonePose, interpolationRatio);
-      } else if (currentKeyframe.bonePose) {
-        bonePose = currentKeyframe.bonePose;
-      }
-      if (bonePose) {
-        newSkeletonVertices[boneId * 4] = bonePose[0];
-        newSkeletonVertices[boneId * 4 + 1] = bonePose[1];
-        newSkeletonVertices[boneId * 4 + 2] = bonePose[2];
-        newSkeletonVertices[boneId * 4 + 3] = bonePose[3];
-      }
-    });
-    skeletonVertices.value = newSkeletonVertices;
-    updateMeshForSkeletonPose();
     requestAnimationFrame(() => this.animate());
     this.onUpdate();
   }
 
-  interpolateBonePose(startPose, endPose, t) {
-    return [
-      startPose[0] + (endPose[0] - startPose[0]) * t,
-      startPose[1] + (endPose[1] - startPose[1]) * t,
-      startPose[2] + (endPose[2] - startPose[2]) * t,
-      startPose[3] + (endPose[3] - startPose[3]) * t
-    ];
+  // Method to interpolate transform properties
+  interpolateBoneTransform(startTransform, endTransform, t) {
+    // Ensure t is between 0 and 1
+    t = Math.max(0, Math.min(1, t));
+
+    // Interpolate position
+    const position = {
+      x: startTransform.position.x + (endTransform.position.x - startTransform.position.x) * t,
+      y: startTransform.position.y + (endTransform.position.y - startTransform.position.y) * t
+    };
+
+    // Interpolate scale
+    const scale = startTransform.scale + (endTransform.scale - startTransform.scale) * t;
+
+    // Special handling for rotation to avoid issues with angle wrapping
+    // Convert angles to ensure shortest path interpolation
+    let startRotation = startTransform.rotation;
+    let endRotation = endTransform.rotation;
+
+    // Normalize angles to (-PI, PI] range
+    while (startRotation > Math.PI) startRotation -= 2 * Math.PI;
+    while (startRotation <= -Math.PI) startRotation += 2 * Math.PI;
+
+    while (endRotation > Math.PI) endRotation -= 2 * Math.PI;
+    while (endRotation <= -Math.PI) endRotation += 2 * Math.PI;
+
+    // Choose the shortest path for rotation
+    if (endRotation - startRotation > Math.PI) {
+      endRotation -= 2 * Math.PI;
+    } else if (startRotation - endRotation > Math.PI) {
+      startRotation -= 2 * Math.PI;
+    }
+
+    // Interpolate rotation
+    const rotation = startRotation + (endRotation - startRotation) * t;
+
+    return { position, rotation, scale };
   }
 
   startDrag(e, container) {
-    console.log("hi start dragging...");
+    console.log("Starting drag operation...");
     const target = e.target;
     const containerLeft = container.getBoundingClientRect().left;
     const scrollLeft = container.scrollLeft;
@@ -281,10 +675,19 @@ export default class Timeline {
 
   getFlattenedBones(node, depth = 0, result = []) {
     result.push({
-      id: node.id, trackY: depth * 20, childIds: node.children.map(child => child.id),
-      parentId: node.parentId,index:node.index
+      id: node.id,
+      trackY: depth * 20,
+      childIds: node.children.map(child => child.id),
+      parentId: node.parentId,
+      index: node.index
     });
-    node.children?.forEach(child => this.getFlattenedBones(child, depth + 1, result));
+
+    // Update parent-child relationship map while flattening
+    node.children?.forEach(child => {
+      this.boneParentMap[child.id] = node.id;
+      this.getFlattenedBones(child, depth + 1, result);
+    });
+
     return result;
   }
 
@@ -293,56 +696,93 @@ export default class Timeline {
     const keyframeInfo = [];
 
     Object.keys(this.keyframes).forEach(boneId => {
-      const originalKeyframes = this.keyframes[boneId];
-      if (!originalKeyframes || originalKeyframes.length === 0) return;
+      const keyframes = this.keyframes[boneId];
+      if (!keyframes || keyframes.length === 0) return;
 
-      const sortedKeyframes = [...originalKeyframes].sort((a, b) => a.position - b.position);
+      // Sort keyframes by position to ensure proper interpolation
+      const sortedKeyframes = [...keyframes].sort((a, b) => a.position - b.position);
 
-      let low = 0;
-      let high = sortedKeyframes.length;
-      while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        if (sortedKeyframes[mid].position > currentTime) {
-          high = mid;
-        } else {
-          low = mid + 1;
-        }
-      }
-      const firstGreaterIndex = low;
-
+      // Find the last keyframe before or at current time and the first keyframe after current time
       let prevKeyframe = null;
       let nextKeyframe = null;
-      let interpolationRatio = 0;
 
-      if (firstGreaterIndex === 0) {
-        nextKeyframe = sortedKeyframes[0];
-        interpolationRatio = 1;
-      } else if (firstGreaterIndex === sortedKeyframes.length) {
-        prevKeyframe = sortedKeyframes[sortedKeyframes.length - 1];
-        interpolationRatio = 1;
-      } else {
-        prevKeyframe = sortedKeyframes[firstGreaterIndex - 1];
-        nextKeyframe = sortedKeyframes[firstGreaterIndex];
-        interpolationRatio = (currentTime - prevKeyframe.position) /
-          (nextKeyframe.position - prevKeyframe.position);
+      // Binary search to find the right position in sorted keyframes
+      let low = 0;
+      let high = sortedKeyframes.length - 1;
+
+      // First find the last keyframe before or at current time
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        if (sortedKeyframes[mid].position <= currentTime) {
+          prevKeyframe = sortedKeyframes[mid];
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
       }
 
-      interpolationRatio = Math.max(0, Math.min(1, interpolationRatio));
+      // Then find the first keyframe after current time
+      for (let i = 0; i < sortedKeyframes.length; i++) {
+        if (sortedKeyframes[i].position > currentTime) {
+          nextKeyframe = sortedKeyframes[i];
+          break;
+        }
+      }
 
-      const currentKeyframe = prevKeyframe || nextKeyframe;
-      if (currentKeyframe) {
+      // Handle cases where we're before the first keyframe or after the last keyframe
+      if (!prevKeyframe && nextKeyframe) {
+        // Before first keyframe - use the first keyframe
         keyframeInfo.push({
           boneId: boneId,
-          keyframeIndex: originalKeyframes.indexOf(currentKeyframe),
-          keyframeId: currentKeyframe.id,
-          position: currentKeyframe.position,
-          interpolationRatio: interpolationRatio
+          keyframe: nextKeyframe,
+          nextKeyframe: null
+        });
+      } else if (prevKeyframe && !nextKeyframe) {
+        // After last keyframe - use the last keyframe
+        keyframeInfo.push({
+          boneId: boneId,
+          keyframe: prevKeyframe,
+          nextKeyframe: null
+        });
+      } else if (prevKeyframe && nextKeyframe) {
+        // Between two keyframes - include both for interpolation
+        keyframeInfo.push({
+          boneId: boneId,
+          keyframe: prevKeyframe,
+          nextKeyframe: nextKeyframe
         });
       }
     });
 
     this.currentKeyframeInfo = keyframeInfo;
-    //console.log("key frame info :", JSON.stringify(keyframeInfo));
     return keyframeInfo;
   }
+
+  // Method to set bone inheritance properties
+  setBoneInheritance(boneId, inheritProps) {
+    const settings = initBoneInheritance(boneId);
+
+    if (inheritProps.hasOwnProperty('position')) {
+      settings.inheritPosition = !!inheritProps.position;
+    }
+
+    if (inheritProps.hasOwnProperty('rotation')) {
+      settings.inheritRotation = !!inheritProps.rotation;
+    }
+
+    if (inheritProps.hasOwnProperty('scale')) {
+      settings.inheritScale = !!inheritProps.scale;
+    }
+
+    console.log(`Updated inheritance for bone ${boneId}:`, settings);
+    return settings;
+  }
+
+  // Get bone inheritance settings
+  getBoneInheritance(boneId) {
+    return initBoneInheritance(boneId);
+  }
 }
+
+// Export the bone inheritance settings functions for use in UI components
+export { initBoneInheritance, boneInheritanceSettings };
