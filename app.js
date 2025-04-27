@@ -1,6 +1,7 @@
 const { createApp, onMounted, ref, reactive } = Vue;
 export const selectedBone = ref(-1);
-
+export const boneIdToIndexMap = reactive({});
+export const boneTree = reactive({});
 import {
   initBone,
   skeletonVertices,
@@ -184,7 +185,6 @@ const app = Vue.createApp({
       animationPlaying: false,
       animationStartTime: 0,
       nextKeyframeId: 10,
-      boneIdToIndexMap:{},
       timeline: new Timeline({
         onUpdate: () => this.$forceUpdate(),
         vueInstance: this,
@@ -227,18 +227,30 @@ const app = Vue.createApp({
         .map((parent, index) => (parent === -1 ? index : null))
         .filter(index => index !== null);
       
-      // 創建一個空的映射表
-      const boneIdToIndexMap = {};
+      // Clear and update the exported map
+      Object.keys(boneIdToIndexMap).forEach(key => {
+        delete boneIdToIndexMap[key];
+      });
       
-      // 構建樹結構並填充映射表
+      
+      // Construct tree and fill the exported map
       const trees = rootBones.map(rootIndex => {
         const tree = this.buildBoneTree(rootIndex, null, boneIdToIndexMap);
         return tree;
       });
       
-      // 將映射表保存到組件實例中以便後續使用
-      this.boneIdToIndexMap = boneIdToIndexMap;
-      console.log(" bone id map : ",JSON.stringify(this.boneIdToIndexMap));
+      console.log("bone id map: ", JSON.stringify(boneIdToIndexMap));
+      
+      Object.keys(boneTree).forEach(key => {
+        delete boneTree[key];
+      });
+      
+      // Add all properties from trees to boneTree
+      trees.forEach((tree, index) => {
+        boneTree[index] = tree;
+      });
+
+
       return trees;
     },
     flattenedBones() {
