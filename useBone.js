@@ -445,6 +445,7 @@ export default class Bones {
 export {
   initBone,
   skeletonVertices,
+  skeletonVerticesLast,
   originalSkeletonVertices,
   boneParents,
   boneChildren,

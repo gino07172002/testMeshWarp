@@ -1,5 +1,6 @@
 import {
   skeletonVertices,
+  skeletonVerticesLast,
   initBone,
   selectedBoneForEditing
 } from './useBone.js';
@@ -35,57 +36,7 @@ export function setBoneInheritance(boneId, settings) {
   };
 }
 
-// Helper to get a bone's complete transform considering inheritance
-function getCompleteBoneTransform(boneId, transformMap, boneParentMap) {
-  const transform = transformMap[boneId];
-  if (!transform) return null;
 
-  // If bone has no parent or doesn't inherit anything, return its direct transform
-  const parentId = boneParentMap[boneId];
-  if (!parentId) return transform;
-
-  // Get inheritance settings
-  const inheritSettings = initBoneInheritance(boneId);
-
-  // If nothing is inherited, return direct transform
-  if (!inheritSettings.inheritPosition &&
-    !inheritSettings.inheritRotation &&
-    !inheritSettings.inheritScale) {
-    return transform;
-  }
-
-  // Get parent transform recursively
-  const parentTransform = getCompleteBoneTransform(parentId, transformMap, boneParentMap);
-  if (!parentTransform) return transform;
-
-  // Clone the transform to avoid modifying the original
-  const result = {
-    position: { ...transform.position },
-    rotation: transform.rotation,
-    scale: transform.scale
-  };
-
-  // Apply parent transformations based on inheritance settings
-  if (inheritSettings.inheritPosition) {
-    // Apply parent position
-    result.position = {
-      x: transform.position.x + parentTransform.position.x,
-      y: transform.position.y + parentTransform.position.y
-    };
-  }
-
-  if (inheritSettings.inheritRotation) {
-    // Add parent rotation (angles are additive)
-    result.rotation = transform.rotation + parentTransform.rotation;
-  }
-
-  if (inheritSettings.inheritScale) {
-    // Multiply scales
-    result.scale = transform.scale * parentTransform.scale;
-  }
-
-  return result;
-}
 
 export default class Timeline {
   constructor(options = {}) {
@@ -192,11 +143,11 @@ export default class Timeline {
   getLocalBoneTransform(boneId, globalTransform) {
     const parentId = this.boneParentMap[boneId];
     if (!parentId) return globalTransform; // No parent, local = global
-
+  
     // Get inheritance settings
     const inheritSettings = initBoneInheritance(boneId);
-
-    // Get parent transform from current skeleton
+  
+    // Get parent transform from current skeleton (using tail position)
     const parentIndex = boneIdToIndexMap[parentId];
     const parentHeadX = skeletonVertices.value[parentIndex * 4];
     const parentHeadY = skeletonVertices.value[parentIndex * 4 + 1];
@@ -205,28 +156,34 @@ export default class Timeline {
     const parentTransform = this.vertexToBoneTransform(
       parentHeadX, parentHeadY, parentTailX, parentTailY
     );
-
+  
     // Create local transform by removing parent influence
     const localTransform = {
       position: { ...globalTransform.position },
       rotation: globalTransform.rotation,
       scale: globalTransform.scale
     };
-
-    // Remove parent influence based on inheritance settings
+  
+    // Adjust position to be relative to parent's tail
     if (inheritSettings.inheritPosition) {
-      localTransform.position.x -= parentTransform.position.x;
-      localTransform.position.y -= parentTransform.position.y;
+      // Calculate parent's tail position
+      const parentTailPos = {
+        x: parentHeadX + Math.cos(parentTransform.rotation) * parentTransform.scale,
+        y: parentHeadY + Math.sin(parentTransform.rotation) * parentTransform.scale
+      };
+      // Local position is child's global position relative to parent's tail
+      localTransform.position.x = globalTransform.position.x - parentTailPos.x;
+      localTransform.position.y = globalTransform.position.y - parentTailPos.y;
     }
-
+  
     if (inheritSettings.inheritRotation) {
       localTransform.rotation -= parentTransform.rotation;
     }
-
+  
     if (inheritSettings.inheritScale) {
       localTransform.scale /= parentTransform.scale;
     }
-
+  
     return localTransform;
   }
   initOriginalBonePositions() {
@@ -379,16 +336,19 @@ export default class Timeline {
 
     this.onUpdate();
   }
-  dfsTraverse(node, parent = null) {
+  dfsTraverse(node, parent = null, localTransformMap) {
     if (!node) return;
 
     // 印出當前節點的 id 和它的 parent
     console.log(`id: ${node.id}, parent: ${parent ? parent.id : "null"}`);
-
+    if (localTransformMap && node.id in localTransformMap) {
+      console.log(`Found transform for bone id: ${node.id}`);
+    }
     // 遞歸遍歷子節點，並傳遞當前節點作為 parent
     if (node.children && node.children.length > 0) {
       for (const child of node.children) {
-        this.dfsTraverse(child, node); // 傳遞當前節點作為 parent
+
+        this.dfsTraverse(child, node, localTransformMap); // 傳遞當前節點作為 parent
       }
     }
   }
@@ -396,9 +356,7 @@ export default class Timeline {
   // New method to update the skeleton considering bone inheritance
   updateSkeletonWithInheritance() {
     //console.log(" bone tree : ",JSON.stringify(boneTree));
-    for (const key in boneTree) {
-      this.dfsTraverse(boneTree[key]);
-    }
+
     // Get all keyframes before current time
     this.getKeyframesBeforeCurrentTime();
 
@@ -422,9 +380,12 @@ export default class Timeline {
         localTransform = keyframe.transform;
       }
 
+
       localTransformMap[boneId] = localTransform;
     });
-
+    for (const key in boneTree) {
+      this.dfsTraverse(boneTree[key], null, localTransformMap);
+    }
     // Process bones in hierarchical order (parents before children)
     // Get sorted bone IDs from parent to children
     const sortedBoneIds = this.getSortedBoneIds();
@@ -432,9 +393,11 @@ export default class Timeline {
     // Apply transforms to bones considering hierarchy
     const newSkeletonVertices = [...skeletonVertices.value];
     sortedBoneIds.forEach(boneId => {
+      
       // Skip if no transform for this bone
       if (!localTransformMap[boneId]) return;
 
+      
       // Get bone index
       const index = boneIdToIndexMap[boneId];
       if (index === undefined) {
@@ -442,6 +405,7 @@ export default class Timeline {
         return;
       }
 
+      console.log(" 便利boneId ",boneId);
       // Get local transform
       const localTransform = localTransformMap[boneId];
 
@@ -491,14 +455,13 @@ export default class Timeline {
 
   // Calculate global transform from local transform considering inheritance
   calculateGlobalTransform(boneId, localTransform, localTransformMap) {
-    // If no parent, local = global
     const parentId = this.boneParentMap[boneId];
-    if (!parentId) return localTransform;
-
+    if (!parentId) return localTransform; // No parent, local = global
+  
     // Get inheritance settings
     const inheritSettings = initBoneInheritance(boneId);
-
-    // Get parent's global transform
+  
+    // Get parent's global transform (using current skeleton vertices)
     const parentIndex = boneIdToIndexMap[parentId];
     const parentHeadX = skeletonVertices.value[parentIndex * 4];
     const parentHeadY = skeletonVertices.value[parentIndex * 4 + 1];
@@ -507,28 +470,34 @@ export default class Timeline {
     const parentGlobalTransform = this.vertexToBoneTransform(
       parentHeadX, parentHeadY, parentTailX, parentTailY
     );
-
-    // Create global transform by applying parent influence based on inheritance settings
+  
+    // Create global transform
     const globalTransform = {
       position: { ...localTransform.position },
       rotation: localTransform.rotation,
       scale: localTransform.scale
     };
-
+  
     // Apply parent influence based on inheritance settings
     if (inheritSettings.inheritPosition) {
-      globalTransform.position.x += parentGlobalTransform.position.x;
-      globalTransform.position.y += parentGlobalTransform.position.y;
+      // Calculate parent's tail position
+      const parentTailPos = {
+        x: parentHeadX + Math.cos(parentGlobalTransform.rotation) * parentGlobalTransform.scale,
+        y: parentHeadY + Math.sin(parentGlobalTransform.rotation) * parentGlobalTransform.scale
+      };
+      // Global position is local position offset from parent's tail
+      globalTransform.position.x += parentTailPos.x;
+      globalTransform.position.y += parentTailPos.y;
     }
-
+  
     if (inheritSettings.inheritRotation) {
       globalTransform.rotation += parentGlobalTransform.rotation;
     }
-
+  
     if (inheritSettings.inheritScale) {
       globalTransform.scale *= parentGlobalTransform.scale;
     }
-
+  
     return globalTransform;
   }
 

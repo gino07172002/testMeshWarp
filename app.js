@@ -301,7 +301,8 @@ const app = Vue.createApp({
       }
     },
     selectBone(bone) {
-      this.selectedBone = bone;
+     // this.selectedBone = bone.index;
+     this.selectedBone = bone
       this.selectedKeyframe = null;
     },
     selectKeyframe(boneId, keyframeId) {
@@ -751,7 +752,7 @@ const TreeItem = {
               :class="{ 'expanded': expandedNodes.includes(node.id) }" 
               @click.stop="toggleNode(node.id)" 
               v-if="node.children && node.children.length > 0">▶</span>
-        <span class="tree-item-name" @click.stop="handleNameClick(node.name)">{{ node.name }}</span>
+        <span class="tree-item-name" @click.stop="handleNameClick(node.name)">{{ node.name }}{{node}}</span>
       </div>
       <div class="tree-children" v-if="expandedNodes.includes(node.id)">
         <tree-item v-for="child in node.children" 
