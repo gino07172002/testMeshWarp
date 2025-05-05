@@ -69,6 +69,7 @@ export default class Timeline {
     this.startPlayheadDrag = this.startPlayheadDrag.bind(this);
     this.onPlayheadDrag = this.onPlayheadDrag.bind(this);
     this.stopPlayheadDrag = this.stopPlayheadDrag.bind(this);
+    this. getOriginalLocalBoneTransform=this. getOriginalLocalBoneTransform.bind(this);
     // Store bone parent-child relationships
     this.boneParentMap = {};
     // Initialize updateMeshForSkeletonPose if provided
@@ -139,14 +140,68 @@ export default class Timeline {
     return [headX, headY, tailX, tailY];
   }
 
+
+  getOriginalLocalBoneTransform(boneId) {
+    // 獲取骨骼的原始全域變換
+   
+    if ( Object.keys(this.originalBoneTransforms).length==0) {
+      console.log(" no  such map, init ");
+     this. initOriginalBonePositions();
+    }
+    const originalGlobalTransform = this.originalBoneTransforms[boneId];
+    const parentId = this.boneParentMap[boneId];
+
+    // 如果沒有父骨骼，本地變換等於全域變換
+    if (!parentId) return { ...originalGlobalTransform };
+
+    // 獲取繼承設定
+    const inheritSettings = initBoneInheritance(boneId);
+
+    console.log(" checking  origin bone transform : ", JSON.stringify(this.originalBoneTransforms));
+    console.log(" checking id : ", parentId);
+    // 獲取父骨骼的原始全域變換
+    const parentOriginalGlobalTransform = this.originalBoneTransforms[parentId];
+
+    // 計算父骨骼的原始尾部位置
+    const parentTailPos = {
+      x: parentOriginalGlobalTransform.position.x + Math.cos(parentOriginalGlobalTransform.rotation) * parentOriginalGlobalTransform.scale,
+      y: parentOriginalGlobalTransform.position.y + Math.sin(parentOriginalGlobalTransform.rotation) * parentOriginalGlobalTransform.scale
+    };
+
+    // 創建本地變換，初始複製全域變換
+    const localTransform = {
+      position: { ...originalGlobalTransform.position },
+      rotation: originalGlobalTransform.rotation,
+      scale: originalGlobalTransform.scale
+    };
+
+    // 根據繼承設定調整本地變換
+    if (inheritSettings.inheritPosition) {
+      localTransform.position.x -= parentTailPos.x;
+      localTransform.position.y -= parentTailPos.y;
+    }
+    // 如果不繼承位置，保留全域位置（已在複製時設定）
+
+    if (inheritSettings.inheritRotation) {
+      localTransform.rotation -= parentOriginalGlobalTransform.rotation;
+    }
+    // 如果不繼承旋轉，保留全域旋轉
+
+    if (inheritSettings.inheritScale) {
+      localTransform.scale /= parentOriginalGlobalTransform.scale;
+    }
+    // 如果不繼承縮放，保留全域縮放
+
+    return localTransform;
+  }
   // Get local transform (without parent influence)
   getLocalBoneTransform(boneId, globalTransform) {
     const parentId = this.boneParentMap[boneId];
     if (!parentId) return globalTransform; // No parent, local = global
-  
+
     // Get inheritance settings
     const inheritSettings = initBoneInheritance(boneId);
-  
+
     // Get parent transform from current skeleton (using tail position)
     const parentIndex = boneIdToIndexMap[parentId];
     const parentHeadX = skeletonVertices.value[parentIndex * 4];
@@ -156,14 +211,14 @@ export default class Timeline {
     const parentTransform = this.vertexToBoneTransform(
       parentHeadX, parentHeadY, parentTailX, parentTailY
     );
-  
+
     // Create local transform by removing parent influence
     const localTransform = {
       position: { ...globalTransform.position },
       rotation: globalTransform.rotation,
       scale: globalTransform.scale
     };
-  
+
     // Adjust position to be relative to parent's tail
     if (inheritSettings.inheritPosition) {
       // Calculate parent's tail position
@@ -175,15 +230,15 @@ export default class Timeline {
       localTransform.position.x = globalTransform.position.x - parentTailPos.x;
       localTransform.position.y = globalTransform.position.y - parentTailPos.y;
     }
-  
+
     if (inheritSettings.inheritRotation) {
       localTransform.rotation -= parentTransform.rotation;
     }
-  
+
     if (inheritSettings.inheritScale) {
       localTransform.scale /= parentTransform.scale;
     }
-  
+
     return localTransform;
   }
   initOriginalBonePositions() {
@@ -287,31 +342,54 @@ export default class Timeline {
     };
   }
   startPlayheadDrag(event) {
+
+    for(let i=0;i<2;i++)
+    {
     const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
     const offsetX = event.clientX - tracksRect.left;
     this.dragInfo = { dragging: true, startX: event.clientX, type: 'selection', offsetX };
-    this.timeSelection = { active: true, start: offsetX, end: offsetX };
-    this.playheadPosition = offsetX;
-    console.log(" bone tree : ", JSON.stringify(boneTree));
+
+    console.log("on start! ");
+
+    let newPosition = event.clientX - tracksRect.left;
+    newPosition = Math.max(0, Math.min(newPosition, this.timelineLength));
+
+    if (this.dragInfo.type === 'playhead') {
+      this.playheadPosition = newPosition;
+    } else if (this.dragInfo.type === 'selection') {
+      if (newPosition >= this.dragInfo.offsetX) {
+        this.timeSelection.start = this.dragInfo.offsetX;
+        this.timeSelection.end = newPosition;
+      } else {
+        this.timeSelection.start = newPosition;
+        this.timeSelection.end = this.dragInfo.offsetX;
+      }
+      this.playheadPosition = newPosition;
+    }
+
+
     if (Object.keys(boneTree).length != 0) {
       this.updateSkeletonWithInheritance();
     }
+    // Update bone poses based on keyframes with inheritance
 
     this.onUpdate();
+  }
+
+    
   }
 
   stopPlayheadDrag() {
     if (!this.dragInfo) return;
     this.dragInfo.dragging = false;
+    console.log(" end drag! ");
   }
 
   onPlayheadDrag(event) {
 
-
-
     if (!this.dragInfo || !this.dragInfo.dragging) return;
 
-
+    console.log("on drag! ");
 
     const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
     let newPosition = event.clientX - tracksRect.left;
@@ -329,6 +407,8 @@ export default class Timeline {
       }
       this.playheadPosition = newPosition;
     }
+
+
     if (Object.keys(boneTree).length != 0) {
       this.updateSkeletonWithInheritance();
     }
@@ -336,6 +416,8 @@ export default class Timeline {
 
     this.onUpdate();
   }
+
+
   dfsTraverse(node, parent = null, localTransformMap) {
     if (!node) return;
 
@@ -355,71 +437,63 @@ export default class Timeline {
 
   // New method to update the skeleton considering bone inheritance
   updateSkeletonWithInheritance() {
-    //console.log(" bone tree : ",JSON.stringify(boneTree));
+    // 獲取所有骨骼的 ID
+    const allBoneIds = Object.keys(boneIdToIndexMap);
 
-    // Get all keyframes before current time
-    this.getKeyframesBeforeCurrentTime();
-
-    // Create a map of local transforms from current keyframe info
+    // 創建本地變換映射，儲存所有骨骼的本地變換
     const localTransformMap = {};
-    this.currentKeyframeInfo.forEach(info => {
+
+    // 第一步：處理有關鍵影格的骨骼
+    this.getKeyframesBeforeCurrentTime().forEach(info => {
       const { boneId, keyframe, nextKeyframe } = info;
-
-
       let localTransform;
-      if (nextKeyframe && keyframe.position < this.playheadPosition &&
-        nextKeyframe.position > this.playheadPosition) {
-        // Interpolate between current and next keyframe
+
+      if (nextKeyframe && keyframe.position < this.playheadPosition && nextKeyframe.position > this.playheadPosition) {
+        // 如果播放頭在兩個關鍵影格之間，進行插值
         localTransform = this.interpolateBoneTransform(
           keyframe.transform,
           nextKeyframe.transform,
           (this.playheadPosition - keyframe.position) / (nextKeyframe.position - keyframe.position)
         );
-      } else {
-        // Use the closest keyframe if we're not between two keyframes
+      } else if (keyframe) {
+        // 使用最近的關鍵影格的變換
         localTransform = keyframe.transform;
       }
 
-
-      localTransformMap[boneId] = localTransform;
-    });
-    for (const key in boneTree) {
-      this.dfsTraverse(boneTree[key], null, localTransformMap);
-    }
-    // Process bones in hierarchical order (parents before children)
-    // Get sorted bone IDs from parent to children
-    const sortedBoneIds = this.getSortedBoneIds();
-
-    // Apply transforms to bones considering hierarchy
-    const newSkeletonVertices = [...skeletonVertices.value];
-    sortedBoneIds.forEach(boneId => {
-      
-      // Skip if no transform for this bone
-      if (!localTransformMap[boneId]) return;
-
-      
-      // Get bone index
-      const index = boneIdToIndexMap[boneId];
-      if (index === undefined) {
-        console.error("Invalid bone ID:", boneId);
-        return;
+      if (localTransform) {
+        localTransformMap[boneId] = localTransform;
       }
+    });
 
-      console.log(" 便利boneId ",boneId);
-      // Get local transform
+    // 第二步：處理沒有關鍵影格的骨骼
+    allBoneIds.forEach(boneId => {
+      if (!localTransformMap[boneId]) {
+        // 如果該骨骼沒有關鍵影格，使用其原始本地變換
+        localTransformMap[boneId] = this.getOriginalLocalBoneTransform(boneId);
+      }
+    });
+
+    // 第三步：按層次順序（從父到子）更新所有骨骼
+    const sortedBoneIds = this.getSortedBoneIds();
+    const newSkeletonVertices = [...skeletonVertices.value];
+
+    sortedBoneIds.forEach(boneId => {
+      // 獲取該骨骼的本地變換
       const localTransform = localTransformMap[boneId];
 
-      // Calculate global transform considering inheritance
-      const globalTransform = this.calculateGlobalTransform(boneId, localTransform, localTransformMap);
+      // 計算全域變換（結合父骨骼的變換）
+      const globalTransform = this.calculateGlobalTransform(boneId, localTransform);
 
-      // Convert transform back to vertices
+      // 將變換轉換為頂點座標
       const vertices = this.boneTransformToVertex(globalTransform);
+      const index = boneIdToIndexMap[boneId];
       newSkeletonVertices[index * 4] = vertices[0];     // headX
       newSkeletonVertices[index * 4 + 1] = vertices[1]; // headY
       newSkeletonVertices[index * 4 + 2] = vertices[2]; // tailX
       newSkeletonVertices[index * 4 + 3] = vertices[3]; // tailY
     });
 
+    // 更新骨架頂點並刷新網格
     skeletonVertices.value = newSkeletonVertices;
     updateMeshForSkeletonPose();
   }
@@ -457,10 +531,10 @@ export default class Timeline {
   calculateGlobalTransform(boneId, localTransform, localTransformMap) {
     const parentId = this.boneParentMap[boneId];
     if (!parentId) return localTransform; // No parent, local = global
-  
+
     // Get inheritance settings
     const inheritSettings = initBoneInheritance(boneId);
-  
+
     // Get parent's global transform (using current skeleton vertices)
     const parentIndex = boneIdToIndexMap[parentId];
     const parentHeadX = skeletonVertices.value[parentIndex * 4];
@@ -470,14 +544,14 @@ export default class Timeline {
     const parentGlobalTransform = this.vertexToBoneTransform(
       parentHeadX, parentHeadY, parentTailX, parentTailY
     );
-  
+
     // Create global transform
     const globalTransform = {
       position: { ...localTransform.position },
       rotation: localTransform.rotation,
       scale: localTransform.scale
     };
-  
+
     // Apply parent influence based on inheritance settings
     if (inheritSettings.inheritPosition) {
       // Calculate parent's tail position
@@ -489,15 +563,15 @@ export default class Timeline {
       globalTransform.position.x += parentTailPos.x;
       globalTransform.position.y += parentTailPos.y;
     }
-  
+
     if (inheritSettings.inheritRotation) {
       globalTransform.rotation += parentGlobalTransform.rotation;
     }
-  
+
     if (inheritSettings.inheritScale) {
       globalTransform.scale *= parentGlobalTransform.scale;
     }
-  
+
     return globalTransform;
   }
 
@@ -516,8 +590,8 @@ export default class Timeline {
       // For selecting a keyframe, we'll set the playhead position to the keyframe position
       // and update the skeleton to show the pose at that time
       this.playheadPosition = keyframe.position;
-      this.updateSkeletonWithInheritance();
     }
+    this.updateSkeletonWithInheritance();
     this.status = `選擇關鍵幀: ${keyframeId} 給骨骼: ${boneId}`;
   }
 
@@ -526,7 +600,7 @@ export default class Timeline {
       this.isPlaying = false;
       return;
     }
-    console.log("Playing animation...");
+    // console.log("Playing animation...");
     this.isPlaying = true;
     const currentTime = Date.now();
     const timePerUnit = 20;
@@ -666,7 +740,18 @@ export default class Timeline {
 
     Object.keys(this.keyframes).forEach(boneId => {
       const keyframes = this.keyframes[boneId];
-      if (!keyframes || keyframes.length === 0) return;
+      if (!keyframes || keyframes.length === 0) {
+
+        keyframeInfo.push({
+          boneId: boneId,
+          keyframe: null,
+          nextKeyframe: null
+        });
+        return;
+
+      }
+
+
 
       // Sort keyframes by position to ensure proper interpolation
       const sortedKeyframes = [...keyframes].sort((a, b) => a.position - b.position);
@@ -719,6 +804,13 @@ export default class Timeline {
           boneId: boneId,
           keyframe: prevKeyframe,
           nextKeyframe: nextKeyframe
+        });
+      } else //no any keyframe
+      {
+        keyframeInfo.push({
+          boneId: boneId,
+          keyframe: null,
+          nextKeyframe: null
         });
       }
     });
