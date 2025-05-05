@@ -68,7 +68,7 @@
 
         <!-- 右側圖層 -->
         <div class="layers-panel">
-          <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
+          <div class="panel-section layers-section" style=" flex: 0 0 200px;">
             <div class="panel-title">階層式物件</div>
             <div class="layers-container">
               <tree-item v-for="root in boneTree" :key="root.id" :node="root" :expanded-nodes="expandedNodes"
@@ -78,8 +78,7 @@
           </div>
 
 
-
-          <div class="panel-section layers-section" style="height: 400px; flex: 0 0 400px;">
+          <div class="panel-section layers-section" style=" flex: 0 0 200;">
             <div class="panel-title">屬性</div>
             <div class="layers-content">
               <div class="layers-container">
@@ -109,7 +108,7 @@
 
 
             <div v-for="bone in flattenedBones" v-bind:key="'layer-' + bone.id" class="tree-item-content"
-              v-bind:class="{ 'selected': selectedBone && selectedBone.id === bone.id }" v-on:click="selectBone(bone)">
+              v-bind:class="{ 'selected': selectedBone && selectedBone.index === bone.index }" v-on:click="selectBone(bone)">
               <span>{{ bone.id}}</span>
 
             </div>
