@@ -414,13 +414,33 @@ export default class Timeline {
   }
 
   onPlayheadDrag(event) {
-
     if (!this.dragInfo || !this.dragInfo.dragging) return;
-
+  
     const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
-    let newPosition = event.clientX - tracksRect.left;
-    newPosition = Math.max(0, Math.min(newPosition, this.timelineLength));
-
+  
+    // 获取鼠标相对于时间轴轨道的像素位置
+    let x = event.clientX - tracksRect.left;
+    x = Math.max(0, Math.min(x, tracksRect.width)); // 限制在轨道范围内
+  
+    // 获取时间轴总时间（秒）
+    const totalDuration = this.timelineLength;
+  
+    // 将像素位置转换为时间值（秒）
+    const time = (x / tracksRect.width) * totalDuration;
+  
+    // 对齐到 0.1 秒的整数倍
+    const alignedTime = Math.round(time / 10) * 10;
+  
+    // 将对齐后的时间值转换回像素位置
+    let alignedX = (alignedTime / totalDuration) * tracksRect.width;
+  
+    // 再次限制在轨道范围内（防止浮点误差导致溢出）
+    alignedX = Math.max(0, Math.min(alignedX, tracksRect.width));
+  
+    // 更新位置
+    const newPosition = alignedX;
+  
+    // 根据拖动类型更新 playhead 或 selection
     if (this.dragInfo.type === 'playhead') {
       this.playheadPosition = newPosition;
     } else if (this.dragInfo.type === 'selection') {
@@ -433,13 +453,13 @@ export default class Timeline {
       }
       this.playheadPosition = newPosition;
     }
-
-
-    if (Object.keys(boneTree).length != 0) {
+  
+    // 更新骨骼动画（如果有）
+    if (Object.keys(boneTree).length !== 0) {
       this.updateSkeletonWithInheritance();
     }
-    // Update bone poses based on keyframes with inheritance
-
+  
+    // 触发更新
     this.onUpdate();
   }
 
