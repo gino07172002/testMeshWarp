@@ -239,7 +239,7 @@ const app = Vue.createApp({
         return tree;
       });
       
-      console.log("bone id map: ", JSON.stringify(boneIdToIndexMap));
+     // console.log("bone id map: ", JSON.stringify(boneIdToIndexMap));
       
       Object.keys(boneTree).forEach(key => {
         delete boneTree[key];
@@ -258,9 +258,8 @@ const app = Vue.createApp({
       this.boneTree.forEach(root => {
         this.timeline.getFlattenedBones(root, 0, result);
       });
-
     
-      console.log("flan bones: ",JSON.stringify(result));
+    //  console.log("flan bones: ",JSON.stringify(result));
       return result;
     }
   },
@@ -431,7 +430,7 @@ const app = Vue.createApp({
       }
     },
     handleNameClick(boneIndex) {
-      this.selectedBone = boneIndex;
+      this.selectedBone = {index:boneIndex};
     },
     showBone() {
       console.log("hi show bone");
@@ -474,7 +473,7 @@ const app = Vue.createApp({
       }
       else if (tool === 'bone-clear') {
         clearBones();
-        selectedBone.value = -1;
+        selectedBone.value = {};
       } else if (tool === 'bone-save') {
         saveBones();
       } else if (tool === 'bone-read') {
@@ -528,7 +527,7 @@ const app = Vue.createApp({
             isDragging = true;
           } else if (activeTool.value === 'bone-animate') {
             bonesInstance.handleBoneAnimateMouseDown(xNDC, yNDC);
-            if (selectedBone.value >= 0) {
+            if (selectedBone.value.index >= 0) {
               isDragging = true;
               startPosX = xNDC;
               startPosY = yNDC;
@@ -637,15 +636,15 @@ const app = Vue.createApp({
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
         gl.drawElements(gl.LINES, skeletonIndicesArray.length, gl.UNSIGNED_SHORT, 0);
 
-        if (selectedBone.value >= 0) {
-          const parentIndex = boneParents.value[selectedBone.value];
+        if (selectedBone.value.index >= 0) {
+          const parentIndex = boneParents.value[selectedBone.value.index];
           if (parentIndex >= 0) {
             const parentStart = parentIndex * 2;
             gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 0, 1, 1);
             gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, parentStart * 2);
           }
 
-          const selectedStart = selectedBone.value * 2;
+          const selectedStart = selectedBone.value.index * 2;
           gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
           gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, selectedStart * 2);
         }
@@ -660,8 +659,8 @@ const app = Vue.createApp({
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(headVertices), gl.STATIC_DRAW);
         gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
-        if (selectedBone.value >= 0) {
-          const selectedHeadIndex = selectedBone.value * 4;
+        if (selectedBone.value.index >= 0) {
+          const selectedHeadIndex = selectedBone.value.index * 4;
           const selectedHeadVbo = gl.createBuffer();
           gl.bindBuffer(gl.ARRAY_BUFFER, selectedHeadVbo);
           gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
@@ -686,8 +685,8 @@ const app = Vue.createApp({
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tailVertices), gl.STATIC_DRAW);
         gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
-        if (selectedBone.value >= 0) {
-          const selectedTailIndex = selectedBone.value * 4 + 2;
+        if (selectedBone.value.index >= 0) {
+          const selectedTailIndex = selectedBone.value.index * 4 + 2;
           const selectedTailVbo = gl.createBuffer();
           gl.bindBuffer(gl.ARRAY_BUFFER, selectedTailVbo);
           gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
@@ -771,12 +770,12 @@ const TreeItem = {
       this.$emit('toggle-node', nodeId);
     },
     handleNameClick(name) {
-      const boneIndex = parseInt(name.split(' ')[1]);
+      const boneIndex =  this.node.index;
       this.$emit('name-click', boneIndex);
     },
     checkIsSelected() {
-      const boneIndex = parseInt(this.node.name.split(' ')[1]);
-      return boneIndex === this.selectedBone;
+      const boneIndex = this.node.index;
+      return boneIndex === this.selectedBone.index;
     }
   }
 };

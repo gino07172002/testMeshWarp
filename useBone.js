@@ -262,14 +262,14 @@ export default class Bones {
         editingBoneEnd.value = 'head';
         isEditingExistingBone.value = true;
         this.parentBoneIndex = boneParents.value[i / 4];
-        this.selectedBone.value = i / 4;
+        this.selectedBone.value = {index:i / 4}
         break;
       } else if (distToTail < 0.1) {
         selectedBoneForEditing.value = i / 4;
         editingBoneEnd.value = 'tail';
         isEditingExistingBone.value = true;
         this.parentBoneIndex = i / 4;
-        this.selectedBone.value = i / 4;
+        this.selectedBone.value = {index:i / 4}
         break;
       }
     }
@@ -280,9 +280,9 @@ export default class Bones {
         this.parentBoneIndex = -1;
         boneParents.value.push(this.parentBoneIndex);
         skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
-        this.selectedBone.value = newBoneIndex;
+        this.selectedBone.value = {index:newBoneIndex};
       } else {
-        if (this.selectedBone.value !== -1) this.parentBoneIndex = this.selectedBone.value;
+        if (this.selectedBone.index.value != -1) this.parentBoneIndex = this.selectedBone.value.index;
         boneParents.value.push(this.parentBoneIndex);
         if (isShiftPressed) {
           const parentTailX = skeletonVertices.value[this.parentBoneIndex * 4 + 2];
@@ -291,7 +291,7 @@ export default class Bones {
         } else {
           skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
         }
-        this.selectedBone.value = newBoneIndex;
+        this.selectedBone.value = {index:newBoneIndex};
       }
 
       if (this.skeletonIndices.value.length <= newBoneIndex * 2) {
@@ -330,7 +330,7 @@ export default class Bones {
         this.parentBoneIndex = boneParents.value[this.parentBoneIndex];
         skeletonVertices.value.splice(newBoneIndex * 4, 4);
         boneParents.value.pop();
-        this.selectedBone.value = -1;
+        this.selectedBone.value = {index:-1};
       } else {
         const parentIndex = boneParents.value[newBoneIndex];
         if (parentIndex !== -1) {
@@ -356,7 +356,7 @@ export default class Bones {
   // Bone Animate Methods
   handleBoneAnimateMouseDown(xNDC, yNDC) {
     let minDistToSegment = Infinity;
-    this.selectedBone.value = -1;
+    this.selectedBone.value = {index:-1}
     boneEndBeingDragged.value = null;
 
     for (let i = 0; i < skeletonVertices.value.length; i += 4) {
@@ -369,7 +369,8 @@ export default class Bones {
       let dy = headY - yNDC;
       let dist = dx * dx + dy * dy;
       if (dist < 0.001) {
-        this.selectedBone.value = i / 4;
+        this.selectedBone.value = {index:i / 4}
+       
         boneEndBeingDragged.value = 'head';
         break;
       }
@@ -378,7 +379,7 @@ export default class Bones {
       dy = tailY - yNDC;
       dist = dx * dx + dy * dy;
       if (dist < 0.001) {
-        this.selectedBone.value = i / 4;
+        this.selectedBone.value = {index:i / 4}
         boneEndBeingDragged.value = 'tail';
         break;
       }
@@ -386,19 +387,19 @@ export default class Bones {
       const distToSegment = this.glsInstance.distanceFromPointToSegment(xNDC, yNDC, headX, headY, tailX, tailY);
       if (distToSegment < 0.1 && distToSegment < minDistToSegment) {
         minDistToSegment = distToSegment;
-        this.selectedBone.value = i / 4;
+        this.selectedBone.value = {index:i / 4}
         boneEndBeingDragged.value = 'middle';
       }
     }
 
-    if (this.selectedBone.value >= 0 && originalSkeletonVertices.value.length === 0) {
+    if (this.selectedBone.value.index >= 0 && originalSkeletonVertices.value.length === 0) {
       originalSkeletonVertices.value = [...skeletonVertices.value];
     }
   }
 
   handleBoneAnimateMouseMove(prevX, prevY, currX, currY, buttons) {
-    if (this.selectedBone.value >= 0) {
-      const boneIndex = this.selectedBone.value;
+    if (this.selectedBone.value.index >= 0) {
+      const boneIndex = this.selectedBone.value.index;
       if (boneEndBeingDragged.value === 'middle' || boneEndBeingDragged.value === 'tail') {
         if (buttons === 2) { // Right mouse button for translation
           const deltaX = currX - prevX;

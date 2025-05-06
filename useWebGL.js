@@ -361,7 +361,7 @@ isLineThroughTransparent(x1, y1, x2, y2, cols, rows){
     };
 
     updateMeshForSkeletonPose() {
-      console.log("let's update mesh ... ");
+      //console.log("let's update mesh ... ");
           const numVertices = vertices.value.length / 4;
           for (let i = 0; i < numVertices; i++) {
             const influences = vertexInfluences.value[i];
