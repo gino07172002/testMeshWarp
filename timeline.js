@@ -62,6 +62,7 @@ export default class Timeline {
     this.isDraggingKeyframe = false;
     this.draggingKeyframeId = null;
     this.draggingBoneId = null;
+    this.selectedKeyframe = null;
     this.addKeyframe = this.addKeyframe.bind(this);
     this.playAnimation = this.playAnimation.bind(this);
     this.animate = this.animate.bind(this);
@@ -630,9 +631,14 @@ export default class Timeline {
     }
 
     const keyframe = this.keyframes[boneId]?.find(k => k.id === keyframeId);
+
     if (keyframe && keyframe.transform) {
+      this.selectedKeyframe=keyframe;
+      console.log(" get select key frame : ",JSON.stringify(this.selectedKeyframe),", ",this.selectedKeyframe === keyframe);
       // For selecting a keyframe, we'll set the playhead position to the keyframe position
       // and update the skeleton to show the pose at that time
+
+
       this.playheadPosition = keyframe.position;
 
       // FIX 7: Update bone parent map before updating the skeleton
