@@ -1,3 +1,4 @@
+//timeline.js
 import {
   skeletonVertices,
   skeletonVerticesLast,
@@ -11,6 +12,7 @@ import { boneIdToIndexMap } from './app.js';
 
 
 import glsInstance from './useWebGL.js';
+
 // Assuming updateMeshForSkeletonPose is available globally or passed via init
 let updateMeshForSkeletonPose;
 
@@ -70,6 +72,7 @@ export default class Timeline {
     this.startPlayheadDrag = this.startPlayheadDrag.bind(this);
     this.onPlayheadDrag = this.onPlayheadDrag.bind(this);
     this.stopPlayheadDrag = this.stopPlayheadDrag.bind(this);
+    this.deleteSelectedKeyframe = this.deleteSelectedKeyframe.bind(this);
     // Store bone parent-child relationships
     this.boneParentMap = {};
     // Initialize updateMeshForSkeletonPose if provided
@@ -97,7 +100,7 @@ export default class Timeline {
     };
 
     traverseBone(rootBone);
-   
+
   }
 
   testCountFn() {
@@ -108,7 +111,7 @@ export default class Timeline {
 
   getKeyframe(boneId) {
     const index = boneIdToIndexMap[boneId];
-   
+
     glsInstance.resetMeshToOriginal();
   }
 
@@ -371,17 +374,19 @@ export default class Timeline {
   }
 
   startPlayheadDrag(event) {
+    // 👇 Skip time selection drag if clicking a keyframe
+    if (event.target.classList.contains('keyframe')) {
+      return;
+    }
 
-    
+
+    console.log(" hi on drag 2 ");
     const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
     const offsetX = event.clientX - tracksRect.left;
     this.dragInfo = { dragging: true, startX: event.clientX, type: 'selection', offsetX };
-
     console.log("on start! ");
-
     let newPosition = event.clientX - tracksRect.left;
     newPosition = Math.max(0, Math.min(newPosition, this.timelineLength));
-
     if (this.dragInfo.type === 'playhead') {
       this.playheadPosition = newPosition;
     } else if (this.dragInfo.type === 'selection') {
@@ -394,53 +399,47 @@ export default class Timeline {
       }
       this.playheadPosition = newPosition;
     }
-
-    for(let i=0;i<5;i++)
-      {
-    if (Object.keys(boneTree).length != 0) {
-      this.updateSkeletonWithInheritance();
+    for (let i = 0; i < 5; i++) {
+      if (Object.keys(boneTree).length != 0) {
+        this.updateSkeletonWithInheritance();
+      }
+      this.onUpdate();
     }
-    // Update bone poses based on keyframes with inheritance
-
-    this.onUpdate();
-  }
-
-    
   }
 
   stopPlayheadDrag() {
     if (!this.dragInfo) return;
     this.dragInfo.dragging = false;
-  
+
   }
 
   onPlayheadDrag(event) {
     if (!this.dragInfo || !this.dragInfo.dragging) return;
-  
+
     const tracksRect = this.vueInstance.$refs.timelineTracks.getBoundingClientRect();
-  
+
     // 获取鼠标相对于时间轴轨道的像素位置
     let x = event.clientX - tracksRect.left;
     x = Math.max(0, Math.min(x, tracksRect.width)); // 限制在轨道范围内
-  
+
     // 获取时间轴总时间（秒）
     const totalDuration = this.timelineLength;
-  
+
     // 将像素位置转换为时间值（秒）
     const time = (x / tracksRect.width) * totalDuration;
-  
+
     // 对齐到 0.1 秒的整数倍
-    const alignedTime = Math.round(time / 10) * 10;
-  
+    const alignedTime = Math.round(time * 10) / 10;
+
     // 将对齐后的时间值转换回像素位置
     let alignedX = (alignedTime / totalDuration) * tracksRect.width;
-  
+
     // 再次限制在轨道范围内（防止浮点误差导致溢出）
     alignedX = Math.max(0, Math.min(alignedX, tracksRect.width));
-  
+
     // 更新位置
     const newPosition = alignedX;
-  
+
     // 根据拖动类型更新 playhead 或 selection
     if (this.dragInfo.type === 'playhead') {
       this.playheadPosition = newPosition;
@@ -454,12 +453,12 @@ export default class Timeline {
       }
       this.playheadPosition = newPosition;
     }
-  
+
     // 更新骨骼动画（如果有）
     if (Object.keys(boneTree).length !== 0) {
       this.updateSkeletonWithInheritance();
     }
-  
+
     // 触发更新
     this.onUpdate();
   }
@@ -621,9 +620,7 @@ export default class Timeline {
   }
 
   selectKeyframe(boneId, keyframeId) {
-    console.log("Selecting keyframe:", boneId, keyframeId);
 
-    // Get the correct bone index from the map
     const index = boneIdToIndexMap[boneId];
     if (index === undefined) {
       console.error("Invalid bone ID:", boneId);
@@ -633,22 +630,67 @@ export default class Timeline {
     const keyframe = this.keyframes[boneId]?.find(k => k.id === keyframeId);
 
     if (keyframe && keyframe.transform) {
-      this.selectedKeyframe=keyframe;
-      console.log(" get select key frame : ",JSON.stringify(this.selectedKeyframe),", ",this.selectedKeyframe === keyframe);
-      // For selecting a keyframe, we'll set the playhead position to the keyframe position
-      // and update the skeleton to show the pose at that time
-
-
+      // 保存选中的关键帧及其对应的骨骼ID
+      this.selectedKeyframe = { ...keyframe, boneId }; // 使用扩展运算符避免污染原始对象
       this.playheadPosition = keyframe.position;
 
-      // FIX 7: Update bone parent map before updating the skeleton
+      // 更新骨骼状态
       for (const key in boneTree) {
         this.updateBoneParentMap(boneTree[key]);
       }
       this.updateSkeletonWithInheritance();
     }
+
     this.status = `選擇關鍵幀: ${keyframeId} 給骨骼: ${boneId}`;
   }
+
+  deleteSelectedKeyframe() {
+    // 检查是否有选中的关键帧
+    if (!this.selectedKeyframe) {
+      alert('請先選擇一個關鍵幀');
+      return;
+    }
+
+    // 从关键帧对象中获取骨骼ID（需确保selectKeyframe已正确保存boneId）
+    const boneId = this.selectedKeyframe.boneId;
+
+    // 验证骨骼ID有效性
+    if (!boneId || !this.keyframes[boneId]) {
+      console.error("找不到對應骨骼的關鍵幀列表", boneId);
+      return;
+    }
+
+    // 获取要删除的关键帧ID
+    const keyframeIdToDelete = this.selectedKeyframe.id;
+
+    // 在骨骼的关键帧数组中查找目标索引
+    const index = this.keyframes[boneId].findIndex(k => k.id === keyframeIdToDelete);
+
+    // 如果找到匹配项，执行删除操作
+    if (index !== -1) {
+      // 删除关键帧
+      this.keyframes[boneId].splice(index, 1);
+
+      // 可选：如果骨骼的关键帧数组为空，清理该骨骼的条目
+      if (this.keyframes[boneId].length === 0) {
+        delete this.keyframes[boneId];
+      }
+
+      // 更新状态栏信息
+      this.status = `刪除關鍵幀: ${keyframeIdToDelete} 從骨骼: ${boneId}`;
+
+      // 清除当前选中的关键帧
+      this.selectedKeyframe = null;
+
+      // 触发骨骼更新（重绘/重新计算动画）
+      this.onUpdate();
+
+      console.log(`成功刪除關鍵幀 ID: ${keyframeIdToDelete} from bone: ${boneId}`);
+    } else {
+      console.error("找不到指定ID的關鍵幀", keyframeIdToDelete);
+    }
+  }
+
 
   playAnimation() {
     if (this.isPlaying) {
@@ -720,13 +762,15 @@ export default class Timeline {
     return { position, rotation, scale };
   }
 
-  startDrag(e, container) {
-    console.log("Starting drag operation...");
-    const target = e.target;
+  startDrag(event, container) {
+    const target = event.target;
     const containerLeft = container.getBoundingClientRect().left;
     const scrollLeft = container.scrollLeft;
 
     if (target.classList.contains('keyframe')) {
+
+      console.log(" hi keyframe ... ");
+      // 處理關鍵幀拖曳
       const keyframeId = parseInt(target.getAttribute('data-id'));
       const boneId = target.getAttribute('data-bone-id');
       const keyframe = this.keyframes[boneId].find(k => k.id === keyframeId);
@@ -734,31 +778,88 @@ export default class Timeline {
       this.isDraggingKeyframe = true;
       this.draggingKeyframe = keyframe;
       this.draggingBoneId = boneId;
-      this.startMouseX = e.pageX - containerLeft + scrollLeft;
+      this.startMouseX = event.pageX - containerLeft + scrollLeft;
       this.startKeyframePosition = keyframe.position;
       this.selectKeyframe(boneId, keyframeId);
+    } else if (target.classList.contains('playhead')) {
+      console.log(" hi playhead ... ");
+      // 處理播放頭拖曳
+      this.dragInfo = { dragging: true, startX: event.clientX, type: 'playhead', offsetX: event.clientX - containerLeft };
+
+
     } else {
-      this.isDragging = true;
-      this.startX = e.pageX - containerLeft;
+      console.log(" hi selection ");
+      // 處理時間選擇拖曳或時間軸滾動
+      this.dragInfo = { dragging: true, startX: event.clientX, type: 'selection', offsetX: event.clientX - containerLeft };
+      this.isDragging = true; // 啟用滾動標誌
+      this.startX = event.pageX - containerLeft;
       this.scrollLeft = scrollLeft;
+
+      let x = event.clientX - containerLeft;
+      x = Math.max(0, Math.min(x, container.clientWidth)); // 限制在容器範圍內
+
+      if (x >= this.dragInfo.offsetX) {
+        this.timeSelection.start = this.dragInfo.offsetX;
+        this.timeSelection.end = x;
+      } else {
+        this.timeSelection.start = x;
+        this.timeSelection.end = this.dragInfo.offsetX;
+      }
+      this.playheadPosition = x;
+
     }
+
+    if (Object.keys(boneTree).length !== 0)
+      for (let i = 0; i < 5; i++) {
+        this.updateSkeletonWithInheritance();
+      }
+    // 設置通用拖曳標誌
+    this.isDragging = true;
+    this.onUpdate();
   }
 
-  onDrag(e, container) {
+  onDrag(event, container) {
+    if (!this.isDragging) return;
+
     const containerLeft = container.getBoundingClientRect().left;
     const scrollLeft = container.scrollLeft;
 
     if (this.isDraggingKeyframe && this.draggingKeyframe) {
-      const currentMouseX = e.pageX - containerLeft + scrollLeft;
+      // 處理關鍵幀拖曳
+      const currentMouseX = event.pageX - containerLeft + scrollLeft;
       const deltaX = currentMouseX - this.startMouseX;
       const newPosition = Math.max(0, this.startKeyframePosition + (deltaX - deltaX % 50));
       this.draggingKeyframe.position = newPosition;
+    } else if (this.dragInfo && this.dragInfo.dragging) {
+      // 處理播放頭或時間選擇拖曳
+      let x = event.clientX - containerLeft;
+      x = Math.max(0, Math.min(x, container.clientWidth)); // 限制在容器範圍內
+
+      if (this.dragInfo.type === 'playhead') {
+        this.playheadPosition = x;
+      } else if (this.dragInfo.type === 'selection') {
+        if (x >= this.dragInfo.offsetX) {
+          this.timeSelection.start = this.dragInfo.offsetX;
+          this.timeSelection.end = x;
+        } else {
+          this.timeSelection.start = x;
+          this.timeSelection.end = this.dragInfo.offsetX;
+        }
+        this.playheadPosition = x;
+      }
+
+      // 更新骨骼動畫
+      if (Object.keys(boneTree).length !== 0) {
+        this.updateSkeletonWithInheritance();
+      }
     } else if (this.isDragging) {
-      e.preventDefault();
-      const x = e.pageX - containerLeft;
+      // 處理時間軸軌道滾動
+      const x = event.pageX - containerLeft;
       const walk = (x - this.startX);
       container.scrollLeft = this.scrollLeft - walk;
     }
+
+    this.onUpdate();
   }
 
   stopDrag() {
@@ -773,6 +874,7 @@ export default class Timeline {
     this.isDraggingKeyframe = false;
     this.draggingKeyframe = null;
     this.draggingBoneId = null;
+    this.dragInfo = null;
   }
 
   getFlattenedBones(node, depth = 0, result = []) {

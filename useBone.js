@@ -1,5 +1,8 @@
+//useBone.js
+
 const { ref } = Vue;
 import glsInstance from './useWebGL.js';
+import timeline from './timeline.js';
 
 // 📦 全域狀態
 const skeletonVertices = ref([]);
@@ -49,6 +52,7 @@ function clearBones() {
 
 // 💾 儲存骨架
 function saveBones() {
+  console.log(" show timeline first :",JSON.stringify(timeline.keyframes));
   const boneData = {
     skeletonVertices: skeletonVertices.value,
     originalSkeletonVertices: originalSkeletonVertices.value,
@@ -56,8 +60,10 @@ function saveBones() {
     boneChildren: boneChildren.value,
     vertexInfluences: vertexInfluences.value.map(inf =>
       inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
-    )
+    ),
+    keyframes:timeline.keyframes
   };
+  console.log(" checking save keyframe : ",JSON.stringify(boneData.keyframes));
   localStorage.setItem('boneData', JSON.stringify(boneData));
 }
 
@@ -73,8 +79,12 @@ function readBones() {
     vertexInfluences.value = boneData.vertexInfluences.map(inf =>
       inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
     );
+    timeline.keyframes=boneData.keyframes;
     glsInstance.updateMeshForSkeletonPose?.();
+
+    console.log(" checking load  keyframe : ",JSON.stringify(boneData));
   }
+
 }
 
 // 📷 匯出圖片（可選）
