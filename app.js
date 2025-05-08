@@ -13,9 +13,6 @@ import {
   selectedBoneForEditing,
   editingBoneEnd,
   boneEndBeingDragged,
-  clearBones,
-  saveBones,
-  readBones,
 } from './useBone.js';
 
 import {
@@ -159,7 +156,6 @@ const loadTexture = (gl, url, imageData, imageWidth, imageHeight) => {
   });
 };
 
-//const timeline = ref(new Timeline());
 const app = Vue.createApp({
   data() {
     return {
@@ -185,11 +181,6 @@ const app = Vue.createApp({
       animationPlaying: false,
       animationStartTime: 0,
       nextKeyframeId: 10,
-      timeline: new Timeline({
-        onUpdate: () => this.$forceUpdate(),
-        vueInstance: this,
-        updateMeshForSkeletonPose:glsInstance.updateMeshForSkeletonPose,
-      }),
       hierarchicalData: {
         children: [
           {
@@ -227,29 +218,22 @@ const app = Vue.createApp({
         .map((parent, index) => (parent === -1 ? index : null))
         .filter(index => index !== null);
       
-      // Clear and update the exported map
       Object.keys(boneIdToIndexMap).forEach(key => {
         delete boneIdToIndexMap[key];
       });
       
-      
-      // Construct tree and fill the exported map
       const trees = rootBones.map(rootIndex => {
         const tree = this.buildBoneTree(rootIndex, null, boneIdToIndexMap);
         return tree;
       });
       
-     // console.log("bone id map: ", JSON.stringify(boneIdToIndexMap));
-      
       Object.keys(boneTree).forEach(key => {
         delete boneTree[key];
       });
       
-      // Add all properties from trees to boneTree
       trees.forEach((tree, index) => {
         boneTree[index] = tree;
       });
-
 
       return trees;
     },
@@ -258,8 +242,6 @@ const app = Vue.createApp({
       this.boneTree.forEach(root => {
         this.timeline.getFlattenedBones(root, 0, result);
       });
-    
-    //  console.log("flan bones: ",JSON.stringify(result));
       return result;
     }
   },
@@ -300,8 +282,7 @@ const app = Vue.createApp({
       }
     },
     selectBone(bone) {
-     // this.selectedBone = bone.index;
-     this.selectedBone = bone
+      this.selectedBone = bone;
       this.selectedKeyframe = null;
     },
     selectKeyframe(boneId, keyframeId) {
@@ -319,7 +300,7 @@ const app = Vue.createApp({
       this.status = '正在儲存專案...';
       const projectData = {
         layers: this.layers,
-        keyframes: timeline.keyframes,
+        keyframes: this.timeline.keyframes,
         points: this.points
       };
       fetch('/api/project/save', {
@@ -393,7 +374,6 @@ const app = Vue.createApp({
       const boneName = `Bone ${boneIndex}`;
       const index = boneIndex;
     
-      // 將 boneId 和 boneIndex 的映射關係添加到表中
       boneIdToIndexMap[boneId] = boneIndex;
     
       const headX = skeletonVertices.value[boneIndex * 4];
@@ -442,10 +422,17 @@ const app = Vue.createApp({
     const activeTool = ref('grab-point');
     const skeletonIndices = ref([]);
     const isShiftPressed = ref(false);
+    const instance = Vue.getCurrentInstance();
+
+    const timeline = reactive(new Timeline({
+      onUpdate: () =>instance.proxy.$forceUpdate(),
+      vueInstance: instance,
+      updateMeshForSkeletonPose: glsInstance.updateMeshForSkeletonPose,
+    }));
 
     const bonesInstance = new Bones({
-      onUpdate: () => this.$forceUpdate(),
-      vueInstance: this,
+      onUpdate: () => instance.proxy.$forceUpdate(),
+      vueInstance: instance,
       gl: gl.value,
       vertices: vertices,
       vbo: vbo,
@@ -460,26 +447,21 @@ const app = Vue.createApp({
       activeTool.value = tool;
       console.log("switch to tool : ",tool);
       if (activeTool.value === 'bone-animate') {
-        // 
-        //glsInstance.resetMeshToOriginal();
-     //   bonesInstance.resetSkeletonToOriginal();
-        bonesInstance.restoreSkeletonVerticesFromLast() ;
+        bonesInstance.restoreSkeletonVerticesFromLast();
       }
       else if (tool === 'bone-create') {
         glsInstance.resetMeshToOriginal();
         bonesInstance.resetSkeletonToOriginal();
-        // glsInstance.resetMeshToOriginal();
-        //  bonesInstance.resetSkeletonToOriginal();
       }
       else if (tool === 'bone-clear') {
-        clearBones();
+        bonesInstance. clearBones();
         selectedBone.value = {};
       } else if (tool === 'bone-save') {
-        saveBones();
+        bonesInstance. saveBones();
+       // bonesInstance.checkKeyframe();
       } else if (tool === 'bone-read') {
-        readBones();
+        bonesInstance. readBones();
       }
-      
     };
 
     const handleKeyDown = (e) => {
@@ -558,7 +540,6 @@ const app = Vue.createApp({
       const handleMouseUp = () => {
         if (activeTool.value === 'bone-create' && isDragging) {
           bonesInstance.handleBoneCreateMouseUp();
-
           bonesInstance.assignVerticesToBones();
         } else if (activeTool.value === 'bone-animate' && isDragging) {
           bonesInstance.handleBoneAnimateMouseUp();
@@ -733,11 +714,9 @@ const app = Vue.createApp({
 
     return {
       selectTool,
-      clearBones,
-      saveBones,
-      readBones,
       activeTool,
       selectedBone,
+      timeline
     };
   }
 });
@@ -770,7 +749,7 @@ const TreeItem = {
       this.$emit('toggle-node', nodeId);
     },
     handleNameClick(name) {
-      const boneIndex =  this.node.index;
+      const boneIndex = this.node.index;
       this.$emit('name-click', boneIndex);
     },
     checkIsSelected() {

@@ -73,6 +73,7 @@ export default class Timeline {
     this.onPlayheadDrag = this.onPlayheadDrag.bind(this);
     this.stopPlayheadDrag = this.stopPlayheadDrag.bind(this);
     this.deleteSelectedKeyframe = this.deleteSelectedKeyframe.bind(this);
+    
     // Store bone parent-child relationships
     this.boneParentMap = {};
     // Initialize updateMeshForSkeletonPose if provided

@@ -2,12 +2,11 @@
 
 const { ref } = Vue;
 import glsInstance from './useWebGL.js';
-import timeline from './timeline.js';
 
 // 📦 全域狀態
 const skeletonVertices = ref([]);
-const skeletonVerticesLast =ref([]);
-const allBones=ref([]);
+const skeletonVerticesLast = ref([]);
+const allBones = ref([]);
 const originalSkeletonVertices = ref([]);
 const boneParents = ref([]);
 const boneChildren = ref([]);
@@ -36,56 +35,9 @@ function initBone(glRef, programRef, tex, vb, eb, ind, resetFn, updateFn) {
   updateMeshForSkeletonPose = updateFn;
 }
 
-// 🧹 清除骨架
-function clearBones() {
-  skeletonVertices.value = [];
-  originalSkeletonVertices.value = [];
-  boneParents.value = [];
-  boneChildren.value = [];
-  vertexInfluences.value = [];
-  lineIndex = 0;
-  isEditingExistingBone.value = false;
-  selectedBoneForEditing.value = -1;
-  editingBoneEnd.value = null;
-  resetMeshToOriginal?.();
-}
 
-// 💾 儲存骨架
-function saveBones() {
-  console.log(" show timeline first :",JSON.stringify(timeline.keyframes));
-  const boneData = {
-    skeletonVertices: skeletonVertices.value,
-    originalSkeletonVertices: originalSkeletonVertices.value,
-    boneParents: boneParents.value,
-    boneChildren: boneChildren.value,
-    vertexInfluences: vertexInfluences.value.map(inf =>
-      inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
-    ),
-    keyframes:timeline.keyframes
-  };
-  console.log(" checking save keyframe : ",JSON.stringify(boneData.keyframes));
-  localStorage.setItem('boneData', JSON.stringify(boneData));
-}
 
-// 📥 載入骨架
-function readBones() {
-  const boneDataStr = localStorage.getItem('boneData');
-  if (boneDataStr) {
-    const boneData = JSON.parse(boneDataStr);
-    skeletonVertices.value = boneData.skeletonVertices;
-    originalSkeletonVertices.value = boneData.originalSkeletonVertices;
-    boneParents.value = boneData.boneParents;
-    boneChildren.value = boneData.boneChildren;
-    vertexInfluences.value = boneData.vertexInfluences.map(inf =>
-      inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
-    );
-    timeline.keyframes=boneData.keyframes;
-    glsInstance.updateMeshForSkeletonPose?.();
 
-    console.log(" checking load  keyframe : ",JSON.stringify(boneData));
-  }
-
-}
 
 // 📷 匯出圖片（可選）
 function downloadImage() {
@@ -156,8 +108,12 @@ export default class Bones {
     this.calculateDistance = this.calculateDistance.bind(this);
     this.calculateAngle = this.calculateAngle.bind(this);
     this.rotatePoint = this.rotatePoint.bind(this);
+    this.checkKeyframe = this.checkKeyframe.bind(this);
+    this.readBones=this.readBones.bind(this);
+    this.saveBones=this.saveBones.bind(this);
+    this.clearBones=this.clearBones.bind(this);
 
-    this.onUpdate = options.onUpdate || function () {};
+    this.onUpdate = options.onUpdate || function () { };
     this.vueInstance = options.vueInstance || null;
     this.glsInstance = options.glsInstance;
     this.selectedBone = options.selectedBone;
@@ -166,6 +122,63 @@ export default class Bones {
     this.parentBoneIndex = -1;
   }
 
+  checkKeyframe() {
+    console.log(" hi check keyframe ... ",this.vueInstance.proxy.timeline);
+
+  }
+
+// 💾 儲存骨架
+ saveBones() {
+  console.log(" show timeline first :",JSON.stringify(this.vueInstance.proxy.timeline.keyframes));
+  const boneData = {
+    skeletonVertices: skeletonVertices.value,
+    originalSkeletonVertices: originalSkeletonVertices.value,
+    boneParents: boneParents.value,
+    boneChildren: boneChildren.value,
+    vertexInfluences: vertexInfluences.value.map(inf =>
+      inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
+    ),
+   keyframes:this.vueInstance.proxy.timeline.keyframes
+  };
+  localStorage.setItem('boneData', JSON.stringify(boneData));
+}
+  
+// 📥 載入骨架
+ readBones() {
+  const boneDataStr = localStorage.getItem('boneData');
+  if (boneDataStr) {
+    const boneData = JSON.parse(boneDataStr);
+    skeletonVertices.value = boneData.skeletonVertices;
+    originalSkeletonVertices.value = boneData.originalSkeletonVertices;
+    boneParents.value = boneData.boneParents;
+    boneChildren.value = boneData.boneChildren;
+    vertexInfluences.value = boneData.vertexInfluences.map(inf =>
+      inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
+    );
+    this.vueInstance.proxy.timeline.keyframes=boneData.keyframes;
+
+    console.log("  checking load  keyframe :",JSON.stringify(boneData.keyframes));
+ 
+    glsInstance.updateMeshForSkeletonPose?.();
+
+    //console.log(" checking load  keyframe : ", JSON.stringify(boneData));
+  }
+
+}
+
+// 🧹 清除骨架
+ clearBones() {
+  skeletonVertices.value = [];
+  originalSkeletonVertices.value = [];
+  boneParents.value = [];
+  boneChildren.value = [];
+  vertexInfluences.value = [];
+  lineIndex = 0;
+  isEditingExistingBone.value = false;
+  selectedBoneForEditing.value = -1;
+  editingBoneEnd.value = null;
+  resetMeshToOriginal?.();
+}
   resetSkeletonToOriginal() {
     if (originalSkeletonVertices.value.length > 0) {
       skeletonVertices.value = [...originalSkeletonVertices.value];
@@ -175,8 +188,8 @@ export default class Bones {
   restoreSkeletonVerticesFromLast() {
     if (skeletonVerticesLast.value.length > 0) {
       skeletonVertices.value = [...skeletonVerticesLast.value];
-      
-      console.log("skeleton vertices length : ",skeletonVertices.value.length);
+
+      console.log("skeleton vertices length : ", skeletonVertices.value.length);
       this.glsInstance.updateMeshForSkeletonPose();
     }
   }
@@ -208,14 +221,14 @@ export default class Bones {
     }
   }
 
-  calculateDistance(x1, y1, x2, y2) { 
-    return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2)) 
+  calculateDistance(x1, y1, x2, y2) {
+    return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2))
   }
-  
-  calculateAngle(x1, y1, x2, y2) { 
-    return Math.atan2(y2 - y1, x2 - x1) 
+
+  calculateAngle(x1, y1, x2, y2) {
+    return Math.atan2(y2 - y1, x2 - x1)
   }
-  
+
   rotatePoint(cx, cy, x, y, angle) {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
@@ -226,15 +239,15 @@ export default class Bones {
     return { x: rx + cx, y: ry + cy };
   }
 
- assignVerticesToBones() {
+  assignVerticesToBones() {
     const vertices = skeletonVertices.value;
     allBones.value = []; // 清空現有骨骼數據
-  
+
     // 以 4 個單位為步長遍歷頂點數組
     for (let i = 0; i < vertices.length; i += 4) {
       // 確保有足夠的數據構成一個骨骼
       if (i + 3 >= vertices.length) break;
-  
+
       // 提取頭尾座標
       const bone = {
         head: {
@@ -246,10 +259,10 @@ export default class Bones {
           y: vertices[i + 3]
         }
       };
-  
+
       allBones.value.push(bone);
     }
-    console.log(" hi all bones:",JSON.stringify(allBones.value));
+    console.log(" hi all bones:", JSON.stringify(allBones.value));
   }
 
   // Bone Create Methods
@@ -272,14 +285,14 @@ export default class Bones {
         editingBoneEnd.value = 'head';
         isEditingExistingBone.value = true;
         this.parentBoneIndex = boneParents.value[i / 4];
-        this.selectedBone.value = {index:i / 4}
+        this.selectedBone.value = { index: i / 4 }
         break;
       } else if (distToTail < 0.1) {
         selectedBoneForEditing.value = i / 4;
         editingBoneEnd.value = 'tail';
         isEditingExistingBone.value = true;
         this.parentBoneIndex = i / 4;
-        this.selectedBone.value = {index:i / 4}
+        this.selectedBone.value = { index: i / 4 }
         break;
       }
     }
@@ -290,9 +303,9 @@ export default class Bones {
         this.parentBoneIndex = -1;
         boneParents.value.push(this.parentBoneIndex);
         skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
-        this.selectedBone.value = {index:newBoneIndex};
+        this.selectedBone.value = { index: newBoneIndex };
       } else {
-        if (this.selectedBone.index.value != -1) this.parentBoneIndex = this.selectedBone.value.index;
+        if (this.selectedBone.value.index != -1) this.parentBoneIndex = this.selectedBone.value.index;
         boneParents.value.push(this.parentBoneIndex);
         if (isShiftPressed) {
           const parentTailX = skeletonVertices.value[this.parentBoneIndex * 4 + 2];
@@ -301,7 +314,7 @@ export default class Bones {
         } else {
           skeletonVertices.value.push(xNDC, yNDC, xNDC, yNDC);
         }
-        this.selectedBone.value = {index:newBoneIndex};
+        this.selectedBone.value = { index: newBoneIndex };
       }
 
       if (this.skeletonIndices.value.length <= newBoneIndex * 2) {
@@ -340,7 +353,7 @@ export default class Bones {
         this.parentBoneIndex = boneParents.value[this.parentBoneIndex];
         skeletonVertices.value.splice(newBoneIndex * 4, 4);
         boneParents.value.pop();
-        this.selectedBone.value = {index:-1};
+        this.selectedBone.value = { index: -1 };
       } else {
         const parentIndex = boneParents.value[newBoneIndex];
         if (parentIndex !== -1) {
@@ -366,7 +379,7 @@ export default class Bones {
   // Bone Animate Methods
   handleBoneAnimateMouseDown(xNDC, yNDC) {
     let minDistToSegment = Infinity;
-    this.selectedBone.value = {index:-1}
+    this.selectedBone.value = { index: -1 }
     boneEndBeingDragged.value = null;
 
     for (let i = 0; i < skeletonVertices.value.length; i += 4) {
@@ -379,8 +392,8 @@ export default class Bones {
       let dy = headY - yNDC;
       let dist = dx * dx + dy * dy;
       if (dist < 0.001) {
-        this.selectedBone.value = {index:i / 4}
-       
+        this.selectedBone.value = { index: i / 4 }
+
         boneEndBeingDragged.value = 'head';
         break;
       }
@@ -389,7 +402,7 @@ export default class Bones {
       dy = tailY - yNDC;
       dist = dx * dx + dy * dy;
       if (dist < 0.001) {
-        this.selectedBone.value = {index:i / 4}
+        this.selectedBone.value = { index: i / 4 }
         boneEndBeingDragged.value = 'tail';
         break;
       }
@@ -397,7 +410,7 @@ export default class Bones {
       const distToSegment = this.glsInstance.distanceFromPointToSegment(xNDC, yNDC, headX, headY, tailX, tailY);
       if (distToSegment < 0.1 && distToSegment < minDistToSegment) {
         minDistToSegment = distToSegment;
-        this.selectedBone.value = {index:i / 4}
+        this.selectedBone.value = { index: i / 4 }
         boneEndBeingDragged.value = 'middle';
       }
     }
@@ -420,7 +433,7 @@ export default class Bones {
           skeletonVertices.value[boneIndex * 4 + 3] += deltaY;
           this.applyTransformToChildren(boneIndex, deltaX, deltaY, 0, 0, 0);
         }
-        
+
         else if (buttons === 1) { // Left mouse button for rotation
           const headX = skeletonVertices.value[boneIndex * 4];
           const headY = skeletonVertices.value[boneIndex * 4 + 1];
@@ -441,11 +454,11 @@ export default class Bones {
       // Save full state to skeletonVerticesLast
       skeletonVerticesLast.value = [...skeletonVertices.value];
 
-       this.glsInstance.updateMeshForSkeletonPose();
+      this.glsInstance.updateMeshForSkeletonPose();
     }
   }
 
- 
+
 
   handleBoneAnimateMouseUp() {
     boneEndBeingDragged.value = null;
@@ -465,9 +478,6 @@ export {
   selectedBoneForEditing,
   editingBoneEnd,
   boneEndBeingDragged,
-  clearBones,
-  saveBones,
-  readBones,
   downloadImage,
   Bones
 };

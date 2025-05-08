@@ -11,9 +11,6 @@ import {
   isEditingExistingBone,
   selectedBoneForEditing,
   editingBoneEnd,
-  clearBones,
-  saveBones,
-  readBones
 } from './useBone.js';
 
 // 📦 全局狀態區 (State)
