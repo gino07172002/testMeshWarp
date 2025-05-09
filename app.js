@@ -36,6 +36,14 @@ import {
   imageHeight,
 } from './useWebGL.js';
 
+import {
+  psdHello,
+  processPSDFile,
+  allLayers
+ 
+
+} from './psd.js';
+
 import glsInstance from './useWebGL.js';
 import Bones from './useBone.js';
 import Timeline from './timeline.js';
@@ -181,6 +189,7 @@ const app = Vue.createApp({
       animationPlaying: false,
       animationStartTime: 0,
       nextKeyframeId: 10,
+      psdLayers:[],
       hierarchicalData: {
         children: [
           {
@@ -217,20 +226,20 @@ const app = Vue.createApp({
       const rootBones = boneParents.value
         .map((parent, index) => (parent === -1 ? index : null))
         .filter(index => index !== null);
-      
+
       Object.keys(boneIdToIndexMap).forEach(key => {
         delete boneIdToIndexMap[key];
       });
-      
+
       const trees = rootBones.map(rootIndex => {
         const tree = this.buildBoneTree(rootIndex, null, boneIdToIndexMap);
         return tree;
       });
-      
+
       Object.keys(boneTree).forEach(key => {
         delete boneTree[key];
       });
-      
+
       trees.forEach((tree, index) => {
         boneTree[index] = tree;
       });
@@ -295,6 +304,22 @@ const app = Vue.createApp({
     testCountFn() {
       console.log(" in app testCountFn");
       this.timeline.testCount++;
+      psdHello();
+
+    },
+
+    handlePSDUpload(event) {
+      console.log(" entry handle psd from app js ");
+      const file = event.target.files[0];
+      if (file) {
+        console.log("entry handle psd from app js");
+        processPSDFile(file, this).then(() => {
+          this.psdLayers = this.allLayers;
+          console.log("psd layers:", JSON.stringify(this.psdLayers));
+        }).catch(error => {
+          console.error("Error processing PSD file:", error);
+        });
+      }
     },
     saveProjectToServer() {
       this.status = '正在儲存專案...';
@@ -373,14 +398,14 @@ const app = Vue.createApp({
       const boneId = `bone${boneIndex}`;
       const boneName = `Bone ${boneIndex}`;
       const index = boneIndex;
-    
+
       boneIdToIndexMap[boneId] = boneIndex;
-    
+
       const headX = skeletonVertices.value[boneIndex * 4];
       const headY = skeletonVertices.value[boneIndex * 4 + 1];
       const tailX = skeletonVertices.value[boneIndex * 4 + 2];
       const tailY = skeletonVertices.value[boneIndex * 4 + 3];
-    
+
       const children = boneChildren.value[boneIndex] || [];
       return {
         id: boneId,
@@ -410,7 +435,7 @@ const app = Vue.createApp({
       }
     },
     handleNameClick(boneIndex) {
-      this.selectedBone = {index:boneIndex};
+      this.selectedBone = { index: boneIndex };
     },
     showBone() {
       console.log("hi show bone");
@@ -425,7 +450,7 @@ const app = Vue.createApp({
     const instance = Vue.getCurrentInstance();
 
     const timeline = reactive(new Timeline({
-      onUpdate: () =>instance.proxy.$forceUpdate(),
+      onUpdate: () => instance.proxy.$forceUpdate(),
       vueInstance: instance,
       updateMeshForSkeletonPose: glsInstance.updateMeshForSkeletonPose,
     }));
@@ -445,7 +470,7 @@ const app = Vue.createApp({
 
     const selectTool = (tool) => {
       activeTool.value = tool;
-      console.log("switch to tool : ",tool);
+      console.log("switch to tool : ", tool);
       if (activeTool.value === 'bone-animate') {
         bonesInstance.restoreSkeletonVerticesFromLast();
       }
@@ -454,13 +479,13 @@ const app = Vue.createApp({
         bonesInstance.resetSkeletonToOriginal();
       }
       else if (tool === 'bone-clear') {
-        bonesInstance. clearBones();
+        bonesInstance.clearBones();
         selectedBone.value = {};
       } else if (tool === 'bone-save') {
-        bonesInstance. saveBones();
-       // bonesInstance.checkKeyframe();
+        bonesInstance.saveBones();
+        // bonesInstance.checkKeyframe();
       } else if (tool === 'bone-read') {
-        bonesInstance. readBones();
+        bonesInstance.readBones();
       }
     };
 

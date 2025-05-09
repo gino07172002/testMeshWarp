@@ -185,9 +185,9 @@ function drawSelectedLayers() {
   });
 }
 
-// 文件選擇事件
-document.getElementById('psdFile').addEventListener('change', function () {
-  const file = this.files[0];
+// 將事件處理函數重構為可以從外部調用的函數
+function processPSDFile(file) {
+  console.log("let's doing process psd ... ");
   if (file) {
     readPSD(file, function () {
       const layerContainer = document.getElementById('layerContainer');
@@ -208,7 +208,31 @@ document.getElementById('psdFile').addEventListener('change', function () {
         layerContainer.appendChild(label);
         layerContainer.appendChild(document.createElement('br'));
       });
+      console.log(" all layers: ",JSON.stringify(allLayers));
       drawSelectedLayers();
     });
   }
-});
+}
+
+// 如果你想保留原來的事件監聽器，可以這樣使用新函數：
+document.getElementById('psdFile').addEventListener('change', function() {
+     processPSDFile(this.files[0]);
+ });
+
+// 導出函數，使它可以在別的文件中使用
+// 如果使用 ES6 模塊:
+// export { processPSDFile, allLayers, width, height, drawSelectedLayers };
+
+// 或者，如果直接在全局範圍中使用:
+// 只需確保在你的 app.js 中在此文件之後加載，這樣這些函數就直接可用
+
+function psdHello() {
+  console.log("Hello from psd.js module!");
+}
+
+export
+{
+  psdHello,
+  processPSDFile,
+  allLayers
+};
