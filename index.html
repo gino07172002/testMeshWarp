@@ -106,6 +106,8 @@
             <button class="timeline-btn" v-on:click="timeline.addKeyframe">新增Key點</button>
             <button class="timeline-btn" v-on:click="timeline.deleteSelectedKeyframe">刪除Key點</button>
             <input type="file" accept=".psd" id="psdFile" @change="handlePSDUpload">
+            <button class="timeline-btn" v-on:click="usePsd">usePsd</button>
+            <button class="timeline-btn" v-on:click="drawAgain">drawAgain</button>
             <button class="timeline-btn" v-on:click="timeline.playAnimation">播放動畫</button>
             <button class="timeline-btn" v-on:click="testCountFn">{{timeline.testCount}}</button>
             <button class="timeline-btn" v-on:click="timeline.testCountFn">{{timeline.testCount}}</button>

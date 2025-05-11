@@ -44,7 +44,61 @@ function decodeChannel(view, offset, compression, w, h) {
     throw new Error('不支援的壓縮方法');
   }
 }
+function loadLayerTexture(gl, layer) {
+  // 創建紋理對象
+  const texture = gl.createTexture();
 
+  // 綁定紋理到 2D 紋理目標
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+
+  // 上傳圖層的 imageData 到紋理
+  gl.texImage2D(
+    gl.TEXTURE_2D,          // 目標（2D 紋理）
+    0,                      // 細節級別（mipmapping 時使用）
+    gl.RGBA,                // 內部格式
+    layer.width,            // 寬度
+    layer.height,           // 高度
+    0,                      // 邊框（通常為 0）
+    gl.RGBA,                // 數據格式
+    gl.UNSIGNED_BYTE,       // 數據類型
+    layer.imageData         // 圖像數據 (Uint8ClampedArray)
+  );
+
+  // 設置紋理參數
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  // 解綁紋理
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  // 返回創建的紋理對象
+  return texture;
+}
+
+function renderLayers(gl, layerTextures) {
+  allLayers.forEach((layer, index) => {
+    const texture = layerTextures[index];
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // 設置頂點數據，例如一個矩形，位置基於 layer.x 和 layer.y
+    const vertices = new Float32Array([
+      layer.x, layer.y,                    // 左下角
+      layer.x + layer.width, layer.y,      // 右下角
+      layer.x, layer.y + layer.height,     // 左上角
+      layer.x + layer.width, layer.y + layer.height // 右上角
+    ]);
+
+    // 設置頂點緩衝區、著色器等（這裡省略具體實現）
+    // 傳遞 opacity 到著色器
+    const opacity = layer.opacity / 255;
+    gl.uniform1f(opacityLocation, opacity); // 假設 opacityLocation 是 uniform 位置
+
+    // 繪製圖層
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  });
+}
 // 讀取PSD文件並解析圖層
 function readPSD(file, callback) {
   const reader = new FileReader();
@@ -234,5 +288,6 @@ export
 {
   psdHello,
   processPSDFile,
-  allLayers
+  allLayers,
+  loadLayerTexture
 };

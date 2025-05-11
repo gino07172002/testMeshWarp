@@ -39,8 +39,8 @@ import {
 import {
   psdHello,
   processPSDFile,
-  allLayers
- 
+  allLayers,
+  loadLayerTexture
 
 } from './psd.js';
 
@@ -189,7 +189,7 @@ const app = Vue.createApp({
       animationPlaying: false,
       animationStartTime: 0,
       nextKeyframeId: 10,
-      psdLayers:[],
+      psdLayers: [],
       hierarchicalData: {
         children: [
           {
@@ -306,6 +306,13 @@ const app = Vue.createApp({
       this.timeline.testCount++;
       psdHello();
 
+    },
+    usePsd() {
+      console.log("hello use psd ... ");
+      psdHello();
+      renderLayers(gl, allLayers);
+      
+      console.log("ok use psd ... ");
     },
 
     handlePSDUpload(event) {
@@ -711,27 +718,34 @@ const app = Vue.createApp({
 
       requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
     };
-
-    onMounted(async () => {
+    const drawGlCanvas =async () => {
       const canvas = document.getElementById('webgl');
       const container = canvas.closest('.image-container');
       const webglContext = canvas.getContext('webgl');
       gl.value = webglContext;
-
+      setupCanvasEvents(canvas, webglContext, container);
       program.value = glsInstance.createProgram(webglContext, shaders.vertex, shaders.fragment);
       colorProgram.value = glsInstance.createProgram(webglContext, shaders.colorVertex, shaders.colorFragment);
       skeletonProgram.value = glsInstance.createProgram(webglContext, shaders.skeletonVertex, shaders.skeletonFragment);
+
+      texture.value = await loadTexture(webglContext, './png3.png', imageData, imageWidth, imageHeight);
+      glsInstance.createBuffers(webglContext);
+
+      
+      render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
+      initBone(gl, program, texture, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+
+    };
+    const drawAgain = () => {
+      drawGlCanvas();
+    };
+    onMounted(async () => {
 
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
 
       try {
-        texture.value = await loadTexture(webglContext, './png3.png', imageData, imageWidth, imageHeight);
-        glsInstance.createBuffers(webglContext);
-
-        setupCanvasEvents(canvas, webglContext, container);
-        render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
-        initBone(gl, program, texture, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+        drawGlCanvas();
       } catch (error) {
         console.error("Initialization error:", error);
       }
@@ -741,7 +755,8 @@ const app = Vue.createApp({
       selectTool,
       activeTool,
       selectedBone,
-      timeline
+      timeline,
+      drawAgain
     };
   }
 });
