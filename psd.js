@@ -77,28 +77,7 @@ function loadLayerTexture(gl, layer) {
   return texture;
 }
 
-function renderLayers(gl, layerTextures) {
-  allLayers.forEach((layer, index) => {
-    const texture = layerTextures[index];
-    gl.bindTexture(gl.TEXTURE_2D, texture);
 
-    // 設置頂點數據，例如一個矩形，位置基於 layer.x 和 layer.y
-    const vertices = new Float32Array([
-      layer.x, layer.y,                    // 左下角
-      layer.x + layer.width, layer.y,      // 右下角
-      layer.x, layer.y + layer.height,     // 左上角
-      layer.x + layer.width, layer.y + layer.height // 右上角
-    ]);
-
-    // 設置頂點緩衝區、著色器等（這裡省略具體實現）
-    // 傳遞 opacity 到著色器
-    const opacity = layer.opacity / 255;
-    gl.uniform1f(opacityLocation, opacity); // 假設 opacityLocation 是 uniform 位置
-
-    // 繪製圖層
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  });
-}
 // 讀取PSD文件並解析圖層
 function readPSD(file, callback) {
   const reader = new FileReader();
@@ -212,6 +191,7 @@ function readPSD(file, callback) {
 
 // 繪製選中的圖層
 function drawSelectedLayers() {
+  console.log(" hi what's this ? ");
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
 
@@ -241,31 +221,36 @@ function drawSelectedLayers() {
 
 // 將事件處理函數重構為可以從外部調用的函數
 function processPSDFile(file) {
-  console.log("let's doing process psd ... ");
-  if (file) {
-    readPSD(file, function () {
-      const layerContainer = document.getElementById('layerContainer');
-      layerContainer.innerHTML = '';
-      allLayers.forEach((layer, index) => {
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'layer-checkbox';
-        checkbox.id = `layer-${index}`;
-        checkbox.checked = true; // 預設勾選
-        checkbox.addEventListener('change', drawSelectedLayers);
+  return new Promise((resolve) => {
+    console.log("let's doing process psd ... ");
+    if (file) {
+      readPSD(file, function () {
+        const layerContainer = document.getElementById('layerContainer');
+        layerContainer.innerHTML = '';
+        allLayers.forEach((layer, index) => {
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'layer-checkbox';
+          checkbox.id = `layer-${index}`;
+          checkbox.checked = true;
+          checkbox.addEventListener('change', drawSelectedLayers);
 
-        const label = document.createElement('label');
-        label.htmlFor = `layer-${index}`;
-        label.textContent = `圖層 ${index}`;
+          const label = document.createElement('label');
+          label.htmlFor = `layer-${index}`;
+          label.textContent = `圖層 ${index}`;
 
-        layerContainer.appendChild(checkbox);
-        layerContainer.appendChild(label);
-        layerContainer.appendChild(document.createElement('br'));
+          layerContainer.appendChild(checkbox);
+          layerContainer.appendChild(label);
+          layerContainer.appendChild(document.createElement('br'));
+        });
+      //  console.log(" all layers: ", JSON.stringify(allLayers));
+        drawSelectedLayers();
+        resolve(); // 解析 Promise
       });
-      console.log(" all layers: ",JSON.stringify(allLayers));
-      drawSelectedLayers();
-    });
-  }
+    } else {
+      resolve(); // 無檔案時直接解析
+    }
+  });
 }
 
 // 如果你想保留原來的事件監聽器，可以這樣使用新函數：
@@ -289,5 +274,6 @@ export
   psdHello,
   processPSDFile,
   allLayers,
-  loadLayerTexture
+  loadLayerTexture,
+  drawSelectedLayers
 };

@@ -40,7 +40,8 @@ import {
   psdHello,
   processPSDFile,
   allLayers,
-  loadLayerTexture
+  loadLayerTexture,
+  drawSelectedLayers
 
 } from './psd.js';
 
@@ -120,11 +121,34 @@ const convertToNDC = (e, canvas, container) => {
     y: 1 - (canvasY / canvas.height) * 2
   };
 };
+const changeImage = async (newUrl) => {
+  if (!gl.value) return;
 
+  // 刪除舊紋理釋放資源
+  if (texture.value) {
+    gl.value.deleteTexture(texture.value);
+    texture.value = null;
+  }
+
+  try {
+    // 載入新圖片並更新紋理
+    texture.value = await loadTexture(gl.value, newUrl, imageData, imageWidth, imageHeight);
+    
+    // 根據新圖片尺寸重新建立頂點緩衝
+    glsInstance.createBuffers(gl.value);
+
+    // 若骨架數據與圖片相關，需重新初始化
+    initBone(gl, program, texture, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+
+  } catch (error) {
+    console.error("更換圖片失敗:", error);
+  }
+};
 // Texture Loading Functions
 const loadTexture = (gl, url, imageData, imageWidth, imageHeight) => {
   return new Promise((resolve, reject) => {
     const image = new Image();
+    
     image.onload = () => {
       const currentTexture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, currentTexture);
@@ -307,25 +331,106 @@ const app = Vue.createApp({
       psdHello();
 
     },
+    changeImageTest()
+    {
+      changeImage('./png2.png');
+    },
     usePsd() {
       console.log("hello use psd ... ");
       psdHello();
-      renderLayers(gl, allLayers);
-      
       console.log("ok use psd ... ");
+
+      // then I should draw layers to canvas
+    },
+    createLayerTexture(gl, layer) {
+      if (!layer || !layer.imageData) {
+        console.error("Layer or layer.imageData is undefined:", layer);
+        return null;
+      }
+    
+      const texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      
+      console.log("Processing layer:", layer.name, "ImageData type:", Object.prototype.toString.call(layer.imageData));
+      
+      // Handle different types of imageData
+      if (layer.imageData instanceof ImageData) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, layer.imageData.width, layer.imageData.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, layer.imageData.data);
+      } else if (layer.imageData instanceof HTMLCanvasElement || layer.imageData instanceof HTMLImageElement) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, layer.imageData);
+      } else if (ArrayBuffer.isView(layer.imageData)) {
+        // Handle Uint8Array, Uint8ClampedArray etc.
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = layer.width;
+        tempCanvas.height = layer.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        const tempImageData = tempCtx.createImageData(layer.width, layer.height);
+        tempImageData.data.set(layer.imageData);
+        tempCtx.putImageData(tempImageData, 0, 0);
+        
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tempCanvas);
+      } else {
+        console.error("Unsupported layer.imageData type for layer:", layer.name, layer.imageData);
+        console.log("Data preview:", layer.imageData && layer.imageData.length ? layer.imageData.slice(0, 20) : "No data");
+        return null;
+      }
+    
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    
+      return texture;
     },
 
-    handlePSDUpload(event) {
-      console.log(" entry handle psd from app js ");
-      const file = event.target.files[0];
-      if (file) {
-        console.log("entry handle psd from app js");
-        processPSDFile(file, this).then(() => {
-          this.psdLayers = this.allLayers;
-          console.log("psd layers:", JSON.stringify(this.psdLayers));
-        }).catch(error => {
-          console.error("Error processing PSD file:", error);
-        });
+    async handlePSDUpload(event) {
+      try {
+        const file = event.target.files[0];
+        if (file) {
+          await processPSDFile(file);
+          this.psdLayers = allLayers;
+    
+          const glContext = gl.value; // WebGL context from useWebGL.js
+    
+          for (const layer of this.psdLayers) {
+            // Create texture for the layer
+            layer.texture = this.createLayerTexture(glContext, layer);
+    
+            // Calculate NDC coordinates based on layer position and size
+            const left = layer.left || 0;
+            const top = layer.top || 0;
+            const right = left + (layer.width || imageWidth.value);
+            const bottom = top + (layer.height || imageHeight.value);
+    
+            const ndcLeft = (left / imageWidth.value) * 2 - 1;
+            const ndcRight = (right / imageWidth.value) * 2 - 1;
+            const ndcTop = 1 - (top / imageHeight.value) * 2;
+            const ndcBottom = 1 - (bottom / imageHeight.value) * 2;
+    
+            // Define vertices for the quad (position and texture coordinates)
+            const layerVertices = [
+              ndcLeft, ndcBottom, 0, 0,   // Bottom-left
+              ndcRight, ndcBottom, 1, 0,  // Bottom-right
+              ndcRight, ndcTop, 1, 1,     // Top-right
+              ndcLeft, ndcTop, 0, 1       // Top-left
+            ];
+    
+            // Create and populate vertex buffer object (VBO)
+            layer.vbo = glContext.createBuffer();
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, layer.vbo);
+            glContext.bufferData(glContext.ARRAY_BUFFER, new Float32Array(layerVertices), glContext.STATIC_DRAW);
+    
+            // Create and populate element buffer object (EBO) for triangles
+            layer.ebo = glContext.createBuffer();
+            glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, layer.ebo);
+            glContext.bufferData(glContext.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 0, 2, 3]), glContext.STATIC_DRAW);
+          }
+    
+          console.log(" then renew canvas... ");
+          // No need to call drawSelectedLayers() here; rendering is handled in the render loop
+        }
+      } catch (error) {
+        console.error("處理 PSD 檔案時出錯:", error);
       }
     },
     saveProjectToServer() {
@@ -597,6 +702,7 @@ const app = Vue.createApp({
     };
 
     const render = (gl, program, colorProgram, skeletonProgram) => {
+      
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
@@ -718,6 +824,7 @@ const app = Vue.createApp({
 
       requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
     };
+    
     const drawGlCanvas =async () => {
       const canvas = document.getElementById('webgl');
       const container = canvas.closest('.image-container');
