@@ -132,7 +132,34 @@ const changeImage = async (newUrl) => {
 
   try {
     // 載入新圖片並更新紋理
-    texture.value = await loadTexture(gl.value, newUrl, imageData, imageWidth, imageHeight);
+    let result = await loadTexture(gl.value, newUrl);
+    texture.value = result.texture;
+     imageData.value = result.data;
+      imageWidth.value = result.width;
+      imageHeight.value = result.height;
+    // 根據新圖片尺寸重新建立頂點緩衝
+    glsInstance.createBuffers(gl.value);
+
+    // 若骨架數據與圖片相關，需重新初始化
+    initBone(gl, program, texture, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+
+  } catch (error) {
+    console.error("更換圖片失敗:", error);
+  }
+};
+
+const changeImage2 = async () => {
+  if (!gl.value) return;
+
+  // 刪除舊紋理釋放資源
+  if (texture.value) {
+    gl.value.deleteTexture(texture.value);
+    texture.value = null;
+  }
+
+  try {
+    // 載入新圖片並更新紋理
+    texture.value = await layerToTexture(gl.value,allLayers[0]);
     
     // 根據新圖片尺寸重新建立頂點緩衝
     glsInstance.createBuffers(gl.value);
@@ -144,8 +171,53 @@ const changeImage = async (newUrl) => {
     console.error("更換圖片失敗:", error);
   }
 };
+
+const layerToTexture = (gl, layer) => {
+  return new Promise((resolve, reject) => {
+    // 從圖層中提取必要資料
+    const { imageData, width, height } = layer;
+
+    // 檢查資料有效性
+    if (!imageData || width <= 0 || height <= 0) {
+      reject(new Error('無效的圖層資料'));
+      return;
+    }
+
+    // 創建並綁定紋理
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // 設置像素儲存參數（翻轉 Y 軸以匹配 PSD 座標系）
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+    // 上傳紋理資料
+    gl.texImage2D(
+      gl.TEXTURE_2D,        // 目標
+      0,                    // 詳細級別
+      gl.RGBA,             // 內部格式
+      width,               // 寬度
+      height,              // 高度
+      0,                    // 邊框
+      gl.RGBA,             // 格式
+      gl.UNSIGNED_BYTE,    // 類型
+      imageData            // 像素資料
+    );
+
+    // 設置紋理參數
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    // 解綁紋理
+    gl.bindTexture(gl.TEXTURE_2D, null);
+
+    // 解析 Promise，返回紋理
+    resolve(texture);
+  });
+};
 // Texture Loading Functions
-const loadTexture = (gl, url, imageData, imageWidth, imageHeight) => {
+const loadTexture = (gl, url) => {
   return new Promise((resolve, reject) => {
     const image = new Image();
     
@@ -170,13 +242,15 @@ const loadTexture = (gl, url, imageData, imageWidth, imageHeight) => {
 
       const imgData = tempCtx.getImageData(0, 0, image.width, image.height);
 
-      imageData.value = imgData.data;
-      imageWidth.value = image.width;
-      imageHeight.value = image.height;
-
       gl.bindTexture(gl.TEXTURE_2D, null);
 
-      resolve(currentTexture);
+     
+      resolve({
+        texture: currentTexture,      // WebGL紋理物件
+        data: imgData.data,            // 圖像的像素數據 (Uint8Array)
+        width: image.width,            // 圖像寬度
+        height: image.height           // 圖像高度
+      });
     };
 
     image.onerror = (error) => {
@@ -335,6 +409,11 @@ const app = Vue.createApp({
     {
       changeImage('./png2.png');
     },
+    changeImageTest2()
+    {
+      changeImage2();
+    }
+    ,
     usePsd() {
       console.log("hello use psd ... ");
       psdHello();
@@ -835,7 +914,12 @@ const app = Vue.createApp({
       colorProgram.value = glsInstance.createProgram(webglContext, shaders.colorVertex, shaders.colorFragment);
       skeletonProgram.value = glsInstance.createProgram(webglContext, shaders.skeletonVertex, shaders.skeletonFragment);
 
-      texture.value = await loadTexture(webglContext, './png3.png', imageData, imageWidth, imageHeight);
+      let result  = await loadTexture(webglContext, './png3.png');
+      
+      texture.value =result.texture;
+      imageData.value = result.data;
+      imageWidth.value = result.width;
+      imageHeight.value = result.height;
       glsInstance.createBuffers(webglContext);
 
       
