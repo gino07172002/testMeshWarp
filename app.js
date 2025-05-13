@@ -56,6 +56,7 @@ const shaders = {
         attribute vec2 aPosition;
         attribute vec2 aTexCoord;
         varying vec2 vTexCoord;
+        uniform mat4 uModelMatrix;
         void main() {
           gl_Position = vec4(aPosition, 0.0, 1.0);
           vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
@@ -134,9 +135,9 @@ const changeImage = async (newUrl) => {
     // 載入新圖片並更新紋理
     let result = await loadTexture(gl.value, newUrl);
     texture.value = result.texture;
-     imageData.value = result.data;
-      imageWidth.value = result.width;
-      imageHeight.value = result.height;
+    imageData.value = result.data;
+    imageWidth.value = result.width;
+    imageHeight.value = result.height;
     // 根據新圖片尺寸重新建立頂點緩衝
     glsInstance.createBuffers(gl.value);
 
@@ -148,20 +149,30 @@ const changeImage = async (newUrl) => {
   }
 };
 
-const changeImage2 = async () => {
+const changeImage2 = async (layerIndices = null) => {
   if (!gl.value) return;
 
   // 刪除舊紋理釋放資源
   if (texture.value) {
-    gl.value.deleteTexture(texture.value);
+    if (Array.isArray(texture.value)) {
+      texture.value.forEach(tex => gl.value.deleteTexture(tex));
+    } else {
+      gl.value.deleteTexture(texture.value);
+    }
     texture.value = null;
   }
 
   try {
-    // 載入新圖片並更新紋理
-    texture.value = await layerToTexture(gl.value,allLayers[0]);
+
+
+    //console.log(" test all layer ", JSON.stringify(allLayers));
+    // 確定要渲染的圖層：如果未傳入 layerIndices，則渲染所有圖層
+    const layersToRender = layerIndices ? layerIndices.map(index => allLayers[index]) : allLayers;
+
+    // 為每個圖層創建紋理，並存儲為數組
+    texture.value = await Promise.all(layersToRender.map(layer => layerToTexture(gl.value, layer)));
     
-    // 根據新圖片尺寸重新建立頂點緩衝
+    // 根據新圖片尺寸重新建立頂點緩衝（假設所有圖層共享相同網格）
     glsInstance.createBuffers(gl.value);
 
     // 若骨架數據與圖片相關，需重新初始化
@@ -171,6 +182,7 @@ const changeImage2 = async () => {
     console.error("更換圖片失敗:", error);
   }
 };
+
 
 const layerToTexture = (gl, layer) => {
   return new Promise((resolve, reject) => {
@@ -211,16 +223,17 @@ const layerToTexture = (gl, layer) => {
 
     // 解綁紋理
     gl.bindTexture(gl.TEXTURE_2D, null);
-
     // 解析 Promise，返回紋理
     resolve(texture);
   });
 };
+
+
 // Texture Loading Functions
 const loadTexture = (gl, url) => {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    
+
     image.onload = () => {
       const currentTexture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, currentTexture);
@@ -244,7 +257,7 @@ const loadTexture = (gl, url) => {
 
       gl.bindTexture(gl.TEXTURE_2D, null);
 
-     
+
       resolve({
         texture: currentTexture,      // WebGL紋理物件
         data: imgData.data,            // 圖像的像素數據 (Uint8Array)
@@ -405,12 +418,10 @@ const app = Vue.createApp({
       psdHello();
 
     },
-    changeImageTest()
-    {
+    changeImageTest() {
       changeImage('./png2.png');
     },
-    changeImageTest2()
-    {
+    changeImageTest2() {
       changeImage2();
     }
     ,
@@ -426,12 +437,12 @@ const app = Vue.createApp({
         console.error("Layer or layer.imageData is undefined:", layer);
         return null;
       }
-    
+
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
-      
+
       console.log("Processing layer:", layer.name, "ImageData type:", Object.prototype.toString.call(layer.imageData));
-      
+
       // Handle different types of imageData
       if (layer.imageData instanceof ImageData) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, layer.imageData.width, layer.imageData.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, layer.imageData.data);
@@ -446,19 +457,19 @@ const app = Vue.createApp({
         const tempImageData = tempCtx.createImageData(layer.width, layer.height);
         tempImageData.data.set(layer.imageData);
         tempCtx.putImageData(tempImageData, 0, 0);
-        
+
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tempCanvas);
       } else {
         console.error("Unsupported layer.imageData type for layer:", layer.name, layer.imageData);
         console.log("Data preview:", layer.imageData && layer.imageData.length ? layer.imageData.slice(0, 20) : "No data");
         return null;
       }
-    
+
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    
+
       return texture;
     },
 
@@ -468,24 +479,24 @@ const app = Vue.createApp({
         if (file) {
           await processPSDFile(file);
           this.psdLayers = allLayers;
-    
+
           const glContext = gl.value; // WebGL context from useWebGL.js
-    
+
           for (const layer of this.psdLayers) {
             // Create texture for the layer
             layer.texture = this.createLayerTexture(glContext, layer);
-    
+
             // Calculate NDC coordinates based on layer position and size
             const left = layer.left || 0;
             const top = layer.top || 0;
             const right = left + (layer.width || imageWidth.value);
             const bottom = top + (layer.height || imageHeight.value);
-    
+
             const ndcLeft = (left / imageWidth.value) * 2 - 1;
             const ndcRight = (right / imageWidth.value) * 2 - 1;
             const ndcTop = 1 - (top / imageHeight.value) * 2;
             const ndcBottom = 1 - (bottom / imageHeight.value) * 2;
-    
+
             // Define vertices for the quad (position and texture coordinates)
             const layerVertices = [
               ndcLeft, ndcBottom, 0, 0,   // Bottom-left
@@ -493,18 +504,18 @@ const app = Vue.createApp({
               ndcRight, ndcTop, 1, 1,     // Top-right
               ndcLeft, ndcTop, 0, 1       // Top-left
             ];
-    
+
             // Create and populate vertex buffer object (VBO)
             layer.vbo = glContext.createBuffer();
             glContext.bindBuffer(glContext.ARRAY_BUFFER, layer.vbo);
             glContext.bufferData(glContext.ARRAY_BUFFER, new Float32Array(layerVertices), glContext.STATIC_DRAW);
-    
+
             // Create and populate element buffer object (EBO) for triangles
             layer.ebo = glContext.createBuffer();
             glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, layer.ebo);
             glContext.bufferData(glContext.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 0, 2, 3]), glContext.STATIC_DRAW);
           }
-    
+
           console.log(" then renew canvas... ");
           // No need to call drawSelectedLayers() here; rendering is handled in the render loop
         }
@@ -781,18 +792,21 @@ const app = Vue.createApp({
     };
 
     const render = (gl, program, colorProgram, skeletonProgram) => {
-      
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+      // 渲染紋理
       if (texture.value) {
+        // 將單一紋理或紋理陣列統一轉換為陣列
+        const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
+
+        // 設置通用的 WebGL 狀態（只執行一次）
         gl.useProgram(program);
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
-
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, texture.value);
-        gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
 
         const posAttrib = gl.getAttribLocation(program, 'aPosition');
         const texAttrib = gl.getAttribLocation(program, 'aTexCoord');
@@ -803,7 +817,14 @@ const app = Vue.createApp({
         gl.enableVertexAttribArray(texAttrib);
         gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
 
-        gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+        // 對每個紋理進行綁定和繪製
+        textures.forEach((tex) => {
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
+
+          gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+        });
       }
 
       gl.useProgram(colorProgram);
@@ -903,8 +924,8 @@ const app = Vue.createApp({
 
       requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
     };
-    
-    const drawGlCanvas =async () => {
+
+    const drawGlCanvas = async () => {
       const canvas = document.getElementById('webgl');
       const container = canvas.closest('.image-container');
       const webglContext = canvas.getContext('webgl');
@@ -914,15 +935,15 @@ const app = Vue.createApp({
       colorProgram.value = glsInstance.createProgram(webglContext, shaders.colorVertex, shaders.colorFragment);
       skeletonProgram.value = glsInstance.createProgram(webglContext, shaders.skeletonVertex, shaders.skeletonFragment);
 
-      let result  = await loadTexture(webglContext, './png3.png');
-      
-      texture.value =result.texture;
+      let result = await loadTexture(webglContext, './png3.png');
+
+      texture.value = result.texture;
       imageData.value = result.data;
       imageWidth.value = result.width;
       imageHeight.value = result.height;
       glsInstance.createBuffers(webglContext);
 
-      
+
       render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
       initBone(gl, program, texture, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
 
