@@ -40,7 +40,6 @@ import {
   psdHello,
   processPSDFile,
   allLayers,
-  loadLayerTexture,
   drawSelectedLayers
 
 } from './psd.js';
@@ -56,9 +55,9 @@ const shaders = {
         attribute vec2 aPosition;
         attribute vec2 aTexCoord;
         varying vec2 vTexCoord;
-        uniform mat4 uModelMatrix;
+        uniform mat4 uTransform;
         void main() {
-          gl_Position = vec4(aPosition, 0.0, 1.0);
+          gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
           vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
         }
       `,
@@ -127,14 +126,14 @@ const changeImage = async (newUrl) => {
 
   // 刪除舊紋理釋放資源
   if (texture.value) {
-    gl.value.deleteTexture(texture.value);
+    gl.value.deleteTexture(texture.value.tex);
     texture.value = null;
   }
 
   try {
     // 載入新圖片並更新紋理
     let result = await loadTexture(gl.value, newUrl);
-    texture.value = result.texture;
+    texture.value = {tex:result.texture};
     imageData.value = result.data;
     imageWidth.value = result.width;
     imageHeight.value = result.height;
@@ -142,7 +141,7 @@ const changeImage = async (newUrl) => {
     glsInstance.createBuffers(gl.value);
 
     // 若骨架數據與圖片相關，需重新初始化
-    initBone(gl, program, texture, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+    initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
 
   } catch (error) {
     console.error("更換圖片失敗:", error);
@@ -154,10 +153,10 @@ const changeImage2 = async (layerIndices = null) => {
 
   // 刪除舊紋理釋放資源
   if (texture.value) {
-    if (Array.isArray(texture.value)) {
+    if (Array.isArray(texture.value.tex)) {
       texture.value.forEach(tex => gl.value.deleteTexture(tex));
     } else {
-      gl.value.deleteTexture(texture.value);
+      gl.value.deleteTexture(texture.value.tex);
     }
     texture.value = null;
   }
@@ -171,12 +170,13 @@ const changeImage2 = async (layerIndices = null) => {
 
     // 為每個圖層創建紋理，並存儲為數組
     texture.value = await Promise.all(layersToRender.map(layer => layerToTexture(gl.value, layer)));
-    
+
+    console.log(" hi texture : ",texture.value);
     // 根據新圖片尺寸重新建立頂點緩衝（假設所有圖層共享相同網格）
     glsInstance.createBuffers(gl.value);
 
     // 若骨架數據與圖片相關，需重新初始化
-    initBone(gl, program, texture, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+    initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
 
   } catch (error) {
     console.error("更換圖片失敗:", error);
@@ -224,7 +224,7 @@ const layerToTexture = (gl, layer) => {
     // 解綁紋理
     gl.bindTexture(gl.TEXTURE_2D, null);
     // 解析 Promise，返回紋理
-    resolve(texture);
+    resolve({tex:texture,top, left:layer.left, bottom:layer.bottom, right:layer.right});
   });
 };
 
@@ -800,10 +800,8 @@ const app = Vue.createApp({
 
       // 渲染紋理
       if (texture.value) {
-        // 將單一紋理或紋理陣列統一轉換為陣列
         const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
 
-        // 設置通用的 WebGL 狀態（只執行一次）
         gl.useProgram(program);
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
@@ -817,16 +815,36 @@ const app = Vue.createApp({
         gl.enableVertexAttribArray(texAttrib);
         gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
 
-        // 對每個紋理進行綁定和繪製
         textures.forEach((tex) => {
+          const coords = tex.tex.coords || {};
+          const left = coords.left !== undefined ? coords.left : -1.0;
+          const right = coords.right !== undefined ? coords.right : 1.0;
+          const top = coords.top !== undefined ? coords.top : 1.0;
+          const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
+
+          const scaleX = (right - left) / 2.0;
+          const scaleY = (top - bottom) / 2.0;
+          const translateX = (left + right) / 2.0;
+          const translateY = (bottom + top) / 2.0;
+
+          const transformMatrix = [
+            scaleX, 0, 0, 0,
+            0, scaleY, 0, 0,
+            0, 0, 1, 0,
+            translateX, translateY, 0, 1
+          ];
+
+          gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
+
           gl.activeTexture(gl.TEXTURE0);
-          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.bindTexture(gl.TEXTURE_2D, tex.tex);
           gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
 
           gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
         });
       }
 
+      // 以下部分保持不變
       gl.useProgram(colorProgram);
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
 
@@ -937,7 +955,7 @@ const app = Vue.createApp({
 
       let result = await loadTexture(webglContext, './png3.png');
 
-      texture.value = result.texture;
+      texture.value = {tex:result.texture};
       imageData.value = result.data;
       imageWidth.value = result.width;
       imageHeight.value = result.height;
@@ -945,7 +963,7 @@ const app = Vue.createApp({
 
 
       render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
-      initBone(gl, program, texture, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+      initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
 
     };
     const drawAgain = () => {

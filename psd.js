@@ -44,38 +44,6 @@ function decodeChannel(view, offset, compression, w, h) {
     throw new Error('不支援的壓縮方法');
   }
 }
-function loadLayerTexture(gl, layer) {
-  // 創建紋理對象
-  const texture = gl.createTexture();
-
-  // 綁定紋理到 2D 紋理目標
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-
-  // 上傳圖層的 imageData 到紋理
-  gl.texImage2D(
-    gl.TEXTURE_2D,          // 目標（2D 紋理）
-    0,                      // 細節級別（mipmapping 時使用）
-    gl.RGBA,                // 內部格式
-    layer.width,            // 寬度
-    layer.height,           // 高度
-    0,                      // 邊框（通常為 0）
-    gl.RGBA,                // 數據格式
-    gl.UNSIGNED_BYTE,       // 數據類型
-    layer.imageData         // 圖像數據 (Uint8ClampedArray)
-  );
-
-  // 設置紋理參數
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-  // 解綁紋理
-  gl.bindTexture(gl.TEXTURE_2D, null);
-
-  // 返回創建的紋理對象
-  return texture;
-}
 
 
 // 讀取PSD文件並解析圖層
@@ -274,6 +242,5 @@ export
   psdHello,
   processPSDFile,
   allLayers,
-  loadLayerTexture,
   drawSelectedLayers
 };
