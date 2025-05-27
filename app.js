@@ -133,7 +133,7 @@ const changeImage = async (newUrl) => {
   try {
     // 載入新圖片並更新紋理
     let result = await loadTexture(gl.value, newUrl);
-    texture.value = {tex:result.texture};
+    texture.value = { tex: result.texture };
     imageData.value = result.data;
     imageWidth.value = result.width;
     imageHeight.value = result.height;
@@ -171,7 +171,7 @@ const changeImage2 = async (layerIndices = null) => {
     // 為每個圖層創建紋理，並存儲為數組
     texture.value = await Promise.all(layersToRender.map(layer => layerToTexture(gl.value, layer)));
 
-    console.log(" hi texture : ",texture.value);
+    console.log(" hi texture : ", texture.value);
     // 根據新圖片尺寸重新建立頂點緩衝（假設所有圖層共享相同網格）
     glsInstance.createBuffers(gl.value);
 
@@ -223,8 +223,9 @@ const layerToTexture = (gl, layer) => {
 
     // 解綁紋理
     gl.bindTexture(gl.TEXTURE_2D, null);
+    let coords = { top: layer.top, left: layer.left, bottom: layer.bottom, right: layer.right };
     // 解析 Promise，返回紋理
-    resolve({tex:texture,top, left:layer.left, bottom:layer.bottom, right:layer.right});
+    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height });
   });
 };
 
@@ -514,6 +515,7 @@ const app = Vue.createApp({
             layer.ebo = glContext.createBuffer();
             glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, layer.ebo);
             glContext.bufferData(glContext.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 0, 2, 3]), glContext.STATIC_DRAW);
+            //  console.log(" layer : ",JSON.stringify(layer));
           }
 
           console.log(" then renew canvas... ");
@@ -759,6 +761,7 @@ const app = Vue.createApp({
           bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
         } else if (activeTool.value === 'bone-animate') {
           bonesInstance.handleBoneAnimateMouseMove(startPosX, startPosY, xNDC, yNDC, e.buttons);
+         // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
           startPosX = xNDC;
           startPosY = yNDC;
         }
@@ -816,11 +819,19 @@ const app = Vue.createApp({
         gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
 
         textures.forEach((tex) => {
-          const coords = tex.tex.coords || {};
-          const left = coords.left !== undefined ? coords.left : -1.0;
-          const right = coords.right !== undefined ? coords.right : 1.0;
-          const top = coords.top !== undefined ? coords.top : 1.0;
-          const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
+
+          const coords = tex.coords || {};
+          //  const left = coords.left !== undefined ? coords.left : -1.0;
+          //   const right = coords.right !== undefined ? coords.right : 1.0;
+          //   const top = coords.top !== undefined ? coords.top : 1.0;
+          //   const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
+          
+          const left = coords.left !== undefined ? (coords.left) : -1.0;
+          const right = coords.right !== undefined ? (coords.right ) : 1.0;
+          const top = coords.top !== undefined ? (coords.top) : 1.0;
+          const bottom = coords.bottom !== undefined ? (coords.bottom)  : -1.0;
+
+         // console.log(" coordin: ",left," , ",right," ",top," ",bottom);
 
           const scaleX = (right - left) / 2.0;
           const scaleY = (top - bottom) / 2.0;
@@ -955,7 +966,7 @@ const app = Vue.createApp({
 
       let result = await loadTexture(webglContext, './png3.png');
 
-      texture.value = {tex:result.texture};
+      texture.value = { tex: result.texture };
       imageData.value = result.data;
       imageWidth.value = result.width;
       imageHeight.value = result.height;

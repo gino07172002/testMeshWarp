@@ -146,6 +146,12 @@ function readPSD(file, callback) {
         layers[i].y = layer.top;
         layers[i].imageData = imageData;
         layers[i].opacity = layer.opacity;
+
+
+        layers[i].left = 2 * ( layers[i].left / width) - 1;
+        layers[i].right = 2 * ( layers[i].right / width) - 1;
+        layers[i].top = 1 - 2 * ( layers[i].top / height);
+        layers[i].bottom = 1 - 2 * ( layers[i].bottom / height);
       }
 
       allLayers = layers;
@@ -211,7 +217,7 @@ function processPSDFile(file) {
           layerContainer.appendChild(label);
           layerContainer.appendChild(document.createElement('br'));
         });
-      //  console.log(" all layers: ", JSON.stringify(allLayers));
+        //  console.log(" all layers: ", JSON.stringify(allLayers));
         drawSelectedLayers();
         resolve(); // 解析 Promise
       });
@@ -222,9 +228,9 @@ function processPSDFile(file) {
 }
 
 // 如果你想保留原來的事件監聽器，可以這樣使用新函數：
-document.getElementById('psdFile').addEventListener('change', function() {
-     processPSDFile(this.files[0]);
- });
+document.getElementById('psdFile').addEventListener('change', function () {
+  processPSDFile(this.files[0]);
+});
 
 // 導出函數，使它可以在別的文件中使用
 // 如果使用 ES6 模塊:
@@ -237,8 +243,7 @@ function psdHello() {
   console.log("Hello from psd.js module!");
 }
 
-export
-{
+export {
   psdHello,
   processPSDFile,
   allLayers,
