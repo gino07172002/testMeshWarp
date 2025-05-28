@@ -24,6 +24,9 @@ import {
   vbo,
   ebo,
   eboLines,
+  vbo2,
+  ebo2,
+  eboLines2,
   vertices,
   originalVertices,
   indices,
@@ -141,7 +144,8 @@ const changeImage = async (newUrl) => {
     glsInstance.createBuffers(gl.value);
 
     // 若骨架數據與圖片相關，需重新初始化
-    initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+   // initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+   initBone(gl, program, texture.tex, vbo ,ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
 
   } catch (error) {
     console.error("更換圖片失敗:", error);
@@ -167,6 +171,8 @@ const changeImage2 = async (layerIndices = null) => {
     //console.log(" test all layer ", JSON.stringify(allLayers));
     // 確定要渲染的圖層：如果未傳入 layerIndices，則渲染所有圖層
     const layersToRender = layerIndices ? layerIndices.map(index => allLayers[index]) : allLayers;
+
+    console.log(" hi layer length : ",allLayers.length);
 
     // 為每個圖層創建紋理，並存儲為數組
     texture.value = await Promise.all(layersToRender.map(layer => layerToTexture(gl.value, layer)));
@@ -761,7 +767,7 @@ const app = Vue.createApp({
           bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
         } else if (activeTool.value === 'bone-animate') {
           bonesInstance.handleBoneAnimateMouseMove(startPosX, startPosY, xNDC, yNDC, e.buttons);
-         // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
+          // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
           startPosX = xNDC;
           startPosY = yNDC;
         }
@@ -794,9 +800,11 @@ const app = Vue.createApp({
       });
     };
 
+    //render start
+
     const render = (gl, program, colorProgram, skeletonProgram) => {
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
+      //gl.clear(gl.COLOR_BUFFER_BIT);
 
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -818,44 +826,118 @@ const app = Vue.createApp({
         gl.enableVertexAttribArray(texAttrib);
         gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
 
-        textures.forEach((tex) => {
-
+        textures.forEach((tex, index) => {
           const coords = tex.coords || {};
-          //  const left = coords.left !== undefined ? coords.left : -1.0;
-          //   const right = coords.right !== undefined ? coords.right : 1.0;
-          //   const top = coords.top !== undefined ? coords.top : 1.0;
-          //   const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
-          
-          const left = coords.left !== undefined ? (coords.left) : -1.0;
-          const right = coords.right !== undefined ? (coords.right ) : 1.0;
-          const top = coords.top !== undefined ? (coords.top) : 1.0;
-          const bottom = coords.bottom !== undefined ? (coords.bottom)  : -1.0;
-
-         // console.log(" coordin: ",left," , ",right," ",top," ",bottom);
+          const left = coords.left !== undefined ? coords.left : -1.0;
+          const right = coords.right !== undefined ? coords.right : 1.0;
+          const top = coords.top !== undefined ? coords.top : 1.0;
+          const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
 
           const scaleX = (right - left) / 2.0;
           const scaleY = (top - bottom) / 2.0;
           const translateX = (left + right) / 2.0;
           const translateY = (bottom + top) / 2.0;
 
-          const transformMatrix = [
+          // 創建變換矩陣
+          let transformMatrix = [
             scaleX, 0, 0, 0,
             0, scaleY, 0, 0,
             0, 0, 1, 0,
             translateX, translateY, 0, 1
           ];
 
-          gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
-
-          gl.activeTexture(gl.TEXTURE0);
-          gl.bindTexture(gl.TEXTURE_2D, tex.tex);
-          gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
-
-          gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+         // if (index ==1 )
+           {
+            gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, tex.tex);
+            gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
+            gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+          }
         });
       }
 
-      // 以下部分保持不變
+      // 渲染基本幾何形狀
+      renderBasicGeometry(gl, colorProgram);
+
+      // 渲染骨架
+      renderSkeleton(gl, skeletonProgram);
+
+      requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
+    };
+
+
+    const render2 = (gl, program, colorProgram, skeletonProgram) => {
+      
+      gl.clearColor(0.0, 0.0, 0.0, 1.0);
+      //gl.clear(gl.COLOR_BUFFER_BIT);
+
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+      // 渲染紋理
+      if (texture.value) {
+       // console.log("render2 length : ",vbo2.value.length);
+        const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
+
+        gl.useProgram(program);
+        for(let i =0;i<vbo2.value.length;i++)
+        {
+        gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
+        }
+
+        const posAttrib = gl.getAttribLocation(program, 'aPosition');
+        const texAttrib = gl.getAttribLocation(program, 'aTexCoord');
+
+        gl.enableVertexAttribArray(posAttrib);
+        gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 16, 0);
+
+        gl.enableVertexAttribArray(texAttrib);
+        gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
+
+        textures.forEach((tex, index) => {
+          const coords = tex.coords || {};
+          const left = coords.left !== undefined ? coords.left : -1.0;
+          const right = coords.right !== undefined ? coords.right : 1.0;
+          const top = coords.top !== undefined ? coords.top : 1.0;
+          const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
+
+          const scaleX = (right - left) / 2.0;
+          const scaleY = (top - bottom) / 2.0;
+          const translateX = (left + right) / 2.0;
+          const translateY = (bottom + top) / 2.0;
+
+          // 創建變換矩陣
+          let transformMatrix = [
+            scaleX, 0, 0, 0,
+            0, scaleY, 0, 0,
+            0, 0, 1, 0,
+            translateX, translateY, 0, 1
+          ];
+
+         // if (index ==1 )
+           {
+            gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, tex.tex);
+            gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
+            gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+          }
+        });
+      }
+
+      // 渲染基本幾何形狀
+      renderBasicGeometry(gl, colorProgram);
+
+      // 渲染骨架
+      renderSkeleton(gl, skeletonProgram);
+
+      requestAnimationFrame(() => render2(gl, program, colorProgram, skeletonProgram));
+    };
+
+    // 提取的基本幾何渲染函數
+    const renderBasicGeometry = (gl, colorProgram) => {
       gl.useProgram(colorProgram);
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
 
@@ -863,96 +945,125 @@ const app = Vue.createApp({
       gl.enableVertexAttribArray(colorPosAttrib);
       gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
 
+      // 渲染線條
       gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 1);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines.value);
       gl.drawElements(gl.LINES, linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
 
+      // 渲染點
       gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
       gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
       gl.drawArrays(gl.POINTS, 0, vertices.value.length / 4);
+    };
 
-      if (skeletonVertices.value.length > 0) {
-        gl.useProgram(skeletonProgram);
-        const { skeletonVbo, skeletonEbo, skeletonVerticesArray, skeletonIndicesArray } = glsInstance.createSkeletonBuffers(gl);
+    // 提取的骨架渲染函數
+    const renderSkeleton = (gl, skeletonProgram) => {
+      if (skeletonVertices.value.length === 0) return;
 
-        const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
-        gl.enableVertexAttribArray(skeletonPosAttrib);
-        gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
-        gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+      gl.useProgram(skeletonProgram);
+      const { skeletonVbo, skeletonEbo, skeletonVerticesArray, skeletonIndicesArray } =
+        glsInstance.createSkeletonBuffers(gl);
 
-        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 0, 1);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
-        gl.drawElements(gl.LINES, skeletonIndicesArray.length, gl.UNSIGNED_SHORT, 0);
+      const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
+      gl.enableVertexAttribArray(skeletonPosAttrib);
+      gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
+      gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
-        if (selectedBone.value.index >= 0) {
-          const parentIndex = boneParents.value[selectedBone.value.index];
-          if (parentIndex >= 0) {
-            const parentStart = parentIndex * 2;
-            gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 0, 1, 1);
-            gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, parentStart * 2);
-          }
+      // 渲染所有骨架線條
+      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 0, 1);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
+      gl.drawElements(gl.LINES, skeletonIndicesArray.length, gl.UNSIGNED_SHORT, 0);
 
-          const selectedStart = selectedBone.value.index * 2;
-          gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
-          gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, selectedStart * 2);
-        }
+      // 渲染選中的骨架
+      renderSelectedBone(gl, skeletonProgram, skeletonIndicesArray);
 
-        gl.uniform1f(gl.getUniformLocation(skeletonProgram, 'uPointSize'), 7.0);
-        const headVertices = [];
-        for (let i = 0; i < skeletonVerticesArray.length; i += 4) {
-          headVertices.push(skeletonVerticesArray[i], skeletonVerticesArray[i + 1]);
-        }
-        const headVbo = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, headVbo);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(headVertices), gl.STATIC_DRAW);
-        gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+      // 渲染骨架點
+      renderSkeletonPoints(gl, skeletonProgram, skeletonVerticesArray);
+    };
 
-        if (selectedBone.value.index >= 0) {
-          const selectedHeadIndex = selectedBone.value.index * 4;
-          const selectedHeadVbo = gl.createBuffer();
-          gl.bindBuffer(gl.ARRAY_BUFFER, selectedHeadVbo);
-          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-            skeletonVerticesArray[selectedHeadIndex],
-            skeletonVerticesArray[selectedHeadIndex + 1]
-          ]), gl.STATIC_DRAW);
-          gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0.5, 0, 1);
-          gl.uniform1f(gl.getUniformLocation(skeletonProgram, 'uPointSize'), 10.0);
-          gl.drawArrays(gl.POINTS, 0, 1);
-        }
+    // 渲染選中的骨架
+    const renderSelectedBone = (gl, skeletonProgram, skeletonIndicesArray) => {
+      if (selectedBone.value.index < 0) return;
 
-        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 0, 1);
-        gl.uniform1f(gl.getUniformLocation(skeletonProgram, 'uPointSize'), 7.0);
-        gl.drawArrays(gl.POINTS, 0, headVertices.length / 2);
+      const parentIndex = boneParents.value[selectedBone.value.index];
 
-        const tailVertices = [];
-        for (let i = 0; i < skeletonVerticesArray.length; i += 4) {
-          tailVertices.push(skeletonVerticesArray[i + 2], skeletonVerticesArray[i + 3]);
-        }
-        const tailVbo = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, tailVbo);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tailVertices), gl.STATIC_DRAW);
-        gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
-
-        if (selectedBone.value.index >= 0) {
-          const selectedTailIndex = selectedBone.value.index * 4 + 2;
-          const selectedTailVbo = gl.createBuffer();
-          gl.bindBuffer(gl.ARRAY_BUFFER, selectedTailVbo);
-          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-            skeletonVerticesArray[selectedTailIndex],
-            skeletonVerticesArray[selectedTailIndex + 1]
-          ]), gl.STATIC_DRAW);
-          gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0.5, 0, 1);
-          gl.uniform1f(gl.getUniformLocation(skeletonProgram, 'uPointSize'), 10.0);
-          gl.drawArrays(gl.POINTS, 0, 1);
-        }
-
-        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 0.5, 1, 1);
-        gl.uniform1f(gl.getUniformLocation(skeletonProgram, 'uPointSize'), 7.0);
-        gl.drawArrays(gl.POINTS, 0, tailVertices.length / 2);
+      // 渲染父骨架（藍色）
+      if (parentIndex >= 0) {
+        const parentStart = parentIndex * 2;
+        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 0, 1, 1);
+        gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, parentStart * 2);
       }
 
-      requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
+      // 渲染選中骨架（紅色）
+      const selectedStart = selectedBone.value.index * 2;
+      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
+      gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, selectedStart * 2);
     };
+
+    // 渲染骨架點
+    const renderSkeletonPoints = (gl, skeletonProgram, skeletonVerticesArray) => {
+      const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
+
+      // 渲染頭部點
+      const headVertices = extractVertices(skeletonVerticesArray, 0, 2); // 提取頭部座標
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, headVertices, [1, 1, 0, 1], 7.0);
+
+      // 渲染尾部點
+      const tailVertices = extractVertices(skeletonVerticesArray, 2, 2); // 提取尾部座標
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, tailVertices, [0, 0.5, 1, 1], 7.0);
+
+      // 渲染選中的骨架點
+      if (selectedBone.value.index >= 0) {
+        renderSelectedBonePoints(gl, skeletonProgram, skeletonPosAttrib, skeletonVerticesArray);
+      }
+    };
+
+    // 提取頂點座標的輔助函數
+    const extractVertices = (verticesArray, startOffset, stride) => {
+      const vertices = [];
+      for (let i = startOffset; i < verticesArray.length; i += 4) {
+        vertices.push(verticesArray[i], verticesArray[i + 1]);
+      }
+      return vertices;
+    };
+
+    // 渲染點的輔助函數
+    const renderPoints = (gl, program, posAttrib, vertices, color, pointSize) => {
+      const vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+      gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 0, 0);
+
+      gl.uniform4f(gl.getUniformLocation(program, 'uColor'), ...color);
+      gl.uniform1f(gl.getUniformLocation(program, 'uPointSize'), pointSize);
+      gl.drawArrays(gl.POINTS, 0, vertices.length / 2);
+
+      gl.deleteBuffer(vbo); // 清理臨時緩衝區
+    };
+
+    // 渲染選中骨架的點
+    const renderSelectedBonePoints = (gl, skeletonProgram, skeletonPosAttrib, skeletonVerticesArray) => {
+      const selectedIndex = selectedBone.value.index;
+
+      // 選中的頭部點
+      const selectedHeadIndex = selectedIndex * 4;
+      const selectedHeadVertices = [
+        skeletonVerticesArray[selectedHeadIndex],
+        skeletonVerticesArray[selectedHeadIndex + 1]
+      ];
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, selectedHeadVertices, [1, 0.5, 0, 1], 10.0);
+
+      // 選中的尾部點
+      const selectedTailIndex = selectedIndex * 4 + 2;
+      const selectedTailVertices = [
+        skeletonVerticesArray[selectedTailIndex],
+        skeletonVerticesArray[selectedTailIndex + 1]
+      ];
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, selectedTailVertices, [1, 0.5, 0, 1], 10.0);
+    };
+
+
+    // render end
 
     const drawGlCanvas = async () => {
       const canvas = document.getElementById('webgl');

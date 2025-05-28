@@ -24,12 +24,12 @@ let gl, program, texture, vbo, ebo, indices;
 let resetMeshToOriginal, updateMeshForSkeletonPose;
 
 // 🔧 初始化依賴
-function initBone(glRef, programRef, tex, vb, eb, ind, resetFn, updateFn) {
+function initBone(glRef, programRef, tex, vbRefArray, eb, ind, resetFn, updateFn) {
   gl = glRef;
   program = programRef;
   texture = tex;
-  vbo = vb;
-  ebo = eb;
+  vbo = vbRefArray.value[0]; // 這行做了解包
+  ebo = eb.value[0];
   indices = ind;
   resetMeshToOriginal = resetFn;
   updateMeshForSkeletonPose = updateFn;
