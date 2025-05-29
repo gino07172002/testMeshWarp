@@ -25,6 +25,8 @@ let resetMeshToOriginal, updateMeshForSkeletonPose;
 
 // 🔧 初始化依賴
 function initBone(glRef, programRef, tex, vbRefArray, eb, ind, resetFn, updateFn) {
+  console.log(" checking init bone!" );
+  /*
   gl = glRef;
   program = programRef;
   texture = tex;
@@ -33,6 +35,7 @@ function initBone(glRef, programRef, tex, vbRefArray, eb, ind, resetFn, updateFn
   indices = ind;
   resetMeshToOriginal = resetFn;
   updateMeshForSkeletonPose = updateFn;
+  */
 }
 
 
@@ -467,7 +470,7 @@ export default class Bones {
 
 // ✅ 匯出
 export {
-  initBone,
+  //initBone,
   skeletonVertices,
   skeletonVerticesLast,
   originalSkeletonVertices,

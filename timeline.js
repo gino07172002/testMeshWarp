@@ -2,7 +2,7 @@
 import {
   skeletonVertices,
   skeletonVerticesLast,
-  initBone,
+ // initBone,
   selectedBoneForEditing
 } from './useBone.js';
 

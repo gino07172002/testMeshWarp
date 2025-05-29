@@ -1,1155 +1,869 @@
-const { createApp, onMounted, ref, reactive } = Vue;
-export const selectedBone = ref(-1);
-export const boneIdToIndexMap = reactive({});
-export const boneTree = reactive({});
-import {
-  initBone,
-  skeletonVertices,
-  originalSkeletonVertices,
-  boneParents,
-  boneChildren,
-  vertexInfluences,
-  isEditingExistingBone,
-  selectedBoneForEditing,
-  editingBoneEnd,
-  boneEndBeingDragged,
-} from './useBone.js';
-
-import {
-  gl,
-  texture,
-  program,
-  colorProgram,
-  skeletonProgram,
-  vbo,
-  ebo,
-  eboLines,
-  vbo2,
-  ebo2,
-  eboLines2,
-  vertices,
-  originalVertices,
-  indices,
-  linesIndices,
-  gridCells,
-  transparentCells,
-  isAreaTransparent,
-  imageData,
-  imageWidth,
-  imageHeight,
-} from './useWebGL.js';
-
-import {
-  psdHello,
-  processPSDFile,
-  allLayers,
-  drawSelectedLayers
-
-} from './psd.js';
-
-import glsInstance from './useWebGL.js';
-import Bones from './useBone.js';
-import Timeline from './timeline.js';
-import ImageCanvasManager from './ImageCanvasManager.js';
-
-// Shader sources
-const shaders = {
-  vertex: `
-        attribute vec2 aPosition;
-        attribute vec2 aTexCoord;
-        varying vec2 vTexCoord;
-        uniform mat4 uTransform;
-        void main() {
-          gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
-          vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
-        }
-      `,
-  fragment: `
-        precision mediump float;
-        varying vec2 vTexCoord;
-        uniform sampler2D uTexture;
-        void main() {
-          gl_FragColor = texture2D(uTexture, vTexCoord);
-        }
-      `,
-  colorVertex: `
-        attribute vec2 aPosition;
-        uniform float uPointSize;
-        void main() {
-          gl_Position = vec4(aPosition, 0.0, 1.0);
-          gl_PointSize = uPointSize;
-        }
-      `,
-  colorFragment: `
-        precision mediump float;
-        uniform vec4 uColor;
-        void main() {
-          gl_FragColor = uColor;
-        }
-      `,
-  skeletonVertex: `
-        attribute vec2 aPosition;
-        uniform float uPointSize;
-        void main() {
-          gl_Position = vec4(aPosition, 0.0, 1.0);
-          gl_PointSize = uPointSize;
-        }
-      `,
-  skeletonFragment: `
-        precision mediump float;
-        uniform vec4 uColor;
-        void main() {
-          gl_FragColor = uColor;
-        }
-      `
-};
-
-// Coordinate conversion utility function
-const convertToNDC = (e, canvas, container) => {
-  const rect = container.getBoundingClientRect();
-  const scrollLeft = container.scrollLeft;
-  const scrollTop = container.scrollTop;
-
-  const x = e.clientX - rect.left + scrollLeft;
-  const y = e.clientY - rect.top + scrollTop;
-
-  const scaleX = canvas.width / container.clientWidth;
-  const scaleY = canvas.height / container.clientHeight;
-
-  const canvasX = x * scaleX;
-  const canvasY = y * scaleY;
-
-  return {
-    x: (canvasX / canvas.width) * 2 - 1,
-    y: 1 - (canvasY / canvas.height) * 2
-  };
-};
-const changeImage = async (newUrl) => {
-  if (!gl.value) return;
-
-  // 刪除舊紋理釋放資源
-  if (texture.value) {
-    gl.value.deleteTexture(texture.value.tex);
-    texture.value = null;
-  }
-
-  try {
-    // 載入新圖片並更新紋理
-    let result = await loadTexture(gl.value, newUrl);
-    texture.value = { tex: result.texture };
-    imageData.value = result.data;
-    imageWidth.value = result.width;
-    imageHeight.value = result.height;
-    // 根據新圖片尺寸重新建立頂點緩衝
-    glsInstance.createBuffers(gl.value);
-
-    // 若骨架數據與圖片相關，需重新初始化
-   // initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
-   initBone(gl, program, texture.tex, vbo ,ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
-
-  } catch (error) {
-    console.error("更換圖片失敗:", error);
-  }
-};
-
-const changeImage2 = async (layerIndices = null) => {
-  if (!gl.value) return;
-
-  // 刪除舊紋理釋放資源
-  if (texture.value) {
-    if (Array.isArray(texture.value.tex)) {
-      texture.value.forEach(tex => gl.value.deleteTexture(tex));
-    } else {
-      gl.value.deleteTexture(texture.value.tex);
-    }
-    texture.value = null;
-  }
-
-  try {
-
-
-    //console.log(" test all layer ", JSON.stringify(allLayers));
-    // 確定要渲染的圖層：如果未傳入 layerIndices，則渲染所有圖層
-    const layersToRender = layerIndices ? layerIndices.map(index => allLayers[index]) : allLayers;
-
-    console.log(" hi layer length : ",allLayers.length);
-
-    // 為每個圖層創建紋理，並存儲為數組
-    texture.value = await Promise.all(layersToRender.map(layer => layerToTexture(gl.value, layer)));
-
-    console.log(" hi texture : ", texture.value);
-    // 根據新圖片尺寸重新建立頂點緩衝（假設所有圖層共享相同網格）
-    glsInstance.createBuffers(gl.value);
-
-    // 若骨架數據與圖片相關，需重新初始化
-    initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
-
-  } catch (error) {
-    console.error("更換圖片失敗:", error);
-  }
-};
-
-
-const layerToTexture = (gl, layer) => {
-  return new Promise((resolve, reject) => {
-    // 從圖層中提取必要資料
-    const { imageData, width, height } = layer;
-
-    // 檢查資料有效性
-    if (!imageData || width <= 0 || height <= 0) {
-      reject(new Error('無效的圖層資料'));
-      return;
-    }
-
-    // 創建並綁定紋理
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-
-    // 設置像素儲存參數（翻轉 Y 軸以匹配 PSD 座標系）
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-
-    // 上傳紋理資料
-    gl.texImage2D(
-      gl.TEXTURE_2D,        // 目標
-      0,                    // 詳細級別
-      gl.RGBA,             // 內部格式
-      width,               // 寬度
-      height,              // 高度
-      0,                    // 邊框
-      gl.RGBA,             // 格式
-      gl.UNSIGNED_BYTE,    // 類型
-      imageData            // 像素資料
-    );
-
-    // 設置紋理參數
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-    // 解綁紋理
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    let coords = { top: layer.top, left: layer.left, bottom: layer.bottom, right: layer.right };
-    // 解析 Promise，返回紋理
-    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height });
-  });
-};
-
-
-// Texture Loading Functions
-const loadTexture = (gl, url) => {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-
-    image.onload = () => {
-      const currentTexture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, currentTexture);
-
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = image.width;
-      tempCanvas.height = image.height;
-      const tempCtx = tempCanvas.getContext('2d');
-
-      tempCtx.drawImage(image, 0, 0);
-
-      const imgData = tempCtx.getImageData(0, 0, image.width, image.height);
-
-      gl.bindTexture(gl.TEXTURE_2D, null);
-
-
-      resolve({
-        texture: currentTexture,      // WebGL紋理物件
-        data: imgData.data,            // 圖像的像素數據 (Uint8Array)
-        width: image.width,            // 圖像寬度
-        height: image.height           // 圖像高度
-      });
-    };
-
-    image.onerror = (error) => {
-      console.error("Image loading failed:", error);
-      reject(error);
-    };
-
-    image.src = url;
-  });
-};
+const { createApp, onMounted, ref } = Vue;
 
 const app = Vue.createApp({
-  data() {
-    return {
-      imageData: '',
-      imageCanvasManager: null,
-      lastTimestamp: 0,
-      status: '準備中',
-      points: [],
-      fileDropdown: false,
-      editDropdown: false,
-      selectedLayerId: null,
-      layers: [],
-      layerCounter: 0,
-      keyframeCounter: 0,
-      isDragging: false,
-      startX: 0,
-      scrollLeft: 0,
-      dragStartX: 0,
-      dragStartY: 0,
-      timelineLength: 1000,
-      dragInfo: { dragging: false, startX: 0, type: null },
-      timeSelection: { active: false, start: 0, end: 0 },
-      animationPlaying: false,
-      animationStartTime: 0,
-      nextKeyframeId: 10,
-      psdLayers: [],
-      hierarchicalData: {
-        children: [
-          {
+      data() {
+        return {
+          imageData: '',
+          lastTimestamp: 0,
+          status: '準備中',
+          activeTool: null,
+          points: [],
+          fileDropdown: false,
+          editDropdown: false,
+          selectedLayerId: null,
+          layers: [],
+          layerCounter: 0,
+          keyframes: [],
+          keyframeCounter: 0,
+          isDragging: false,
+          startX: 0,
+          scrollLeft: 0,
+          dragStartX: 0,
+          dragStartY: 0,
+          points: [],
+          fileDropdown: false,
+          editDropdown: false,
+          selectedLayerId: null,
+          layers: [],
+          layerCounter: 0,
+          keyframes: [],
+          keyframeCounter: 0,
+          isDragging: false,
+          startX: 0,
+          scrollLeft: 0,
+          hierarchicalData: {
             children: [
               {
-                name: "GrandChild"
+                children: [
+                  {
+                    name: "GrandChild"
+                  }
+                ],
+                name: "Child1"
+              },
+              {
+                name: "Child2"
               }
             ],
-            name: "Child1"
+            name: "Root"
           },
-          {
-            name: "Child2"
-          }
-        ],
-        name: "Root"
+          expandedNodes: []
+        };
       },
-      expandedNodes: []
-    };
-  },
-  async mounted() {
-    this.addLayer();
-    console.log("somehow mount here ... ");
-  },
-  beforeUnmount() {
-  },
-  computed: {
-    keyframes() {
-      return this.timeline?.keyframes || [];
-    },
-    timeRange() {
-      return this.timeline?.timeRange || { qq: 123 };
-    },
-    boneTree() {
-      const rootBones = boneParents.value
-        .map((parent, index) => (parent === -1 ? index : null))
-        .filter(index => index !== null);
+      mounted() {
+        document.addEventListener('click', this.handleClickOutside);
+        this.startImageUpdates();
+        // 初始化時新增一個預設圖層
+        this.addLayer();
+      },
 
-      Object.keys(boneIdToIndexMap).forEach(key => {
-        delete boneIdToIndexMap[key];
-      });
+      beforeUnmount() {
+        clearInterval(this.updateTimer);
+      },
+      unmounted() {
+        document.removeEventListener('click', this.handleClickOutside);
+      },
+      methods: {
 
-      const trees = rootBones.map(rootIndex => {
-        const tree = this.buildBoneTree(rootIndex, null, boneIdToIndexMap);
-        return tree;
-      });
-
-      Object.keys(boneTree).forEach(key => {
-        delete boneTree[key];
-      });
-
-      trees.forEach((tree, index) => {
-        boneTree[index] = tree;
-      });
-
-      return trees;
-    },
-    flattenedBones() {
-      let result = [];
-      this.boneTree.forEach(root => {
-        this.timeline.getFlattenedBones(root, 0, result);
-      });
-      return result;
-    }
-  },
-  beforeUnmount() {
-    clearInterval(this.updateTimer);
-  },
-  unmounted() {
-    document.removeEventListener('click', this.handleClickOutside);
-  },
-  methods: {
-    addLayer() {
-      this.layerCounter++;
-      const newLayer = {
-        id: this.layerCounter,
-        name: `圖層 ${this.layerCounter}`
-      };
-      this.layers.push(newLayer);
-      this.status = `新增圖層: ${newLayer.name}`;
-    },
-    selectLayer(id) {
-      this.selectedLayerId = id;
-      const layer = this.layers.find(l => l.id === id);
-      if (layer) {
-        this.status = `選擇圖層: ${layer.name} , id = ${id}`;
-      }
-    },
-    deleteLayer() {
-      if (this.selectedLayerId) {
-        const layerIndex = this.layers.findIndex(l => l.id === this.selectedLayerId);
-        if (layerIndex !== -1) {
-          const layerName = this.layers[layerIndex].name;
-          this.layers.splice(layerIndex, 1);
-          this.status = `刪除圖層: ${layerName}`;
-          this.selectedLayerId = this.layers.length > 0 ? this.layers[0].id : null;
-        }
-      } else {
-        this.status = '沒有選擇圖層';
-      }
-    },
-    selectBone(bone) {
-      this.selectedBone = bone;
-      this.selectedKeyframe = null;
-    },
-    selectKeyframe(boneId, keyframeId) {
-      const bone = this.flattenedBones.find(b => b.id === boneId);
-      if (bone) {
-        this.selectedBone = bone;
-        this.selectedKeyframe = this.timeline.keyframes[boneId]?.find(k => k.id === keyframeId) || null;
-      }
-    },
-    testCountFn() {
-      console.log(" in app testCountFn");
-      this.timeline.testCount++;
-      psdHello();
-
-    },
-    changeImageTest() {
-      changeImage('./png2.png');
-    },
-    changeImageTest2() {
-      changeImage2();
-    }
-    ,
-    usePsd() {
-      console.log("hello use psd ... ");
-      psdHello();
-      console.log("ok use psd ... ");
-
-      // then I should draw layers to canvas
-    },
-    createLayerTexture(gl, layer) {
-      if (!layer || !layer.imageData) {
-        console.error("Layer or layer.imageData is undefined:", layer);
-        return null;
-      }
-
-      const texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-
-      console.log("Processing layer:", layer.name, "ImageData type:", Object.prototype.toString.call(layer.imageData));
-
-      // Handle different types of imageData
-      if (layer.imageData instanceof ImageData) {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, layer.imageData.width, layer.imageData.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, layer.imageData.data);
-      } else if (layer.imageData instanceof HTMLCanvasElement || layer.imageData instanceof HTMLImageElement) {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, layer.imageData);
-      } else if (ArrayBuffer.isView(layer.imageData)) {
-        // Handle Uint8Array, Uint8ClampedArray etc.
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = layer.width;
-        tempCanvas.height = layer.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        const tempImageData = tempCtx.createImageData(layer.width, layer.height);
-        tempImageData.data.set(layer.imageData);
-        tempCtx.putImageData(tempImageData, 0, 0);
-
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tempCanvas);
-      } else {
-        console.error("Unsupported layer.imageData type for layer:", layer.name, layer.imageData);
-        console.log("Data preview:", layer.imageData && layer.imageData.length ? layer.imageData.slice(0, 20) : "No data");
-        return null;
-      }
-
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-      return texture;
-    },
-
-    async handlePSDUpload(event) {
-      try {
-        const file = event.target.files[0];
-        if (file) {
-          await processPSDFile(file);
-          this.psdLayers = allLayers;
-
-          const glContext = gl.value; // WebGL context from useWebGL.js
-
-          for (const layer of this.psdLayers) {
-            // Create texture for the layer
-            layer.texture = this.createLayerTexture(glContext, layer);
-
-            // Calculate NDC coordinates based on layer position and size
-            const left = layer.left || 0;
-            const top = layer.top || 0;
-            const right = left + (layer.width || imageWidth.value);
-            const bottom = top + (layer.height || imageHeight.value);
-
-            const ndcLeft = (left / imageWidth.value) * 2 - 1;
-            const ndcRight = (right / imageWidth.value) * 2 - 1;
-            const ndcTop = 1 - (top / imageHeight.value) * 2;
-            const ndcBottom = 1 - (bottom / imageHeight.value) * 2;
-
-            // Define vertices for the quad (position and texture coordinates)
-            const layerVertices = [
-              ndcLeft, ndcBottom, 0, 0,   // Bottom-left
-              ndcRight, ndcBottom, 1, 0,  // Bottom-right
-              ndcRight, ndcTop, 1, 1,     // Top-right
-              ndcLeft, ndcTop, 0, 1       // Top-left
-            ];
-
-            // Create and populate vertex buffer object (VBO)
-            layer.vbo = glContext.createBuffer();
-            glContext.bindBuffer(glContext.ARRAY_BUFFER, layer.vbo);
-            glContext.bufferData(glContext.ARRAY_BUFFER, new Float32Array(layerVertices), glContext.STATIC_DRAW);
-
-            // Create and populate element buffer object (EBO) for triangles
-            layer.ebo = glContext.createBuffer();
-            glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, layer.ebo);
-            glContext.bufferData(glContext.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 0, 2, 3]), glContext.STATIC_DRAW);
-            //  console.log(" layer : ",JSON.stringify(layer));
-          }
-
-          console.log(" then renew canvas... ");
-          // No need to call drawSelectedLayers() here; rendering is handled in the render loop
-        }
-      } catch (error) {
-        console.error("處理 PSD 檔案時出錯:", error);
-      }
-    },
-    saveProjectToServer() {
-      this.status = '正在儲存專案...';
-      const projectData = {
-        layers: this.layers,
-        keyframes: this.timeline.keyframes,
-        points: this.points
-      };
-      fetch('/api/project/save', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+        fetchImage() {
+          fetch('/png')
+            .then(response => response.json())
+            .then(data => {
+              // 只有當時間戳記比上次更新時才更新圖片
+              if (data.timestamp > this.lastTimestamp) {
+                this.imageData = data.image;
+                this.lastTimestamp = data.timestamp;
+              }
+            })
+            .catch(error => console.error('圖片載入失敗:', error));
         },
-        body: JSON.stringify(projectData)
-      })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            this.status = '專案儲存成功!';
-          } else {
-            this.status = '專案儲存失敗: ' + data.message;
-          }
-        })
-        .catch(error => {
-          this.status = '專案儲存失敗: ' + error.message;
-        });
-    },
-    saveLayerToServer() {
-      if (!this.selectedLayerId) {
-        this.status = '請先選擇一個圖層';
-        return;
-      }
-      this.status = '正在儲存圖層...';
-      const selectedLayer = this.layers.find(l => l.id === this.selectedLayerId);
-      const layerData = {
-        layerId: this.selectedLayerId,
-        layerName: selectedLayer.name,
-        points: this.points.filter(p => p.layerId === this.selectedLayerId || !p.layerId)
-      };
-      fetch('/api/layer/save', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+        // 定期更新或在需要時呼叫
+        startImageUpdates() {
+          this.fetchImage();
+          this.updateTimer = setInterval(() => {
+            this.fetchImage();
+          }, 200); // 每秒更新一次，可調整
         },
-        body: JSON.stringify(layerData)
-      })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            this.status = `圖層 ${selectedLayer.name} 儲存成功!`;
-          } else {
-            this.status = '圖層儲存失敗: ' + data.message;
+        handleCanvasClick(event) {
+          // 處理點擊事件...
+          // 編輯後可能需要刷新圖片
+          this.fetchImage();
+        },
+        // 關閉其他下拉選單
+        closeAllDropdowns() {
+          this.fileDropdown = false;
+          this.editDropdown = false;
+        },
+
+        // 下拉選單切換
+        toggleDropdown(dropdown) {
+          console.log("hi dropdown ... ");
+          this.closeAllDropdowns();
+          if (dropdown === 'fileDropdown') {
+            console.log("hi?... ");
+            this.fileDropdown = !this.fileDropdown;
+          } else if (dropdown === 'editDropdown') {
+            console.log("hi! ... ");
+            this.editDropdown = !this.editDropdown;
           }
-        })
-        .catch(error => {
-          this.status = '圖層儲存失敗: ' + error.message;
-        });
-    },
-    handleClickOutside(e) {
-      const targetElement = e.target;
-      if (!targetElement.closest('.menu-item')) {
-        this.closeAllDropdowns();
-      }
-    },
-    renderHierarchicalData(node, parentId = '') {
-      const nodeId = parentId ? `${parentId}-${node.name}` : node.name;
-      const hasChildren = node.children && node.children.length > 0;
-      return {
-        id: nodeId,
-        name: node.name,
-        hasChildren: hasChildren,
-        children: hasChildren ? node.children.map(child => this.renderHierarchicalData(child, nodeId)) : []
-      };
-    },
-    buildBoneTree(boneIndex, parentId = null, boneIdToIndexMap = {}) {
-      const boneId = `bone${boneIndex}`;
-      const boneName = `Bone ${boneIndex}`;
-      const index = boneIndex;
+        },
 
-      boneIdToIndexMap[boneId] = boneIndex;
+        // 處理檔案選單動作
+        handleFileAction(action) {
+          this.status = `執行檔案動作: ${action}`;
+          this.closeAllDropdowns();
 
-      const headX = skeletonVertices.value[boneIndex * 4];
-      const headY = skeletonVertices.value[boneIndex * 4 + 1];
-      const tailX = skeletonVertices.value[boneIndex * 4 + 2];
-      const tailY = skeletonVertices.value[boneIndex * 4 + 3];
+          if (action === 'save') {
+            this.saveProjectToServer();
+          }
+        },
 
-      const children = boneChildren.value[boneIndex] || [];
-      return {
-        id: boneId,
-        name: boneName,
-        parentId: parentId,
-        index: boneIndex,
-        head: { x: Math.round(headX * 100) / 100, y: Math.round(headY * 100) / 100 },
-        tail: { x: Math.round(tailX * 100) / 100, y: Math.round(tailY * 100) / 100 },
-        children: children.map(childIndex => this.buildBoneTree(childIndex, boneId, boneIdToIndexMap))
-      };
-    },
-    getParentBoneById(boneId) {
-      const targetBone = this.flattenedBones.find(b => b.id === boneId);
-      if (!targetBone?.parentId) return null;
-      return this.flattenedBones.find(b => b.id === targetBone.parentId);
-    },
-    getChildBonesById(boneId) {
-      const targetBone = this.flattenedBones.find(b => b.id === boneId);
-      if (!targetBone?.childIds?.length) return [];
-      return this.flattenedBones.filter(b => targetBone.childIds.includes(b.id));
-    },
-    toggleNode(nodeId) {
-      if (this.expandedNodes.includes(nodeId)) {
-        this.expandedNodes = this.expandedNodes.filter(id => id !== nodeId);
-      } else {
-        this.expandedNodes.push(nodeId);
-      }
-    },
-    handleNameClick(boneIndex) {
-      this.selectedBone = { index: boneIndex };
-    },
-    showBone() {
-      console.log("hi show bone");
-      console.log("hi bone ", JSON.stringify(this.boneTree));
-    }
-  },
-  setup() {
-    const selectedVertex = ref(-1);
-    const activeTool = ref('grab-point');
-    const skeletonIndices = ref([]);
-    const isShiftPressed = ref(false);
-    const instance = Vue.getCurrentInstance();
+        // 處理編輯選單動作
+        handleEditAction(action) {
+          this.status = `執行編輯動作: ${action}`;
+          this.closeAllDropdowns();
+        },
+        updateImage(newUrl) {
+          this.imageUrl = newUrl;
+          this.cacheBuster = Date.now(); // 更新 cacheBuster 來強制刷新
+        },
+        // 選擇工具
+        selectTool(tool) {
+          console.log(" hi  ", tool);
+          this.activeTool = this.activeTool === tool ? null : tool;
+          this.status = `選擇工具: ${tool}`;
 
-    const timeline = reactive(new Timeline({
-      onUpdate: () => instance.proxy.$forceUpdate(),
-      vueInstance: instance,
-      updateMeshForSkeletonPose: glsInstance.updateMeshForSkeletonPose,
-    }));
+          const projectData = {
+            tool: tool
+          };
 
-    const bonesInstance = new Bones({
-      onUpdate: () => instance.proxy.$forceUpdate(),
-      vueInstance: instance,
-      gl: gl.value,
-      vertices: vertices,
-      vbo: vbo,
-      originalVertices: originalVertices,
-      selectedBone: selectedBone,
-      isShiftPressed: isShiftPressed,
-      skeletonIndices: skeletonIndices,
-      glsInstance: glsInstance,
-    });
+          fetch('/api/tool1', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(projectData)
+          })
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                this.status = '專案儲存成功!';
+              } else {
+                this.status = '專案儲存失敗: ' + data.message;
+              }
+            })
+            .catch(error => {
+              this.status = '專案儲存失敗: ' + error.message;
+              console.error('儲存專案時發生錯誤:', error);
+            });
+        },
+        getMousePosition(event) {
+          const rect = this.$refs.imageContainer.getBoundingClientRect();
+          // Calculate the scroll position of the container
+          const scrollLeft = this.$refs.imageContainer.scrollLeft;
+          const scrollTop = this.$refs.imageContainer.scrollTop;
+          // Calculate the click position relative to the image container
+          // by accounting for the container's position, borders, and scroll position
+          const x = event.clientX - rect.left + scrollLeft;
+          const y = event.clientY - rect.top + scrollTop;
+          return { x, y };
+        },
+        // 畫布點擊處理
+        handleCanvasMouseDown(event) {
+          // Get the bounding rectangle of the image container
+          const { x, y } = this.getMousePosition(event);
 
-    const selectTool = (tool) => {
-      activeTool.value = tool;
-      console.log("switch to tool : ", tool);
-      if (activeTool.value === 'bone-animate') {
-        bonesInstance.restoreSkeletonVerticesFromLast();
-      }
-      else if (tool === 'bone-create') {
-        glsInstance.resetMeshToOriginal();
-        bonesInstance.resetSkeletonToOriginal();
-      }
-      else if (tool === 'bone-clear') {
-        bonesInstance.clearBones();
-        selectedBone.value = {};
-      } else if (tool === 'bone-save') {
-        bonesInstance.saveBones();
-        // bonesInstance.checkKeyframe();
-      } else if (tool === 'bone-read') {
-        bonesInstance.readBones();
-      }
-    };
+          event.preventDefault();
 
-    const handleKeyDown = (e) => {
-      if (e.key === 'Shift') {
-        isShiftPressed.value = true;
-      }
-    };
 
-    const handleKeyUp = (e) => {
-      if (e.key === 'Shift') {
-        isShiftPressed.value = false;
-      }
-    };
+          if (event.button === 0) { // 左鍵點擊
+            // 記錄拖曳起始位置
+            this.isDragging = true;
+            this.dragStartX = x;
+            this.dragStartY = y;
+            this.status = `開始拖曳: x=${x}, y=${y}`;
+            console.log(" drag start x: ", this.dragStartX, ", y: ", this.dragStartY);
 
-    const setupCanvasEvents = (canvas, gl, container) => {
-      let isDragging = false;
-      let localSelectedVertex = -1;
-      let startPosX = 0;
-      let startPosY = 0;
+            fetch('/api/clickStart', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                x,
+                y,
+                scw: this.$refs.imageContainer.scrollWidth,
+                sch: this.$refs.imageContainer.scrollHeight
+              })
+            });
 
-      const handleMouseDown = (e) => {
-        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
-        startPosX = xNDC;
-        startPosY = yNDC;
+          } else if (event.button === 2) { // 右鍵點擊
+            this.status = `右鍵點擊: x=${x}, y=${y}`;
+            // 處理右鍵點擊的功能，例如顯示上下文選單
+            // 這裡添加您的右鍵點擊處理代碼
 
-        if (e.button === 0 || e.button === 2) {
-          if (activeTool.value === 'grab-point') {
-            let minDist = Infinity;
-            localSelectedVertex = -1;
-            for (let i = 0; i < vertices.value.length; i += 4) {
-              const dx = vertices.value[i] - xNDC;
-              const dy = vertices.value[i + 1] - yNDC;
-              const dist = dx * dx + dy * dy;
-              if (dist < minDist) {
-                minDist = dist;
-                localSelectedVertex = i / 4;
+            // 示例：移除最近點
+            if (this.points.length > 0) {
+              this.points.pop();
+              this.status = `右鍵移除最後一個點，剩餘 ${this.points.length} 個點`;
+            }
+          }
+          this.updateImage('/png');
+        },
+
+
+
+        handleCanvasMouseMove(e) {
+
+          if (!this.isDragging) return;
+
+          const { x, y } = this.getMousePosition(e);
+
+          // 拖曳過程中更新狀態
+
+          if (e.ctrlKey) {
+            this.status = `拖曳中with ctrl : x=${x}, y=${y}`;
+          }
+          else {
+            this.status = `拖曳中: x=${x}, y=${y}`;
+          }
+          this.sendDragToServer(x, y, e);
+          // 您可以在這裡添加拖曳期間的視覺反饋
+          // 例如畫一條線從起始點到當前位置
+        },
+
+        handleCanvasMouseUp(e) {
+          const { x, y } = this.getMousePosition(e);
+          if (e.button === 0) {
+            console.log("mouse release");
+            // 左鍵釋放
+            if (this.isDragging) {
+              this.isDragging = false;
+
+              // 計算拖曳距離
+              const dx = x - this.dragStartX;
+              const dy = y - this.dragStartY;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+
+              console.log("left relese ... x : ", x, " y : ", y, " distance : ", distance);
+              if (distance < 5) {
+                // 視為點擊而非拖曳
+                this.handleLeftClick(x, y, e);
+              } else {
+                // 處理拖曳完成
+                this.handleDragEnd(x, y, e);
               }
             }
-            if (minDist < 0.02) {
-              isDragging = true;
-              selectedVertex.value = localSelectedVertex;
+          }
+        },
+
+        handleLeftClick(x, y) {
+          console.log("left click ... ", x, " , ", y);
+          this.status = `左鍵點擊: x=${x}, y=${y}`;
+          this.points.push({ x, y });
+
+          // 原有的功能：發送座標到伺服器
+          this.sendPointToServer(x, y);
+        },
+
+        getBasePayload(x, y, event) {
+          const payload = {
+            x,
+            y,
+            scw: this.$refs.imageContainer.scrollWidth,
+            sch: this.$refs.imageContainer.scrollHeight
+          };
+
+          // 統一處理按鍵狀態
+          ['ctrlKey', 'shiftKey', 'altKey'].forEach(key => {
+            if (event && event[key]) {
+              payload[key] = true;
             }
-          } else if (activeTool.value === 'bone-create') {
-            bonesInstance.handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
-            isDragging = true;
-          } else if (activeTool.value === 'bone-animate') {
-            bonesInstance.handleBoneAnimateMouseDown(xNDC, yNDC);
-            if (selectedBone.value.index >= 0) {
-              isDragging = true;
-              startPosX = xNDC;
-              startPosY = yNDC;
+          });
+
+          return payload;
+        },
+
+        // 優化後的 handleDragEnd
+        handleDragEnd(x, y, event) {
+          const payload = this.getBasePayload(x, y, event);
+
+          this.status = `拖曳結束: 從 (${this.dragStartX}, ${this.dragStartY}) 到 (${x}, ${y})`;
+
+          fetch('/api/dragDone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        },
+
+        // 優化後的 sendPointToServer
+        sendPointToServer(x, y, event) {
+          const payload = this.getBasePayload(x, y, event);
+
+          fetch('/api/points', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          })
+            .then(response => response.json())
+            .then(data => {
+              console.log('伺服器回應:', data);
+              this.points.push({ x: data.x, y: data.y });
+              this.status = `最近的網格點: x=${data.x}, y=${data.y}`;
+            })
+            .catch(error => {
+              this.status = 'point bad: ' + error.message;
+            });
+        },
+
+        // 優化後的 sendDragToServer
+        sendDragToServer(x, y, event) {
+          const payload = this.getBasePayload(x, y, event);
+
+          fetch('/api/drag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        },
+
+
+        // 清除所有點
+        clearPoints() {
+          this.points = [];
+          this.status = '已清除所有點';
+        },
+
+        // 新增圖層
+        addLayer() {
+          this.layerCounter++;
+          const newLayer = {
+            id: this.layerCounter,
+            name: `圖層 ${this.layerCounter}`
+          };
+          this.layers.push(newLayer);
+          this.status = `新增圖層: ${newLayer.name}`;
+        },
+
+        // 選擇圖層
+        selectLayer(id) {
+          this.selectedLayerId = id;
+          const layer = this.layers.find(l => l.id === id);
+          if (layer) {
+            this.status = `選擇圖層: ${layer.name} , id = ${id}`;
+          }
+        },
+
+        // 刪除選中圖層
+        deleteLayer() {
+          if (this.selectedLayerId) {
+            const layerIndex = this.layers.findIndex(l => l.id === this.selectedLayerId);
+            if (layerIndex !== -1) {
+              const layerName = this.layers[layerIndex].name;
+              this.layers.splice(layerIndex, 1);
+              this.status = `刪除圖層: ${layerName}`;
+              this.selectedLayerId = this.layers.length > 0 ? this.layers[0].id : null;
             }
+          } else {
+            this.status = '沒有選擇圖層';
           }
-        }
-      };
+        },
 
-      const handleMouseMove = (e) => {
-        if (!isDragging) return;
-        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
+        // 新增關鍵幀
+        addKeyframe() {
+          this.keyframeCounter++;
+          this.keyframes.push({
+            id: this.keyframeCounter,
+            position: 50 * this.keyframeCounter
+          });
+          this.status = `新增關鍵幀: ${this.keyframeCounter}`;
+        },
 
-        if (activeTool.value === 'grab-point' && localSelectedVertex !== -1) {
-          const index = localSelectedVertex * 4;
-          vertices.value[index] = xNDC;
-          vertices.value[index + 1] = yNDC;
-          gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-          gl.bufferSubData(gl.ARRAY_BUFFER, index * 4, new Float32Array([xNDC, yNDC]));
-        } else if (activeTool.value === 'bone-create') {
-          bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
-        } else if (activeTool.value === 'bone-animate') {
-          bonesInstance.handleBoneAnimateMouseMove(startPosX, startPosY, xNDC, yNDC, e.buttons);
-          // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
-          startPosX = xNDC;
-          startPosY = yNDC;
-        }
-      };
+        // 選擇關鍵幀
+        selectKeyframe(id) {
+          this.status = `選擇關鍵幀: ${id}`;
+        },
 
-      const handleMouseUp = () => {
-        if (activeTool.value === 'bone-create' && isDragging) {
-          bonesInstance.handleBoneCreateMouseUp();
-          bonesInstance.assignVerticesToBones();
-        } else if (activeTool.value === 'bone-animate' && isDragging) {
-          bonesInstance.handleBoneAnimateMouseUp();
-        }
-        isDragging = false;
-        selectedVertex.value = -1;
-      };
+        // 新增時間軸元件
+        addTimelineComponent() {
+          this.status = '新增時間軸元件';
+          alert('新增時間軸元件功能觸發');
+        },
 
-      canvas.removeEventListener('mousedown', handleMouseDown);
-      canvas.removeEventListener('mousemove', handleMouseMove);
-      canvas.removeEventListener('mouseup', handleMouseUp);
-      canvas.removeEventListener('mouseleave', handleMouseUp);
+        // 時間軸拖曳功能
+        startDrag(e) {
+          this.isDragging = true;
+          this.startX = e.pageX - this.$refs.timelineTracks.offsetLeft;
+          this.scrollLeft = this.$refs.timelineTracks.scrollLeft;
+        },
 
-      canvas.addEventListener('mousedown', handleMouseDown);
-      canvas.addEventListener('mousemove', handleMouseMove);
-      canvas.addEventListener('mouseup', handleMouseUp);
-      canvas.addEventListener('mouseleave', handleMouseUp);
+        onDrag(e) {
+          if (!this.isDragging) return;
+          e.preventDefault();
+          const x = e.pageX - this.$refs.timelineTracks.offsetLeft;
+          const walk = (x - this.startX);
+          this.$refs.timelineTracks.scrollLeft = this.scrollLeft - walk;
+        },
 
-      canvas.tabIndex = 1;
-      canvas.addEventListener('focus', () => {
-        canvas.style.outline = 'none';
-      });
-    };
+        stopDrag() {
+          this.isDragging = false;
+        },
 
-    //render start
+        // 將專案儲存到伺服器的API示例
+        saveProjectToServer() {
+          this.status = '正在儲存專案...';
 
-    const render = (gl, program, colorProgram, skeletonProgram) => {
-      gl.clearColor(0.0, 0.0, 0.0, 1.0);
-      //gl.clear(gl.COLOR_BUFFER_BIT);
+          const projectData = {
+            layers: this.layers,
+            keyframes: this.keyframes,
+            points: this.points
+          };
 
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+          fetch('/api/project/save', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(projectData)
+          })
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                this.status = '專案儲存成功!';
+              } else {
+                this.status = '專案儲存失敗: ' + data.message;
+              }
+            })
+            .catch(error => {
+              this.status = '專案儲存失敗: ' + error.message;
+              console.error('儲存專案時發生錯誤:', error);
+            });
+        },
 
-      // 渲染紋理
-      if (texture.value) {
-        const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
-
-        gl.useProgram(program);
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
-
-        const posAttrib = gl.getAttribLocation(program, 'aPosition');
-        const texAttrib = gl.getAttribLocation(program, 'aTexCoord');
-
-        gl.enableVertexAttribArray(posAttrib);
-        gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 16, 0);
-
-        gl.enableVertexAttribArray(texAttrib);
-        gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
-
-        textures.forEach((tex, index) => {
-          const coords = tex.coords || {};
-          const left = coords.left !== undefined ? coords.left : -1.0;
-          const right = coords.right !== undefined ? coords.right : 1.0;
-          const top = coords.top !== undefined ? coords.top : 1.0;
-          const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
-
-          const scaleX = (right - left) / 2.0;
-          const scaleY = (top - bottom) / 2.0;
-          const translateX = (left + right) / 2.0;
-          const translateY = (bottom + top) / 2.0;
-
-          // 創建變換矩陣
-          let transformMatrix = [
-            scaleX, 0, 0, 0,
-            0, scaleY, 0, 0,
-            0, 0, 1, 0,
-            translateX, translateY, 0, 1
-          ];
-
-         // if (index ==1 )
-           {
-            gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, tex.tex);
-            gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
-            gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+        // 將圖層儲存到伺服器的API示例
+        saveLayerToServer() {
+          if (!this.selectedLayerId) {
+            this.status = '請先選擇一個圖層';
+            return;
           }
-        });
-      }
 
-      // 渲染基本幾何形狀
-      renderBasicGeometry(gl, colorProgram);
+          this.status = '正在儲存圖層...';
 
-      // 渲染骨架
-      renderSkeleton(gl, skeletonProgram);
+          const selectedLayer = this.layers.find(l => l.id === this.selectedLayerId);
+          const layerData = {
+            layerId: this.selectedLayerId,
+            layerName: selectedLayer.name,
+            points: this.points.filter(p => p.layerId === this.selectedLayerId || !p.layerId)
+          };
 
-      requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
-    };
+          fetch('/api/layer/save', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(layerData)
+          })
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                this.status = `圖層 ${selectedLayer.name} 儲存成功!`;
+              } else {
+                this.status = '圖層儲存失敗: ' + data.message;
+              }
+            })
+            .catch(error => {
+              this.status = '圖層儲存失敗: ' + error.message;
+              console.error('儲存圖層時發生錯誤:', error);
+            });
+        },
 
-
-    const render2 = (gl, program, colorProgram, skeletonProgram) => {
-      
-      gl.clearColor(0.0, 0.0, 0.0, 1.0);
-      //gl.clear(gl.COLOR_BUFFER_BIT);
-
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-      // 渲染紋理
-      if (texture.value) {
-       // console.log("render2 length : ",vbo2.value.length);
-        const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
-
-        gl.useProgram(program);
-        for(let i =0;i<vbo2.value.length;i++)
-        {
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
-        }
-
-        const posAttrib = gl.getAttribLocation(program, 'aPosition');
-        const texAttrib = gl.getAttribLocation(program, 'aTexCoord');
-
-        gl.enableVertexAttribArray(posAttrib);
-        gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 16, 0);
-
-        gl.enableVertexAttribArray(texAttrib);
-        gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
-
-        textures.forEach((tex, index) => {
-          const coords = tex.coords || {};
-          const left = coords.left !== undefined ? coords.left : -1.0;
-          const right = coords.right !== undefined ? coords.right : 1.0;
-          const top = coords.top !== undefined ? coords.top : 1.0;
-          const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
-
-          const scaleX = (right - left) / 2.0;
-          const scaleY = (top - bottom) / 2.0;
-          const translateX = (left + right) / 2.0;
-          const translateY = (bottom + top) / 2.0;
-
-          // 創建變換矩陣
-          let transformMatrix = [
-            scaleX, 0, 0, 0,
-            0, scaleY, 0, 0,
-            0, 0, 1, 0,
-            translateX, translateY, 0, 1
-          ];
-
-         // if (index ==1 )
-           {
-            gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, tex.tex);
-            gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
-            gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+        // 點擊頁面其他區域關閉下拉選單
+        handleClickOutside(e) {
+          const targetElement = e.target;
+          if (!targetElement.closest('.menu-item')) {
+            this.closeAllDropdowns();
           }
-        });
-      }
+        },
+        toggleNode(nodeId) {
+          if (this.expandedNodes.includes(nodeId)) {
+            this.expandedNodes = this.expandedNodes.filter(id => id !== nodeId);
+          } else {
+            this.expandedNodes.push(nodeId);
+          }
+        },
+        handleNameClick(name) {
+          console.log('Clicked node name:', name);
+        },
 
-      // 渲染基本幾何形狀
-      renderBasicGeometry(gl, colorProgram);
+        // 遞迴渲染階層式結構的方法（可選的實作方式）
+        renderHierarchicalData(node, parentId = '') {
+          const nodeId = parentId ? `${parentId}-${node.name}` : node.name;
+          const hasChildren = node.children && node.children.length > 0;
 
-      // 渲染骨架
-      renderSkeleton(gl, skeletonProgram);
+          return {
+            id: nodeId,
+            name: node.name,
+            hasChildren: hasChildren,
+            children: hasChildren ? node.children.map(child => this.renderHierarchicalData(child, nodeId)) : []
+          };
+        }
+      },
+setup() {
+                const gl = ref(null);
+                const program = ref(null);
+                const colorProgram = ref(null);
+                const texture = ref(null);
+                const vertices = ref([]);
+                const indices = ref([]);
+                const linesIndices = ref([]);
+                const vbo = ref(null);
+                const ebo = ref(null);
+                const eboLines = ref(null);
+                const selectedVertex = ref(-1);
 
-      requestAnimationFrame(() => render2(gl, program, colorProgram, skeletonProgram));
-    };
+                const vertexShaderSource = `
+                    attribute vec2 aPosition;
+                    attribute vec2 aTexCoord;
+                    varying vec2 vTexCoord;
+                    void main() {
+                        gl_Position = vec4(aPosition, 0.0, 1.0);
+                        vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
+                    }
+                `;
 
-    // 提取的基本幾何渲染函數
-    const renderBasicGeometry = (gl, colorProgram) => {
-      gl.useProgram(colorProgram);
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
+                const fragmentShaderSource = `
+                    precision mediump float;
+                    varying vec2 vTexCoord;
+                    uniform sampler2D uTexture;
+                    void main() {
+                        gl_FragColor = texture2D(uTexture, vTexCoord);
+                    }
+                `;
 
-      const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
-      gl.enableVertexAttribArray(colorPosAttrib);
-      gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
+                const colorVertexShaderSource = `
+                    attribute vec2 aPosition;
+                    uniform float uPointSize;
+                    void main() {
+                        gl_Position = vec4(aPosition, 0.0, 1.0);
+                        gl_PointSize = uPointSize;
+                    }
+                `;
 
-      // 渲染線條
-      gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 1);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines.value);
-      gl.drawElements(gl.LINES, linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
+                const colorFragmentShaderSource = `
+                    precision mediump float;
+                    uniform vec4 uColor;
+                    void main() {
+                        gl_FragColor = uColor;
+                    }
+                `;
 
-      // 渲染點
-      gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
-      gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
-      gl.drawArrays(gl.POINTS, 0, vertices.value.length / 4);
-    };
+                function compileShader(gl, source, type) {
+                    const shader = gl.createShader(type);
+                    gl.shaderSource(shader, source);
+                    gl.compileShader(shader);
 
-    // 提取的骨架渲染函數
-    const renderSkeleton = (gl, skeletonProgram) => {
-      if (skeletonVertices.value.length === 0) return;
+                    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                        console.error('Shader compilation failed:', gl.getShaderInfoLog(shader));
+                        return null;
+                    }
 
-      gl.useProgram(skeletonProgram);
-      const { skeletonVbo, skeletonEbo, skeletonVerticesArray, skeletonIndicesArray } =
-        glsInstance.createSkeletonBuffers(gl);
+                    return shader;
+                }
 
-      const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
-      gl.enableVertexAttribArray(skeletonPosAttrib);
-      gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
-      gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+                function createProgram(gl, vsSource, fsSource) {
+                    const vertexShader = compileShader(gl, vsSource, gl.VERTEX_SHADER);
+                    const fragmentShader = compileShader(gl, fsSource, gl.FRAGMENT_SHADER);
 
-      // 渲染所有骨架線條
-      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 0, 1);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
-      gl.drawElements(gl.LINES, skeletonIndicesArray.length, gl.UNSIGNED_SHORT, 0);
+                    const program = gl.createProgram();
+                    gl.attachShader(program, vertexShader);
+                    gl.attachShader(program, fragmentShader);
+                    gl.linkProgram(program);
 
-      // 渲染選中的骨架
-      renderSelectedBone(gl, skeletonProgram, skeletonIndicesArray);
+                    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                        console.error('Program link failed:', gl.getProgramInfoLog(program));
+                        return null;
+                    }
 
-      // 渲染骨架點
-      renderSkeletonPoints(gl, skeletonProgram, skeletonVerticesArray);
-    };
+                    return program;
+                }
 
-    // 渲染選中的骨架
-    const renderSelectedBone = (gl, skeletonProgram, skeletonIndicesArray) => {
-      if (selectedBone.value.index < 0) return;
+                function createBuffers(gl) {
+                    const rows = 5, cols = 5;
+                    const xStep = 2.0 / (cols - 1);
+                    const yStep = 2.0 / (rows - 1);
+                    const currentVertices = [];
+                    const currentIndices = [];
+                    const currentLinesIndices = [];
 
-      const parentIndex = boneParents.value[selectedBone.value.index];
+                    for (let y = 0; y < rows; y++) {
+                        for (let x = 0; x < cols; x++) {
+                            currentVertices.push(
+                                -1.0 + x * xStep,
+                                1.0 - y * yStep,
+                                x / (cols - 1),
+                                y / (rows - 1)
+                            );
+                        }
+                    }
 
-      // 渲染父骨架（藍色）
-      if (parentIndex >= 0) {
-        const parentStart = parentIndex * 2;
-        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 0, 1, 1);
-        gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, parentStart * 2);
-      }
+                    for (let y = 0; y < rows - 1; y++) {
+                        for (let x = 0; x < cols - 1; x++) {
+                            const row1 = y * cols;
+                            const row2 = (y + 1) * cols;
+                            currentIndices.push(
+                                row1 + x, row2 + x, row1 + x + 1,
+                                row1 + x + 1, row2 + x, row2 + x + 1
+                            );
+                        }
+                    }
 
-      // 渲染選中骨架（紅色）
-      const selectedStart = selectedBone.value.index * 2;
-      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
-      gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, selectedStart * 2);
-    };
+                    for (let y = 0; y < rows; y++) {
+                        for (let x = 0; x < cols - 1; x++) {
+                            currentLinesIndices.push(y * cols + x, y * cols + x + 1);
+                        }
+                    }
+                    for (let x = 0; x < cols; x++) {
+                        for (let y = 0; y < rows - 1; y++) {
+                            currentLinesIndices.push(y * cols + x, (y + 1) * cols + x);
+                        }
+                    }
 
-    // 渲染骨架點
-    const renderSkeletonPoints = (gl, skeletonProgram, skeletonVerticesArray) => {
-      const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
+                    vertices.value = currentVertices;
+                    indices.value = currentIndices;
+                    linesIndices.value = currentLinesIndices;
 
-      // 渲染頭部點
-      const headVertices = extractVertices(skeletonVerticesArray, 0, 2); // 提取頭部座標
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, headVertices, [1, 1, 0, 1], 7.0);
+                    const currentVbo = gl.createBuffer();
+                    gl.bindBuffer(gl.ARRAY_BUFFER, currentVbo);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
+                    vbo.value = currentVbo;
 
-      // 渲染尾部點
-      const tailVertices = extractVertices(skeletonVerticesArray, 2, 2); // 提取尾部座標
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, tailVertices, [0, 0.5, 1, 1], 7.0);
+                    const currentEbo = gl.createBuffer();
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, currentEbo);
+                    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
+                    ebo.value = currentEbo;
 
-      // 渲染選中的骨架點
-      if (selectedBone.value.index >= 0) {
-        renderSelectedBonePoints(gl, skeletonProgram, skeletonPosAttrib, skeletonVerticesArray);
-      }
-    };
+                    const currentEboLines = gl.createBuffer();
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, currentEboLines);
+                    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
+                    eboLines.value = currentEboLines;
+                }
 
-    // 提取頂點座標的輔助函數
-    const extractVertices = (verticesArray, startOffset, stride) => {
-      const vertices = [];
-      for (let i = startOffset; i < verticesArray.length; i += 4) {
-        vertices.push(verticesArray[i], verticesArray[i + 1]);
-      }
-      return vertices;
-    };
+                function loadTexture(gl, url) {
+                    return new Promise((resolve, reject) => {
+                        const image = new Image();
+                        image.onload = () => {
+                            const currentTexture = gl.createTexture();
+                            gl.bindTexture(gl.TEXTURE_2D, currentTexture);
 
-    // 渲染點的輔助函數
-    const renderPoints = (gl, program, posAttrib, vertices, color, pointSize) => {
-      const vbo = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
-      gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 0, 0);
+                            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+                            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
 
-      gl.uniform4f(gl.getUniformLocation(program, 'uColor'), ...color);
-      gl.uniform1f(gl.getUniformLocation(program, 'uPointSize'), pointSize);
-      gl.drawArrays(gl.POINTS, 0, vertices.length / 2);
+                            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-      gl.deleteBuffer(vbo); // 清理臨時緩衝區
-    };
+                            gl.bindTexture(gl.TEXTURE_2D, null);
 
-    // 渲染選中骨架的點
-    const renderSelectedBonePoints = (gl, skeletonProgram, skeletonPosAttrib, skeletonVerticesArray) => {
-      const selectedIndex = selectedBone.value.index;
+                            texture.value = currentTexture;
+                            resolve(currentTexture);
+                        };
 
-      // 選中的頭部點
-      const selectedHeadIndex = selectedIndex * 4;
-      const selectedHeadVertices = [
-        skeletonVerticesArray[selectedHeadIndex],
-        skeletonVerticesArray[selectedHeadIndex + 1]
-      ];
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, selectedHeadVertices, [1, 0.5, 0, 1], 10.0);
+                        image.onerror = (error) => {
+                            console.error("Image loading failed:", error);
+                            reject(error);
+                        };
 
-      // 選中的尾部點
-      const selectedTailIndex = selectedIndex * 4 + 2;
-      const selectedTailVertices = [
-        skeletonVerticesArray[selectedTailIndex],
-        skeletonVerticesArray[selectedTailIndex + 1]
-      ];
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, selectedTailVertices, [1, 0.5, 0, 1], 10.0);
-    };
+                        image.src = url;
+                    });
+                }
 
+                function setupEventHandlers(canvas, gl) {
+                    canvas.addEventListener('mousedown', (e) => {
+                        if (e.button === 0) {
+                            console.log(" hi click ... ");
+                            const rect = canvas.getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const y = e.clientY - rect.top;
 
-    // render end
+                            const xNDC = (x / canvas.width) * 2 - 1;
+                            const yNDC = 1 - (y / canvas.height) * 2;
 
-    const drawGlCanvas = async () => {
-      const canvas = document.getElementById('webgl');
-      const container = canvas.closest('.image-container');
-      const webglContext = canvas.getContext('webgl');
-      gl.value = webglContext;
-      setupCanvasEvents(canvas, webglContext, container);
-      program.value = glsInstance.createProgram(webglContext, shaders.vertex, shaders.fragment);
-      colorProgram.value = glsInstance.createProgram(webglContext, shaders.colorVertex, shaders.colorFragment);
-      skeletonProgram.value = glsInstance.createProgram(webglContext, shaders.skeletonVertex, shaders.skeletonFragment);
+                            let minDist = Infinity;
+                            let closestIndex = -1;
 
-      let result = await loadTexture(webglContext, './png3.png');
+                            for (let i = 0; i < vertices.value.length; i += 4) {
+                                const dx = vertices.value[i] - xNDC;
+                                const dy = vertices.value[i + 1] - yNDC;
+                                const dist = dx * dx + dy * dy;
 
-      texture.value = { tex: result.texture };
-      imageData.value = result.data;
-      imageWidth.value = result.width;
-      imageHeight.value = result.height;
-      glsInstance.createBuffers(webglContext);
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    closestIndex = i / 4;
+                                }
+                            }
 
+                            if (minDist < 0.02) {
+                                selectedVertex.value = closestIndex;
+                            }
+                        }
+                    });
 
-      render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
-      initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+                    canvas.addEventListener('mouseup', () => selectedVertex.value = -1);
 
-    };
-    const drawAgain = () => {
-      drawGlCanvas();
-    };
-    onMounted(async () => {
+                    canvas.addEventListener('mousemove', (e) => {
+                        if (selectedVertex.value !== -1) {
+                            const rect = canvas.getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const y = e.clientY - rect.top;
 
-      window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('keyup', handleKeyUp);
+                            const xNDC = (x / canvas.width) * 2 - 1;
+                            const yNDC = 1 - (y / canvas.height) * 2;
 
-      try {
-        drawGlCanvas();
-      } catch (error) {
-        console.error("Initialization error:", error);
-      }
+                            const index = selectedVertex.value * 4;
+                            vertices.value[index] = xNDC;
+                            vertices.value[index + 1] = yNDC;
+
+                            gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
+                            gl.bufferSubData(gl.ARRAY_BUFFER, index * 4,
+                                new Float32Array([xNDC, yNDC]));
+                        }
+                    });
+                }
+
+                function render(gl, program, colorProgram) {
+                    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+                    gl.clear(gl.COLOR_BUFFER_BIT);
+
+                    if (texture.value) {
+                        gl.useProgram(program);
+                        gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
+                        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
+
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, texture.value);
+
+                        const textureUniform = gl.getUniformLocation(program, 'uTexture');
+                        gl.uniform1i(textureUniform, 0);
+
+                        const posAttrib = gl.getAttribLocation(program, 'aPosition');
+                        const texAttrib = gl.getAttribLocation(program, 'aTexCoord');
+
+                        gl.enableVertexAttribArray(posAttrib);
+                        gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 16, 0);
+
+                        gl.enableVertexAttribArray(texAttrib);
+                        gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
+
+                        gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+                    }
+
+                    gl.useProgram(colorProgram);
+                    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
+
+                    const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
+                    gl.enableVertexAttribArray(colorPosAttrib);
+                    gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
+
+                    gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 1);
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines.value);
+                    gl.drawElements(gl.LINES, linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
+
+                    gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
+                    gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
+                    gl.drawArrays(gl.POINTS, 0, vertices.value.length / 4);
+
+                    requestAnimationFrame(() => render(gl, program, colorProgram));
+                }
+
+                function downloadImage(gl) {
+                    console.log(" hi download ... ");
+                    const canvas = document.getElementById('webgl');
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = canvas.width;
+                    tempCanvas.height = canvas.height;
+                    const tempCtx = tempCanvas.getContext('2d');
+
+                    function cleanRender() {
+                        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+                        gl.clear(gl.COLOR_BUFFER_BIT);
+
+                        if (texture.value) {
+                            gl.useProgram(program.value);
+                            gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
+                            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
+
+                            gl.activeTexture(gl.TEXTURE0);
+                            gl.bindTexture(gl.TEXTURE_2D, texture.value);
+                            gl.uniform1i(gl.getUniformLocation(program.value, 'uTexture'), 0);
+
+                            const posAttrib = gl.getAttribLocation(program.value, 'aPosition');
+                            gl.enableVertexAttribArray(posAttrib);
+                            gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 16, 0);
+
+                            const texAttrib = gl.getAttribLocation(program.value, 'aTexCoord');
+                            gl.enableVertexAttribArray(texAttrib);
+                            gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
+
+                            gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+                        }
+
+                        const width = canvas.width;
+                        const height = canvas.height;
+                        const pixels = new Uint8Array(width * height * 4);
+                        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+                        const imageData = tempCtx.createImageData(width, height);
+                        imageData.data.set(pixels);
+
+                        for (let row = 0; row < height / 2; row++) {
+                            for (let col = 0; col < width * 4; col++) {
+                                const temp = imageData.data[row * width * 4 + col];
+                                imageData.data[row * width * 4 + col] =
+                                    imageData.data[(height - row - 1) * width * 4 + col];
+                                imageData.data[(height - row - 1) * width * 4 + col] = temp;
+                            }
+                        }
+
+                        tempCtx.putImageData(imageData, 0, 0);
+                        const dataURL = tempCanvas.toDataURL('image/png');
+
+                        const downloadLink = document.createElement('a');
+                        downloadLink.href = dataURL;
+                        downloadLink.download = 'mesh_deformed_image.png';
+                        document.body.appendChild(downloadLink);
+                        downloadLink.click();
+                        document.body.removeChild(downloadLink);
+                    }
+
+                    gl.flush();
+                    requestAnimationFrame(cleanRender);
+                }
+
+                onMounted(async () => {
+                    const canvas = document.getElementById('webgl');
+                    const webglContext = canvas.getContext('webgl');
+                    gl.value = webglContext; // Assign WebGL context to gl.value
+
+                    program.value = createProgram(webglContext, vertexShaderSource, fragmentShaderSource);
+                    colorProgram.value = createProgram(webglContext, colorVertexShaderSource, colorFragmentShaderSource);
+
+                    try {
+                        await loadTexture(webglContext, './input.jpg');
+                        createBuffers(webglContext);
+                        setupEventHandlers(canvas, webglContext);
+                        render(webglContext, program.value, colorProgram.value);
+                    } catch (error) {
+                        console.error("Initialization error:", error);
+                    }
+                });
+
+                return {
+                    downloadImage: () => downloadImage(gl.value)
+                };
+            }
     });
 
-    return {
-      selectTool,
-      activeTool,
-      selectedBone,
-      timeline,
-      drawAgain
-    };
-  }
-});
-
-const TreeItem = {
-  props: ['node', 'expandedNodes', 'selectedBone'],
-  template: `
-    <div class="tree-item">
-      <div class="tree-item-header" :class="{ 'highlighted': checkIsSelected() }">
-        <span class="tree-toggle-icon" 
-              :class="{ 'expanded': expandedNodes.includes(node.id) }" 
-              @click.stop="toggleNode(node.id)" 
-              v-if="node.children && node.children.length > 0">▶</span>
-        <span class="tree-item-name" @click.stop="handleNameClick(node.name)">{{ node.name }}</span>
-      </div>
-      <div class="tree-children" v-if="expandedNodes.includes(node.id)">
-        <tree-item v-for="child in node.children" 
-                  :key="child.id" 
-                  :node="child" 
-                  :expanded-nodes="expandedNodes" 
-                  :selected-bone="selectedBone"
-                  @toggle-node="$emit('toggle-node', $event)" 
-                  @name-click="$emit('name-click', $event)">
-        </tree-item>
-      </div>
-    </div>
-  `,
-  methods: {
-    toggleNode(nodeId) {
-      this.$emit('toggle-node', nodeId);
-    },
-    handleNameClick(name) {
-      const boneIndex = this.node.index;
-      this.$emit('name-click', boneIndex);
-    },
-    checkIsSelected() {
-      const boneIndex = this.node.index;
-      return boneIndex === this.selectedBone.index;
-    }
-  }
-};
-
-app.component('tree-item', TreeItem);
+    // 掛載應用
 export default app;

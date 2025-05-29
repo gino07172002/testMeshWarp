@@ -2,7 +2,7 @@
 const { ref, reactive } = Vue;
 
 import {
-  initBone,
+  // initBone,
   skeletonVertices,
   originalSkeletonVertices,
   boneParents,
@@ -25,7 +25,7 @@ const eboLines = ref(null);              // 元素緩衝區（線條）
 
 const vbo2 = ref([]);                   // 頂點緩衝區
 const ebo2 = ref([]);                   // 元素緩衝區（三角形）
-const eboLines2 = ref([]);  
+const eboLines2 = ref([]);
 
 // Mesh-related reactive variables
 const vertices = ref([]);                // 當前頂點數據
@@ -126,6 +126,11 @@ class gls {
       }
       gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo.value);
       gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
+
+      for (let i = 0; i < vbo2.value.length; i++) {
+        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo2.value[i]);
+        gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
+      }
     }
   };
 
@@ -369,11 +374,11 @@ class gls {
     eboLines.value = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines.value);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-   
+
+ 
 
     //test for multi layer
-    for(let i=0;i<3;i++)
-    {
+    for (let i = 0; i < 3; i++) {
       console.log(" somehow 3 layers... ");
       vbo2.value.push(gl.createBuffer());
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
@@ -382,66 +387,14 @@ class gls {
       ebo2.value.push(gl.createBuffer());
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-  
+
       eboLines2.value.push(gl.createBuffer());
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines2.value[i]);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-   
+
     }
-
-
   };
 
-  testAgain(gl, currentVertices, currentIndices, currentLinesIndices) {
-    console.log(" init vbo ? ");
-    if (vbo.value) gl.deleteBuffer(vbo.value);
-    if (ebo.value) gl.deleteBuffer(ebo.value);
-    if (eboLines.value) gl.deleteBuffer(eboLines.value);
-
-    vbo.value = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-
-    ebo.value = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-
-    eboLines.value = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines.value);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-    this.initMultiLayerBuffer(gl, currentVertices, currentIndices, currentLinesIndices, 1) ;
-  };
-
-
-
-  // for mult-layers
-  initMultiLayerBuffer(gl, currentVertices, currentIndices, currentLinesIndices, layerCount) {
-    const vbo = { value: [] };
-    const ebo = { value: [] };
-    const eboLines = { value: [] };
-
-    for (let i = 0; i < layerCount; i++) {
-      // 建立 VBO
-      const vboItem = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, vboItem);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-      vbo.value.push(vboItem);
-
-      // 建立 EBO (Triangles)
-      const eboItem = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboItem);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( currentIndices), gl.STATIC_DRAW);
-      ebo.value.push(eboItem);
-
-      // 建立 EBO (Lines)
-      const eboLinesItem = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLinesItem);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-      eboLines.value.push(eboLinesItem);
-    }
-
-    return { vbo, ebo, eboLines };
-  }
 
   updateMeshForSkeletonPose() {
     const numVertices = vertices.value.length / 4;
@@ -523,6 +476,14 @@ class gls {
     // 更新GPU緩衝區
     gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo.value);
     gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
+
+    console.log(" hi update vbo in motion");
+    for(let i=0;i< vbo2.value.length;i++)
+    {
+    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo2.value[i]);
+    gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
+    }
+
   };
 
 
