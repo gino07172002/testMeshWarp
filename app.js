@@ -144,8 +144,8 @@ const changeImage = async (newUrl) => {
     glsInstance.createBuffers(gl.value);
 
     // 若骨架數據與圖片相關，需重新初始化
-   // initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
-  // initBone(gl, program, texture.tex, vbo ,ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+    // initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+    // initBone(gl, program, texture.tex, vbo ,ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
 
   } catch (error) {
     console.error("更換圖片失敗:", error);
@@ -172,12 +172,23 @@ const changeImage2 = async (layerIndices = null) => {
     // 確定要渲染的圖層：如果未傳入 layerIndices，則渲染所有圖層
     const layersToRender = layerIndices ? layerIndices.map(index => allLayers[index]) : allLayers;
 
-    console.log(" hi layer length : ",allLayers.length);
+    console.log(" hi layer length : ", allLayers.length);
 
     // 為每個圖層創建紋理，並存儲為數組
     texture.value = await Promise.all(layersToRender.map(layer => layerToTexture(gl.value, layer)));
 
+    console.log(" texture layers length : ",texture.value.length);
+
+    console.log(" =================================== start adding layers ");
+    for(let i =0;i< texture.value.length;i++)
+    {
+      console.log(" hi loading gl value : ",i);
+      glsInstance.createLayerBuffers( texture.value[i]);
+    }
+
+    console.log(" end adding layers =================================== ");
     console.log(" hi texture : ", texture.value);
+
     // 根據新圖片尺寸重新建立頂點緩衝（假設所有圖層共享相同網格）
     glsInstance.createBuffers(gl.value);
 
@@ -231,7 +242,7 @@ const layerToTexture = (gl, layer) => {
     gl.bindTexture(gl.TEXTURE_2D, null);
     let coords = { top: layer.top, left: layer.left, bottom: layer.bottom, right: layer.right };
     // 解析 Promise，返回紋理
-    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height });
+    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height ,image: imageData});
   });
 };
 
@@ -846,8 +857,8 @@ const app = Vue.createApp({
             translateX, translateY, 0, 1
           ];
 
-         // if (index ==1 )
-           {
+          // if (index ==1 )
+          {
             gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
             gl.activeTexture(gl.TEXTURE0);
             gl.bindTexture(gl.TEXTURE_2D, tex.tex);
@@ -868,7 +879,7 @@ const app = Vue.createApp({
 
 
     const render2 = (gl, program, colorProgram, skeletonProgram) => {
-      
+
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
@@ -877,14 +888,13 @@ const app = Vue.createApp({
 
       // 渲染紋理
       if (texture.value) {
-       // console.log("render2 length : ",vbo2.value.length);
+        // console.log("render2 length : ",vbo2.value.length);
         const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
 
         gl.useProgram(program);
-        for(let i =0;i<vbo2.value.length;i++)
-        {
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
+        for (let i = 0; i < vbo2.value.length; i++) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
         }
 
         const posAttrib = gl.getAttribLocation(program, 'aPosition');
@@ -916,8 +926,8 @@ const app = Vue.createApp({
             translateX, translateY, 0, 1
           ];
 
-         // if (index ==1 )
-         {
+          // if (index ==1 )
+          {
             gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
             gl.activeTexture(gl.TEXTURE0);
             gl.bindTexture(gl.TEXTURE_2D, tex.tex);
@@ -941,8 +951,8 @@ const app = Vue.createApp({
     // 提取的基本幾何渲染函數
     const renderBasicGeometry = (gl, colorProgram) => {
       gl.useProgram(colorProgram);
-     gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-     // gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[0]);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
+      // gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[0]);
 
       const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
       gl.enableVertexAttribArray(colorPosAttrib);
@@ -962,7 +972,7 @@ const app = Vue.createApp({
 
     const renderBasicGeometry2 = (gl, colorProgram) => {
       gl.useProgram(colorProgram);
-    // gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
+      // gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[0]);
 
       const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
@@ -1093,26 +1103,29 @@ const app = Vue.createApp({
       const canvas = document.getElementById('webgl');
       const container = canvas.closest('.image-container');
       const webglContext = canvas.getContext('webgl');
-      gl.value = webglContext;
-      setupCanvasEvents(canvas, webglContext, container);
-      program.value = glsInstance.createProgram(webglContext, shaders.vertex, shaders.fragment);
-      colorProgram.value = glsInstance.createProgram(webglContext, shaders.colorVertex, shaders.colorFragment);
-      skeletonProgram.value = glsInstance.createProgram(webglContext, shaders.skeletonVertex, shaders.skeletonFragment);
 
-      let result = await loadTexture(webglContext, './png3.png');
+      gl.value = webglContext;
+      setupCanvasEvents(canvas, gl.value, container);
+      program.value = glsInstance.createProgram(gl.value, shaders.vertex, shaders.fragment);
+      colorProgram.value = glsInstance.createProgram(gl.value, shaders.colorVertex, shaders.colorFragment);
+      skeletonProgram.value = glsInstance.createProgram(gl.value, shaders.skeletonVertex, shaders.skeletonFragment);
+
+      let result = await loadTexture(gl.value, './png3.png');
 
       texture.value = { tex: result.texture };
       imageData.value = result.data;
       imageWidth.value = result.width;
       imageHeight.value = result.height;
-      glsInstance.createBuffers(webglContext);
+      console.log("first create buffer ... ");
+      
+      glsInstance.createBuffers(gl.value);
 
       console.log(" init render! ");
 
       //render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
-  render2(webglContext, program.value, colorProgram.value, skeletonProgram.value);
-  //    console.log(" init bone! ");
-   //   initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value);
+      //    console.log(" init bone! ");
+      //   initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
 
     };
     const drawAgain = () => {
