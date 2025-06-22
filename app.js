@@ -177,13 +177,12 @@ const changeImage2 = async (layerIndices = null) => {
     // 為每個圖層創建紋理，並存儲為數組
     texture.value = await Promise.all(layersToRender.map(layer => layerToTexture(gl.value, layer)));
 
-    console.log(" texture layers length : ",texture.value.length);
+    console.log(" texture layers length : ", texture.value.length);
 
     console.log(" =================================== start adding layers ");
-    for(let i =0;i< texture.value.length;i++)
-    {
-      console.log(" hi loading gl value : ",i);
-      glsInstance.createLayerBuffers( texture.value[i]);
+    for (let i = 0; i < texture.value.length; i++) {
+      console.log(" hi loading gl value : ", i);
+      glsInstance.createLayerBuffers(texture.value[i]);
     }
 
     console.log(" end adding layers =================================== ");
@@ -242,7 +241,7 @@ const layerToTexture = (gl, layer) => {
     gl.bindTexture(gl.TEXTURE_2D, null);
     let coords = { top: layer.top, left: layer.left, bottom: layer.bottom, right: layer.right };
     // 解析 Promise，返回紋理
-    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height ,image: imageData});
+    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height, image: imageData });
   });
 };
 
@@ -319,6 +318,8 @@ const app = Vue.createApp({
       animationStartTime: 0,
       nextKeyframeId: 10,
       psdLayers: [],
+      fileDropdown: false,
+      editDropdown: false,
       hierarchicalData: {
         children: [
           {
@@ -341,6 +342,7 @@ const app = Vue.createApp({
   async mounted() {
     this.addLayer();
     console.log("somehow mount here ... ");
+    document.addEventListener('click', this.closeAllDropdowns);
   },
   beforeUnmount() {
   },
@@ -661,7 +663,38 @@ const app = Vue.createApp({
     showBone() {
       console.log("hi show bone");
       console.log("hi bone ", JSON.stringify(this.boneTree));
-    }
+    },
+    toggleDropdown(menu) {
+      if (menu == 'fileDropdown') {
+        this.fileDropdown = true;
+        this.editDropdown = false;
+      }
+      else {
+        this.fileDropdown = false;
+        this.editDropdown = true;
+      }
+
+    },
+    handleFileAction(action) {
+      console.log(" hi action ", action);
+      this.closeAllDropdowns();
+    },
+    handleEditAction(action) {
+      console.log(" hi action ", action);
+      this.closeAllDropdowns();
+    },
+    closeAllDropdowns() {
+      console.log(" close menu ... ");
+      this.fileDropdown = false;
+      this.editDropdown = false;
+
+    },
+
+    // 在组件挂载时添加全局点击监听
+
+
+
+
   },
   setup() {
     const selectedVertex = ref(-1);
@@ -1117,9 +1150,22 @@ const app = Vue.createApp({
       imageWidth.value = result.width;
       imageHeight.value = result.height;
       console.log("first create buffer ... ");
-      
-      glsInstance.createBuffers(gl.value);
 
+      //    glsInstance.createBuffers(gl.value);
+
+    //  glsInstance.clearAllLayerBuffers();
+
+      let layer = { imageData: imageData.value, width: imageWidth.value, height: imageHeight.value }
+      texture.value = await layerToTexture(gl.value, layer);
+
+      console.log(" texture layers length : ", texture.value);
+
+      console.log(" =================================== start adding layers ", texture.value);
+      for (let i = 0; i < texture.value.length; i++) {
+        console.log(" hi loading gl value : ", i);
+        glsInstance.createLayerBuffers(texture.value[i]);
+      }
+       glsInstance.createBuffers(gl.value);
       console.log(" init render! ");
 
       //render(webglContext, program.value, colorProgram.value, skeletonProgram.value);

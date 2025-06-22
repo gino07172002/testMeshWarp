@@ -221,12 +221,12 @@ export class ImageLayerGls {
 class LayerManager {
   constructor() {
     this.layers = [];
-    console.log("constructor layer length : ",this.layers.length);
+    console.log("constructor layer length : ", this.layers.length);
   }
 
   addLayer(layer) {
     this.layers.push(layer);
-    console.log("current layer length : ",this.layers.length);
+    console.log("current layer length : ", this.layers.length);
   }
 
   removeLayer(index) {
@@ -246,8 +246,7 @@ class LayerManager {
   getLayers() {
     return this.layers;
   }
-  length()
-  {
+  length() {
     return this.layers.length;
   }
 }
@@ -300,7 +299,7 @@ class gls {
       visible: tempLayer.visible.value,
       image: tempLayer.image.value
     });
-     this.layerManager = new LayerManager();
+    this.layerManager = new LayerManager();
 
   };
 
@@ -472,6 +471,10 @@ class gls {
     });
   };
 
+  clearAllLayerBuffers() {
+    this.layerManager.clearLayers();
+
+  }
   createLayerBuffers(gl) {
 
 
@@ -481,17 +484,17 @@ class gls {
       console.error("纹理创建失败！");
     }
     console.log(" hello create layer buffer ");
-   
+
     const layer1 = new ImageLayerGls();
 
     layer1.loadImage("image1.jpg");
-    layer1.createBuffers(gl.tex,gl.image,gl.width,gl.height);
+    layer1.createBuffers(gl.tex, gl.image, gl.width, gl.height);
 
     this.layerManager.addLayer(layer1);
-console.log(" my layer length :",this.layerManager.length);
+    console.log(" my layer length :", this.layerManager.length);
     // 清空所有圖層
     //this.layerManager.clearLayers();
-/*
+
     vbo2.value.push(gl.createBuffer());
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
@@ -503,7 +506,7 @@ console.log(" my layer length :",this.layerManager.length);
     eboLines2.value.push(gl.createBuffer());
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines2.value[i]);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-*/
+
 
   }
   // Modified createBuffers to populate transparentCells
