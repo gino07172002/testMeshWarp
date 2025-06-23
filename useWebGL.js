@@ -44,9 +44,9 @@ const gridCells = ref([]);
 const transparentCells = ref(new Set()); // Store transparent cells
 
 // Other state variables
-const imageData = ref(null);
-const imageWidth = ref(0);
-const imageHeight = ref(0);
+//const imageData = ref(null);
+//const imageWidth = ref(0);
+//const imageHeight = ref(0);
 
 const configSettings = reactive({        // 響應式配置
   imageSrc: './png3.png',                // 圖片來源
@@ -63,13 +63,13 @@ const layerData = ref(new Map()); // 儲存每個圖層的數據
 
 // Helper to check if an area is fully transparent
 const isAreaTransparent = (x, y, w, h, imageData, imageWidth, imageHeight) => {
-  if (!imageData.value) {
+  if (!imageData) {
     console.log("no image data...");
     return false;
   }
 
-  const width = imageWidth.value;
-  const height = imageHeight.value;
+  const width = imageWidth;
+  const height = imageHeight;
 
   // Convert normalized texture coordinates to pixel coordinates
   const startX = Math.floor(x * width);
@@ -83,7 +83,7 @@ const isAreaTransparent = (x, y, w, h, imageData, imageWidth, imageHeight) => {
       // Get the alpha value (every 4th byte in RGBA data)
       const pixelIndex = (py * width + px) * 4 + 3;
       // If any pixel has non-zero alpha, the area is not fully transparent
-      if (imageData.value[pixelIndex] > 0) {
+      if (imageData[pixelIndex] > 0) {
         return false;
       }
     }
@@ -111,7 +111,7 @@ export class ImageLayerGls {
   loadImage(url) {
     this.image.value = url;
     console.log(`image layer gls Image loaded: ${url}`);
-    this.createBuffers(gl, imageData, imageWidth, imageHeight);
+   // this.createBuffers(gl, imageData, imageWidth, imageHeight);
     console.log(" image layer gls create buffer done ... ");
   }
 
@@ -494,23 +494,24 @@ class gls {
     console.log(" my layer length :", this.layerManager.length);
     // 清空所有圖層
     //this.layerManager.clearLayers();
-
-    vbo2.value.push(gl.createBuffer());
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-
-    ebo2.value.push(gl.createBuffer());
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-
-    eboLines2.value.push(gl.createBuffer());
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines2.value[i]);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-
+    /*
+        vbo2.value.push(gl.createBuffer());
+        gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
+    
+        ebo2.value.push(gl.createBuffer());
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
+    
+        eboLines2.value.push(gl.createBuffer());
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines2.value[i]);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
+    */
 
   }
   // Modified createBuffers to populate transparentCells
-  createBuffers(gl) {
+
+  createBuffers(gl, image, width, height) {
     const rows = 10, cols = 10;
     const xStep = 2.0 / (cols - 1);
     const yStep = 2.0 / (rows - 1);
@@ -531,7 +532,9 @@ class gls {
         const bottomLeft = (y + 1) * cols + x;
         const bottomRight = (y + 1) * cols + x + 1;
 
-        const isTransparent = isAreaTransparent(cellX, cellY, cellW, cellH, imageData, imageWidth, imageHeight);
+        //const isTransparent = isAreaTransparent(cellX, cellY, cellW, cellH, imageData, imageWidth, imageHeight);
+        const isTransparent = isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height);
+
         if (!isTransparent) {
           visibleCells.push({ x, y });
 
@@ -581,7 +584,10 @@ class gls {
         const cellY = y / (rows - 1);
         const cellW = 1 / (cols - 1);
         const cellH = 1 / (rows - 1);
-        if (!isAreaTransparent(cellX, cellY, cellW, cellH, imageData, imageWidth, imageHeight)) {
+
+
+        if (!isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height))
+           {
           const topLeft = y * cols + x;
           const topRight = y * cols + x + 1;
           const bottomLeft = (y + 1) * cols + x;
@@ -595,6 +601,7 @@ class gls {
             newTopRight, newBottomLeft, newBottomRight
           );
         }
+       
       }
     }
 
@@ -639,6 +646,7 @@ class gls {
 
 
     // clear buffer first
+    /*
     if (vbo.value) gl.deleteBuffer(vbo.value);
     if (ebo.value) gl.deleteBuffer(ebo.value);
     if (eboLines.value) gl.deleteBuffer(eboLines.value);
@@ -656,6 +664,7 @@ class gls {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines.value);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
 
+    */
     if (vbo2.value.length > 0) {
       vbo2.value.forEach(buffer => {
         if (buffer) gl.deleteBuffer(buffer);
@@ -917,9 +926,9 @@ export {
   indices,
   linesIndices,
   configSettings,
-  imageData,
-  imageWidth,
-  imageHeight,
+  //imageData,
+  //imageWidth,
+  //imageHeight,
   gridCells,
   transparentCells,
 

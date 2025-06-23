@@ -34,9 +34,9 @@ import {
   gridCells,
   transparentCells,
   isAreaTransparent,
-  imageData,
-  imageWidth,
-  imageHeight,
+ // imageData,
+ // imageWidth,
+  //imageHeight,
 } from './useWebGL.js';
 
 import {
@@ -1145,27 +1145,30 @@ const app = Vue.createApp({
 
       let result = await loadTexture(gl.value, './png3.png');
 
-      texture.value = { tex: result.texture };
-      imageData.value = result.data;
-      imageWidth.value = result.width;
-      imageHeight.value = result.height;
+      // texture.value = { tex: result.texture };
+      texture.value = [];
+      //imageData.value = result.data;
+      // imageWidth.value = result.width;
+      //imageHeight.value = result.height;
       console.log("first create buffer ... ");
 
       //    glsInstance.createBuffers(gl.value);
 
-    //  glsInstance.clearAllLayerBuffers();
+      //  glsInstance.clearAllLayerBuffers();
 
-      let layer = { imageData: imageData.value, width: imageWidth.value, height: imageHeight.value }
-      texture.value = await layerToTexture(gl.value, layer);
+      let layer = { imageData: result.data, width: result.width, height: result.height }
+      texture.value.push(await layerToTexture(gl.value, layer));
 
-      console.log(" texture layers length : ", texture.value);
+      console.log(" texture layers length : ", texture.value.length);
 
       console.log(" =================================== start adding layers ", texture.value);
       for (let i = 0; i < texture.value.length; i++) {
         console.log(" hi loading gl value : ", i);
         glsInstance.createLayerBuffers(texture.value[i]);
       }
-       glsInstance.createBuffers(gl.value);
+      console.log(" =================================== qqqs ", texture.value);
+
+      glsInstance.createBuffers(gl.value, texture.value[0].image, texture.value[0].width, texture.value[0].height);
       console.log(" init render! ");
 
       //render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
