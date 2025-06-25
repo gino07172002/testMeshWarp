@@ -5,14 +5,8 @@ export const boneTree = reactive({});
 import {
   //initBone,
   skeletonVertices,
-  originalSkeletonVertices,
   boneParents,
   boneChildren,
-  vertexInfluences,
-  isEditingExistingBone,
-  selectedBoneForEditing,
-  editingBoneEnd,
-  boneEndBeingDragged,
 } from './useBone.js';
 
 import {
