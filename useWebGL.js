@@ -5,12 +5,7 @@ import {
   // initBone,
   skeletonVertices,
   originalSkeletonVertices,
-  boneParents,
-  boneChildren,
   vertexInfluences,
-  isEditingExistingBone,
-  selectedBoneForEditing,
-  editingBoneEnd,
 } from './useBone.js';
 
 // 📦 全局狀態區 (State)
@@ -19,13 +14,10 @@ const texture = ref(null);               // 紋理
 const program = ref(null);               // 主著色器程序
 const colorProgram = ref(null);          // 顏色著色器程序
 const skeletonProgram = ref(null);       // 骨骼著色器程序
-const vbo = ref(null);                   // 頂點緩衝區
-const ebo = ref(null);                   // 元素緩衝區（三角形）
-const eboLines = ref(null);              // 元素緩衝區（線條）
-
+    
 const vbo2 = ref([]);                   // 頂點緩衝區
 const ebo2 = ref([]);                   // 元素緩衝區（三角形）
-const eboLines2 = ref([]);
+const eboLines2 = ref([]);             // 元素緩衝區（線條）
 
 // Mesh-related reactive variables
 const vertices = ref([]);                // 當前頂點數據
@@ -106,6 +98,11 @@ export class ImageLayerGls {
     this.linesIndices = ref([]);
     this.transparentCells = ref(new Set()); // Store transparent cells
     this.gridCellsLayer = ref([]);
+
+    //each layer has its own buffers
+    this.vbo = ref(null); // 頂點緩衝區
+    this.ebo = ref(null); // 元素緩衝區（三角形）
+    this.eboLines = ref(null); // 元素緩衝區（線條）
   }
 
   loadImage(url) {
@@ -115,8 +112,8 @@ export class ImageLayerGls {
     console.log(" image layer gls create buffer done ... ");
   }
 
-  createBuffers(gl, image, width, height) {
-    const rows = 10, cols = 10;
+  createBuffers( gl,image, width, height) {
+     const rows = 10, cols = 10;
     const xStep = 2.0 / (cols - 1);
     const yStep = 2.0 / (rows - 1);
 
@@ -136,13 +133,14 @@ export class ImageLayerGls {
         const bottomLeft = (y + 1) * cols + x;
         const bottomRight = (y + 1) * cols + x + 1;
 
+        //const isTransparent = isAreaTransparent(cellX, cellY, cellW, cellH, imageData, imageWidth, imageHeight);
         const isTransparent = isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height);
+
         if (!isTransparent) {
           visibleCells.push({ x, y });
 
         } else {
-          this.transparentCells.value.add(cellIndex);
-          // console.log(" transparent Push : ", cellIndex);
+          transparentCells.value.add(cellIndex);
           gridCells.push({
             vertices: [topLeft, topRight, bottomRight, bottomLeft],
             isTransparent: isTransparent
@@ -181,7 +179,32 @@ export class ImageLayerGls {
       }
     }
 
+    for (let y = 0; y < rows - 1; y++) {
+      for (let x = 0; x < cols - 1; x++) {
+        const cellX = x / (cols - 1);
+        const cellY = y / (rows - 1);
+        const cellW = 1 / (cols - 1);
+        const cellH = 1 / (rows - 1);
 
+
+        if (!isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height))
+           {
+          const topLeft = y * cols + x;
+          const topRight = y * cols + x + 1;
+          const bottomLeft = (y + 1) * cols + x;
+          const bottomRight = (y + 1) * cols + x + 1;
+          const newTopLeft = vertexMapping.get(topLeft);
+          const newTopRight = vertexMapping.get(topRight);
+          const newBottomLeft = vertexMapping.get(bottomLeft);
+          const newBottomRight = vertexMapping.get(bottomRight);
+          currentIndices.push(
+            newTopLeft, newBottomLeft, newTopRight,
+            newTopRight, newBottomLeft, newBottomRight
+          );
+        }
+       
+      }
+    }
 
     for (const originalIndex1 of usedVertices) {
       if (originalIndex1 % cols < cols - 1) {
@@ -204,15 +227,32 @@ export class ImageLayerGls {
       }
     }
 
-    this.vertices.value = currentVertices;
-    this.originalVertices.value = [...currentVertices];
 
-    this.gridCellsLayer.value = gridCells;
+        this.vbo.value = gl.createBuffer();
 
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo.value);  
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
+        
+       this.ebo.value = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,  this.ebo.value);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
 
-    console.log("gls  vertices length ", this.vertices.value.length);
-    console.log(" hi gridCells: ", this.gridCellsLayer.value.length, " gridCellLayer : ", gridCells.length);
-    console.log("create buffer in image layer gls done ... ");
+       this.eboLines.value = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,  this.eboLines.value);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
+
+      
+
+      
+    };
+   
+
+  updateMesh()
+  {
+      for (let i = 0; i < this.vbo.value.length; i++) {
+      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, this.vbo.value[i]);
+      gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
+    }
   }
 
 }
@@ -260,7 +300,10 @@ export function useImageLayer() {
   const originalVertices = ref([]);        // 原始頂點數據
   const indices = ref([]);                 // 三角形索引
   const linesIndices = ref([]);
-
+  const texture = ref(null); // 紋理
+  const vbo = ref(null); // 頂點緩衝區
+  const ebo = ref(null); // 元素緩衝區（三角形）
+  const eboLines = ref(null); // 元素緩衝區（線條）
 
   function loadImage(url) {
     image.value = url;
@@ -317,6 +360,11 @@ class gls {
   getLayer(layerName) {
     return this.layerMap[layerName] || null;
   };
+
+  getLayerSize() {
+    return this.layers.length;
+  };
+
   compileShader(gl, source, type) {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
@@ -475,40 +523,223 @@ class gls {
     this.layerManager.clearLayers();
 
   }
-  createLayerBuffers(gl) {
+  createLayerBuffers(gl, image, width, height) {
 
-
-    console.log("check layer gl exist : ");
-    console.log(texture); // 应输出 WebGLTexture 对象（非 null）
-    if (!texture) {
-      console.error("纹理创建失败！");
-    }
-    console.log(" hello create layer buffer ");
 
     const layer1 = new ImageLayerGls();
-
-    layer1.loadImage("image1.jpg");
-    layer1.createBuffers(gl.tex, gl.image, gl.width, gl.height);
-
+    //layer1.createBuffers(gl, image, width, height);
+    this.createBuffers2(gl, image, width, height);
+    console.log(" checking raw layer1 content :", JSON.stringify(layer1));
     this.layerManager.addLayer(layer1);
     console.log(" my layer length :", this.layerManager.length);
-    // 清空所有圖層
-    //this.layerManager.clearLayers();
-    /*
-        vbo2.value.push(gl.createBuffer());
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-    
-        ebo2.value.push(gl.createBuffer());
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-    
-        eboLines2.value.push(gl.createBuffer());
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines2.value[i]);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-    */
+   
 
   }
+createBuffers2(gl, image, width, height) {
+    const rows = 10, cols = 10;
+    const xStep = 2.0 / (cols - 1);
+    const yStep = 2.0 / (rows - 1);
+
+    const visibleCells = [];
+    const gridCells = [];
+
+    transparentCells.value.clear();
+    for (let y = 0; y < rows - 1; y++) {
+      for (let x = 0; x < cols - 1; x++) {
+        const cellX = x / (cols - 1);
+        const cellY = y / (rows - 1);
+        const cellW = 1 / (cols - 1);
+        const cellH = 1 / (rows - 1);
+        const cellIndex = y * (cols - 1) + x;
+        const topLeft = y * cols + x;
+        const topRight = y * cols + x + 1;
+        const bottomLeft = (y + 1) * cols + x;
+        const bottomRight = (y + 1) * cols + x + 1;
+
+        //const isTransparent = isAreaTransparent(cellX, cellY, cellW, cellH, imageData, imageWidth, imageHeight);
+        const isTransparent = isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height);
+
+        if (!isTransparent) {
+          visibleCells.push({ x, y });
+
+        } else {
+          transparentCells.value.add(cellIndex);
+          gridCells.push({
+            vertices: [topLeft, topRight, bottomRight, bottomLeft],
+            isTransparent: isTransparent
+          });
+        }
+      }
+    }
+
+    const usedVertices = new Set();
+    visibleCells.forEach(cell => {
+      const { x, y } = cell;
+      usedVertices.add(y * cols + x);
+      usedVertices.add(y * cols + x + 1);
+      usedVertices.add((y + 1) * cols + x);
+      usedVertices.add((y + 1) * cols + x + 1);
+    });
+
+    const vertexMapping = new Map();
+    let newIndex = 0;
+    const currentVertices = [];
+    const currentIndices = [];
+    const currentLinesIndices = [];
+
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const originalIndex = y * cols + x;
+        if (usedVertices.has(originalIndex)) {
+          vertexMapping.set(originalIndex, newIndex++);
+          currentVertices.push(
+            -1.0 + x * xStep,
+            1.0 - y * yStep,
+            x / (cols - 1),
+            y / (rows - 1)
+          );
+        }
+      }
+    }
+
+    for (let y = 0; y < rows - 1; y++) {
+      for (let x = 0; x < cols - 1; x++) {
+        const cellX = x / (cols - 1);
+        const cellY = y / (rows - 1);
+        const cellW = 1 / (cols - 1);
+        const cellH = 1 / (rows - 1);
+
+
+        if (!isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height))
+           {
+          const topLeft = y * cols + x;
+          const topRight = y * cols + x + 1;
+          const bottomLeft = (y + 1) * cols + x;
+          const bottomRight = (y + 1) * cols + x + 1;
+          const newTopLeft = vertexMapping.get(topLeft);
+          const newTopRight = vertexMapping.get(topRight);
+          const newBottomLeft = vertexMapping.get(bottomLeft);
+          const newBottomRight = vertexMapping.get(bottomRight);
+          currentIndices.push(
+            newTopLeft, newBottomLeft, newTopRight,
+            newTopRight, newBottomLeft, newBottomRight
+          );
+        }
+       
+      }
+    }
+
+    for (const originalIndex1 of usedVertices) {
+      if (originalIndex1 % cols < cols - 1) {
+        const originalIndex2 = originalIndex1 + 1;
+        if (usedVertices.has(originalIndex2)) {
+          currentLinesIndices.push(
+            vertexMapping.get(originalIndex1),
+            vertexMapping.get(originalIndex2)
+          );
+        }
+      }
+      if (Math.floor(originalIndex1 / cols) < rows - 1) {
+        const originalIndex2 = originalIndex1 + cols;
+        if (usedVertices.has(originalIndex2)) {
+          currentLinesIndices.push(
+            vertexMapping.get(originalIndex1),
+            vertexMapping.get(originalIndex2)
+          );
+        }
+      }
+    }
+
+    vertices.value = currentVertices;
+    originalVertices.value = [...currentVertices];
+
+    for (let i = 0; i < 3; i++) {
+      vertices2.value.push(currentVertices);
+      originalVertices2.value.push([...currentVertices]);
+      indices2.value.push(currentIndices);
+      linesIndices2.value.push(currentLinesIndices);
+    }
+
+    indices.value = currentIndices;
+    linesIndices.value = currentLinesIndices;
+
+
+    // 將 gridCells 儲存到某個可訪問的地方，例如 ref
+    gridCells.value = gridCells;
+
+/*
+    if (vbo2.value.length > 0) {
+      vbo2.value.forEach(buffer => {
+        if (buffer) gl.deleteBuffer(buffer);
+      });
+      vbo2.value = []; // 清空数组
+    }
+
+    // 处理 ebo2 数组
+    if (ebo2.value.length > 0) {
+      ebo2.value.forEach(buffer => {
+        if (buffer) gl.deleteBuffer(buffer);
+      });
+      ebo2.value = [];
+    }
+
+    // 处理 eboLines2 数组
+    if (eboLines2.value.length > 0) {
+      eboLines2.value.forEach(buffer => {
+        if (buffer) gl.deleteBuffer(buffer);
+      });
+      eboLines2.value = [];
+    }
+
+    //test for multi layer
+    for (let i = 0; i < 3; i++) {
+      vbo2.value.push(gl.createBuffer());
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
+
+      ebo2.value.push(gl.createBuffer());
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
+
+      eboLines2.value.push(gl.createBuffer());
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines2.value[i]);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
+
+    }
+    console.log(" layer count : ", this.getLayerSize());
+
+*/
+
+
+
+    for (let i = 0; i < this.getLayerSize(); i++) {
+      const layer = this.layers[i];
+      if (layer) {
+        layer.vbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);  
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
+        
+        layer.ebo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
+
+        layer.eboLines = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.eboLines);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
+
+      
+
+      } else {
+        console.warn(`Layer ${i} does not exist.`);
+
+      }
+     
+        
+    }  
+   
+  };
+
+
   // Modified createBuffers to populate transparentCells
 
   createBuffers(gl, image, width, height) {
@@ -640,31 +871,10 @@ class gls {
     linesIndices.value = currentLinesIndices;
 
 
-
     // 將 gridCells 儲存到某個可訪問的地方，例如 ref
     gridCells.value = gridCells;
 
 
-    // clear buffer first
-    /*
-    if (vbo.value) gl.deleteBuffer(vbo.value);
-    if (ebo.value) gl.deleteBuffer(ebo.value);
-    if (eboLines.value) gl.deleteBuffer(eboLines.value);
-
-    console.log(" init vbo ? ");
-    vbo.value = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-
-    ebo.value = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-
-    eboLines.value = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines.value);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-
-    */
     if (vbo2.value.length > 0) {
       vbo2.value.forEach(buffer => {
         if (buffer) gl.deleteBuffer(buffer);
@@ -703,10 +913,42 @@ class gls {
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
 
     }
+    console.log(" layer count : ", this.getLayerSize());
+
+
+
+
+
+    for (let i = 0; i < this.getLayerSize(); i++) {
+      const layer = this.layers[i];
+      if (layer) {
+        layer.vbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);  
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
+        
+        layer.ebo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
+
+        layer.eboLines = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.eboLines);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
+
+      
+
+      } else {
+        console.warn(`Layer ${i} does not exist.`);
+
+      }
+     
+        
+    }  
+   
   };
 
 
   updateMeshForSkeletonPose() {
+    console.log("updateMeshForSkeletonPose called");
     const numVertices = vertices.value.length / 4;
 
     for (let i = 0; i < numVertices; i++) {
@@ -784,110 +1026,12 @@ class gls {
     }
 
     // 更新GPU緩衝區
-    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo.value);
-    gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
-
-    //console.log(" hi update vbo in motion");
     for (let i = 0; i < vbo2.value.length; i++) {
       gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo2.value[i]);
       gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
     }
 
   };
-
-  updateMeshForSkeletonPose2() {
-
-    for (let j = 0; j < 3; j++) {
-      const numVertices = vertices2[j].value.length / 4;
-
-      for (let i = 0; i < numVertices; i++) {
-        const influences = vertexInfluences.value[i];
-        const vertexOffset = i * 4;
-
-        // 如果沒有骨骼影響，直接使用原始頂點
-        if (influences.length === 0) {
-          vertices.value[vertexOffset] = originalVertices.value[vertexOffset];
-          vertices.value[vertexOffset + 1] = originalVertices.value[vertexOffset + 1];
-          continue;
-        }
-
-        const originalX = originalVertices.value[vertexOffset];
-        const originalY = originalVertices.value[vertexOffset + 1];
-        let skinnedX = 0;
-        let skinnedY = 0;
-
-        // 對每個影響此頂點的骨骼進行變形計算
-        influences.forEach(({ boneIndex, weight }) => {
-          const boneOffset = boneIndex * 4;
-
-          // 獲取原始和當前骨骼位置
-          const origHead = {
-            x: originalSkeletonVertices.value[boneOffset],
-            y: originalSkeletonVertices.value[boneOffset + 1]
-          };
-          const origTail = {
-            x: originalSkeletonVertices.value[boneOffset + 2],
-            y: originalSkeletonVertices.value[boneOffset + 3]
-          };
-          const currHead = {
-            x: skeletonVertices.value[boneOffset],
-            y: skeletonVertices.value[boneOffset + 1]
-          };
-          const currTail = {
-            x: skeletonVertices.value[boneOffset + 2],
-            y: skeletonVertices.value[boneOffset + 3]
-          };
-
-          // 計算骨骼方向和長度
-          const origDir = { x: origTail.x - origHead.x, y: origTail.y - origHead.y };
-          const currDir = { x: currTail.x - currHead.x, y: currTail.y - currHead.y };
-
-          const origLength = Math.sqrt(origDir.x ** 2 + origDir.y ** 2);
-          const currLength = Math.sqrt(currDir.x ** 2 + currDir.y ** 2);
-          const scale = currLength / origLength;
-
-          // 計算旋轉角度
-          const rotationAngle = Math.atan2(currDir.y, currDir.x) - Math.atan2(origDir.y, origDir.x);
-
-          // 將頂點轉換到骨骼本地坐標系
-          const localX = originalX - origHead.x;
-          const localY = originalY - origHead.y;
-
-          // 應用縮放和旋轉變換
-          const cos = Math.cos(rotationAngle);
-          const sin = Math.sin(rotationAngle);
-
-          const transformedX = (localX * scale) * cos - (localY * scale) * sin;
-          const transformedY = (localX * scale) * sin + (localY * scale) * cos;
-
-          // 轉換回世界坐標系
-          const worldX = transformedX + currHead.x;
-          const worldY = transformedY + currHead.y;
-
-          // 根據權重累加影響
-          skinnedX += worldX * weight;
-          skinnedY += worldY * weight;
-        });
-
-        // 更新頂點位置
-        vertices.value[vertexOffset] = skinnedX;
-        vertices.value[vertexOffset + 1] = skinnedY;
-      }
-    }
-
-    // 更新GPU緩衝區
-    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo.value);
-    gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
-
-    //console.log(" hi update vbo in motion");
-    for (let i = 0; i < vbo2.value.length; i++) {
-      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo2.value[i]);
-      gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
-    }
-
-
-  };
-
 
 
   setVertexBoneWeight(vertexIndex, boneIndex, newWeight) {
@@ -914,9 +1058,9 @@ export {
   program,
   colorProgram,
   skeletonProgram,
-  vbo,
-  ebo,
-  eboLines,
+ // vbo,
+ // ebo,
+ // eboLines,
 
   vbo2,
   ebo2,

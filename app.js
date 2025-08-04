@@ -15,9 +15,6 @@ import {
   program,
   colorProgram,
   skeletonProgram,
-  vbo,
-  ebo,
-  eboLines,
   vbo2,
   ebo2,
   eboLines2,
@@ -28,8 +25,8 @@ import {
   gridCells,
   transparentCells,
   isAreaTransparent,
- // imageData,
- // imageWidth,
+  // imageData,
+  // imageWidth,
   //imageHeight,
 } from './useWebGL.js';
 
@@ -138,8 +135,6 @@ const changeImage = async (newUrl) => {
     glsInstance.createBuffers(gl.value);
 
     // 若骨架數據與圖片相關，需重新初始化
-    // initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
-    // initBone(gl, program, texture.tex, vbo ,ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
 
   } catch (error) {
     console.error("更換圖片失敗:", error);
@@ -184,9 +179,6 @@ const changeImage2 = async (layerIndices = null) => {
 
     // 根據新圖片尺寸重新建立頂點緩衝（假設所有圖層共享相同網格）
     glsInstance.createBuffers(gl.value);
-
-    // 若骨架數據與圖片相關，需重新初始化
-    //initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
 
   } catch (error) {
     console.error("更換圖片失敗:", error);
@@ -708,7 +700,6 @@ const app = Vue.createApp({
       vueInstance: instance,
       gl: gl.value,
       vertices: vertices,
-      vbo: vbo,
       originalVertices: originalVertices,
       selectedBone: selectedBone,
       isShiftPressed: isShiftPressed,
@@ -799,7 +790,7 @@ const app = Vue.createApp({
           const index = localSelectedVertex * 4;
           vertices.value[index] = xNDC;
           vertices.value[index + 1] = yNDC;
-          gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
+          //    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
           gl.bufferSubData(gl.ARRAY_BUFFER, index * 4, new Float32Array([xNDC, yNDC]));
         } else if (activeTool.value === 'bone-create') {
           bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
@@ -906,72 +897,98 @@ const app = Vue.createApp({
 
 
     const render2 = (gl, program, colorProgram, skeletonProgram) => {
+      // 停止机制检查
+      // if (shouldStopAnimation) return;
 
+      // 清除画布
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
+      // 启用混合
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-      // 渲染紋理
+      // === 1. 渲染纹理图层 ===
       if (texture.value) {
-        // console.log("render2 length : ",vbo2.value.length);
         const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
 
         gl.useProgram(program);
-        for (let i = 0; i < vbo2.value.length; i++) {
-          gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
-          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
-        }
 
-        const posAttrib = gl.getAttribLocation(program, 'aPosition');
-        const texAttrib = gl.getAttribLocation(program, 'aTexCoord');
+        for (let i = 0; i < textures.length; i++) {
+          if (i >= glsInstance.getLayerSize()) break;
 
-        gl.enableVertexAttribArray(posAttrib);
-        gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 16, 0);
+          const tex = textures[i];
+          const layer = glsInstance.layers[i];
 
-        gl.enableVertexAttribArray(texAttrib);
-        gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
+          // === 网格动画更新 ===
+          if (layer.needsUpdate) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
 
-        textures.forEach((tex, index) => {
+            // 计算动画顶点（实现你的动画逻辑）
+            const updatedVertices = calculateAnimationVertices(layer);
+            gl.bufferSubData(gl.ARRAY_BUFFER, 0, updatedVertices);
+
+            layer.needsUpdate = false;
+          }
+
+          // 绑定当前图层缓冲区
+          gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
+
+          // 设置纹理变换矩阵
           const coords = tex.coords || {};
-          const left = coords.left !== undefined ? coords.left : -1.0;
-          const right = coords.right !== undefined ? coords.right : 1.0;
-          const top = coords.top !== undefined ? coords.top : 1.0;
-          const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
+          const left = coords.left ?? -1.0;
+          const right = coords.right ?? 1.0;
+          const top = coords.top ?? 1.0;
+          const bottom = coords.bottom ?? -1.0;
 
           const scaleX = (right - left) / 2.0;
           const scaleY = (top - bottom) / 2.0;
           const translateX = (left + right) / 2.0;
           const translateY = (bottom + top) / 2.0;
 
-          // 創建變換矩陣
-          let transformMatrix = [
+          const transformMatrix = new Float32Array([
             scaleX, 0, 0, 0,
             0, scaleY, 0, 0,
             0, 0, 1, 0,
             translateX, translateY, 0, 1
-          ];
+          ]);
 
-          // if (index ==1 )
-          {
-            gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, tex.tex);
+          // 设置uniform
+          gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, tex.tex);
+          gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
 
-            gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
-
-            gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
-          }
-        });
+          // 绘制
+          gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+        }
       }
 
-      // 渲染基本幾何形狀
-      renderBasicGeometry2(gl, colorProgram);
+      // === 2. 渲染几何形状 ===
+      if (glsInstance.getLayerSize() > 0) {
+        const baseLayer = glsInstance.layers[0];
 
-      // 渲染骨架
+        gl.useProgram(colorProgram);
+
+        // 绑定基础图层缓冲区
+        gl.bindBuffer(gl.ARRAY_BUFFER, baseLayer.vbo);
+
+        // 渲染线条
+        gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 1);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, baseLayer.eboLines);
+        gl.drawElements(gl.LINES, linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
+
+        // 渲染点
+        gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
+        gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
+        gl.drawArrays(gl.POINTS, 0, vertices.value.length / 4);
+      }
+
+      // === 3. 渲染骨架 ===
       renderSkeleton(gl, skeletonProgram);
 
+      // 请求下一帧
       requestAnimationFrame(() => render2(gl, program, colorProgram, skeletonProgram));
     };
 
@@ -1133,43 +1150,63 @@ const app = Vue.createApp({
 
       gl.value = webglContext;
       setupCanvasEvents(canvas, gl.value, container);
+
+      // 创建着色器程序
       program.value = glsInstance.createProgram(gl.value, shaders.vertex, shaders.fragment);
       colorProgram.value = glsInstance.createProgram(gl.value, shaders.colorVertex, shaders.colorFragment);
       skeletonProgram.value = glsInstance.createProgram(gl.value, shaders.skeletonVertex, shaders.skeletonFragment);
 
+      // 加载纹理
       let result = await loadTexture(gl.value, './png3.png');
-
-      // texture.value = { tex: result.texture };
       texture.value = [];
-      //imageData.value = result.data;
-      // imageWidth.value = result.width;
-      //imageHeight.value = result.height;
-      console.log("first create buffer ... ");
 
-      //    glsInstance.createBuffers(gl.value);
-
-      //  glsInstance.clearAllLayerBuffers();
-
-      let layer = { imageData: result.data, width: result.width, height: result.height }
+      let layer = {
+        imageData: result.data,
+        width: result.width,
+        height: result.height
+      };
       texture.value.push(await layerToTexture(gl.value, layer));
 
-      console.log(" texture layers length : ", texture.value.length);
-
-      console.log(" =================================== start adding layers ", texture.value);
+      // === 初始化图层缓冲区和顶点属性 ===
       for (let i = 0; i < texture.value.length; i++) {
-        console.log(" hi loading gl value : ", i);
-        glsInstance.createLayerBuffers(texture.value[i]);
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height);
+
+        // 绑定当前图层的缓冲区
+        const layer = glsInstance.layers[i];
+        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
+        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
+
+        // === 设置顶点属性（只需一次）===
+        // 1. 纹理程序的属性
+        gl.value.useProgram(program.value);
+        const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
+        const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
+        gl.value.enableVertexAttribArray(posAttrib);
+        gl.value.enableVertexAttribArray(texAttrib);
+        gl.value.vertexAttribPointer(posAttrib, 2,gl.value.FLOAT, false, 16, 0);
+        gl.value.vertexAttribPointer(texAttrib, 2,gl.value.FLOAT, false, 16, 8);
+
+        // 2. 颜色程序的属性
+        gl.value.useProgram(colorProgram.value);
+        const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
+        gl.value.enableVertexAttribArray(colorPosAttrib);
+        gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
       }
-      console.log(" =================================== qqqs ", texture.value);
 
-      glsInstance.createBuffers(gl.value, texture.value[0].image, texture.value[0].width, texture.value[0].height);
-      console.log(" init render! ");
+      // 为第0层设置线条缓冲区
+      if (glsInstance.getLayerSize() > 0) {
+        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, glsInstance.layers[0].eboLines);
+        gl.value.bufferData(gl.value.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices.value), gl.value.STATIC_DRAW);
+      }
 
-      //render(webglContext, program.value, colorProgram.value, skeletonProgram.value);
+      // 解绑所有缓冲区
+      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
+      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
+
+      console.log("WebGL initialization complete");
+
+      // 启动渲染循环
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value);
-      //    console.log(" init bone! ");
-      //   initBone(gl, program, texture.tex, vbo, ebo, indices, glsInstance.resetMeshToOriginal, glsInstance.updateMeshForSkeletonPose);
-
     };
     const drawAgain = () => {
       drawGlCanvas();

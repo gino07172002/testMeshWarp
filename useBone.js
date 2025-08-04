@@ -24,11 +24,6 @@ const minBoneLength = 0.1;
 let gl, program, texture, vbo, ebo, indices;
 let resetMeshToOriginal, updateMeshForSkeletonPose;
 
-// 🔧 初始化依賴
-function initBone(glRef, programRef, tex, vbRefArray, eb, ind, resetFn, updateFn) {
-  console.log(" checking init bone!");
-}
-
 // 📷 匯出圖片（可選）
 function downloadImage() {
   const canvas = document.getElementById('webgl');
