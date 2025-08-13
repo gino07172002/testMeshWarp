@@ -14,10 +14,7 @@ const texture = ref(null);               // 紋理
 const program = ref(null);               // 主著色器程序
 const colorProgram = ref(null);          // 顏色著色器程序
 const skeletonProgram = ref(null);       // 骨骼著色器程序
-    
-const vbo2 = ref([]);                   // 頂點緩衝區
-const ebo2 = ref([]);                   // 元素緩衝區（三角形）
-const eboLines2 = ref([]);             // 元素緩衝區（線條）
+
 
 // Mesh-related reactive variables
 const vertices = ref([]);                // 當前頂點數據
@@ -25,11 +22,6 @@ const originalVertices = ref([]);        // 原始頂點數據
 const indices = ref([]);                 // 三角形索引
 const linesIndices = ref([]);            // 線條索引
 
-
-const vertices2 = ref([]);                // 當前頂點數據
-const originalVertices2 = ref([]);        // 原始頂點數據
-const indices2 = ref([]);                 // 三角形索引
-const linesIndices2 = ref([]);            // 線條索引
 
 
 const gridCells = ref([]);
@@ -249,47 +241,17 @@ export class ImageLayerGls {
 
   updateMesh()
   {
+    /*
       for (let i = 0; i < this.vbo.value.length; i++) {
       gl.value.bindBuffer(gl.value.ARRAY_BUFFER, this.vbo.value[i]);
       gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
     }
+      */
   }
 
 }
 
 
-class LayerManager {
-  constructor() {
-    this.layers = [];
-    console.log("constructor layer length : ", this.layers.length);
-  }
-
-  addLayer(layer) {
-    this.layers.push(layer);
-    console.log("current layer length : ", this.layers.length);
-  }
-
-  removeLayer(index) {
-    this.layers.splice(index, 1);
-  }
-
-  swapLayers(index1, index2) {
-    [this.layers[index1], this.layers[index2]] = [this.layers[index2], this.layers[index1]];
-  }
-
-  clearLayers() {
-
-    this.layers = [];
-    console.log(" clear all layers : ", this.layers.length);
-  }
-
-  getLayers() {
-    return this.layers;
-  }
-  length() {
-    return this.layers.length;
-  }
-}
 
 
 export function useImageLayer() {
@@ -342,7 +304,7 @@ class gls {
       visible: tempLayer.visible.value,
       image: tempLayer.image.value
     });
-    this.layerManager = new LayerManager();
+   
 
   };
 
@@ -394,23 +356,8 @@ class gls {
   }
 
   resetMeshToOriginal() {
-    if (originalVertices.value.length > 0) {
-      for (let i = 0; i < vertices.value.length; i++) {
-        vertices.value[i] = originalVertices.value[i];
-      }
-      if (originalSkeletonVertices.value.length > 0) {
-        for (let i = 0; i < skeletonVertices.value.length; i++) {
-          skeletonVertices.value[i] = originalSkeletonVertices.value[i];
-        }
-      }
-      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo.value);
-      gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
+    console.log(" hi reset mesh to original ... ");
 
-      for (let i = 0; i < vbo2.value.length; i++) {
-        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo2.value[i]);
-        gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
-      }
-    }
   };
 
   createSkeletonBuffers(gl) {
@@ -520,18 +467,12 @@ class gls {
   };
 
   clearAllLayerBuffers() {
-    this.layerManager.clearLayers();
+    
 
   }
   createLayerBuffers(gl, image, width, height) {
 
-
-    const layer1 = new ImageLayerGls();
-    //layer1.createBuffers(gl, image, width, height);
     this.createBuffers2(gl, image, width, height);
-    console.log(" checking raw layer1 content :", JSON.stringify(layer1));
-    this.layerManager.addLayer(layer1);
-    console.log(" my layer length :", this.layerManager.length);
    
 
   }
@@ -653,13 +594,6 @@ createBuffers2(gl, image, width, height) {
     vertices.value = currentVertices;
     originalVertices.value = [...currentVertices];
 
-    for (let i = 0; i < 3; i++) {
-      vertices2.value.push(currentVertices);
-      originalVertices2.value.push([...currentVertices]);
-      indices2.value.push(currentIndices);
-      linesIndices2.value.push(currentLinesIndices);
-    }
-
     indices.value = currentIndices;
     linesIndices.value = currentLinesIndices;
 
@@ -667,53 +601,10 @@ createBuffers2(gl, image, width, height) {
     // 將 gridCells 儲存到某個可訪問的地方，例如 ref
     gridCells.value = gridCells;
 
-/*
-    if (vbo2.value.length > 0) {
-      vbo2.value.forEach(buffer => {
-        if (buffer) gl.deleteBuffer(buffer);
-      });
-      vbo2.value = []; // 清空数组
-    }
-
-    // 处理 ebo2 数组
-    if (ebo2.value.length > 0) {
-      ebo2.value.forEach(buffer => {
-        if (buffer) gl.deleteBuffer(buffer);
-      });
-      ebo2.value = [];
-    }
-
-    // 处理 eboLines2 数组
-    if (eboLines2.value.length > 0) {
-      eboLines2.value.forEach(buffer => {
-        if (buffer) gl.deleteBuffer(buffer);
-      });
-      eboLines2.value = [];
-    }
-
-    //test for multi layer
-    for (let i = 0; i < 3; i++) {
-      vbo2.value.push(gl.createBuffer());
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-
-      ebo2.value.push(gl.createBuffer());
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-
-      eboLines2.value.push(gl.createBuffer());
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines2.value[i]);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-
-    }
-    console.log(" layer count : ", this.getLayerSize());
-
-*/
-
-
-
     for (let i = 0; i < this.getLayerSize(); i++) {
       const layer = this.layers[i];
+      layer.vertices.value= currentVertices;
+      layer.originalVertices.value = [...currentVertices];
       if (layer) {
         layer.vbo = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);  
@@ -742,212 +633,12 @@ createBuffers2(gl, image, width, height) {
 
   // Modified createBuffers to populate transparentCells
 
-  createBuffers(gl, image, width, height) {
-    const rows = 10, cols = 10;
-    const xStep = 2.0 / (cols - 1);
-    const yStep = 2.0 / (rows - 1);
-
-    const visibleCells = [];
-    const gridCells = [];
-
-    transparentCells.value.clear();
-    for (let y = 0; y < rows - 1; y++) {
-      for (let x = 0; x < cols - 1; x++) {
-        const cellX = x / (cols - 1);
-        const cellY = y / (rows - 1);
-        const cellW = 1 / (cols - 1);
-        const cellH = 1 / (rows - 1);
-        const cellIndex = y * (cols - 1) + x;
-        const topLeft = y * cols + x;
-        const topRight = y * cols + x + 1;
-        const bottomLeft = (y + 1) * cols + x;
-        const bottomRight = (y + 1) * cols + x + 1;
-
-        //const isTransparent = isAreaTransparent(cellX, cellY, cellW, cellH, imageData, imageWidth, imageHeight);
-        const isTransparent = isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height);
-
-        if (!isTransparent) {
-          visibleCells.push({ x, y });
-
-        } else {
-          transparentCells.value.add(cellIndex);
-          gridCells.push({
-            vertices: [topLeft, topRight, bottomRight, bottomLeft],
-            isTransparent: isTransparent
-          });
-        }
-      }
-    }
-
-    const usedVertices = new Set();
-    visibleCells.forEach(cell => {
-      const { x, y } = cell;
-      usedVertices.add(y * cols + x);
-      usedVertices.add(y * cols + x + 1);
-      usedVertices.add((y + 1) * cols + x);
-      usedVertices.add((y + 1) * cols + x + 1);
-    });
-
-    const vertexMapping = new Map();
-    let newIndex = 0;
-    const currentVertices = [];
-    const currentIndices = [];
-    const currentLinesIndices = [];
-
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        const originalIndex = y * cols + x;
-        if (usedVertices.has(originalIndex)) {
-          vertexMapping.set(originalIndex, newIndex++);
-          currentVertices.push(
-            -1.0 + x * xStep,
-            1.0 - y * yStep,
-            x / (cols - 1),
-            y / (rows - 1)
-          );
-        }
-      }
-    }
-
-    for (let y = 0; y < rows - 1; y++) {
-      for (let x = 0; x < cols - 1; x++) {
-        const cellX = x / (cols - 1);
-        const cellY = y / (rows - 1);
-        const cellW = 1 / (cols - 1);
-        const cellH = 1 / (rows - 1);
-
-
-        if (!isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height))
-           {
-          const topLeft = y * cols + x;
-          const topRight = y * cols + x + 1;
-          const bottomLeft = (y + 1) * cols + x;
-          const bottomRight = (y + 1) * cols + x + 1;
-          const newTopLeft = vertexMapping.get(topLeft);
-          const newTopRight = vertexMapping.get(topRight);
-          const newBottomLeft = vertexMapping.get(bottomLeft);
-          const newBottomRight = vertexMapping.get(bottomRight);
-          currentIndices.push(
-            newTopLeft, newBottomLeft, newTopRight,
-            newTopRight, newBottomLeft, newBottomRight
-          );
-        }
-       
-      }
-    }
-
-    for (const originalIndex1 of usedVertices) {
-      if (originalIndex1 % cols < cols - 1) {
-        const originalIndex2 = originalIndex1 + 1;
-        if (usedVertices.has(originalIndex2)) {
-          currentLinesIndices.push(
-            vertexMapping.get(originalIndex1),
-            vertexMapping.get(originalIndex2)
-          );
-        }
-      }
-      if (Math.floor(originalIndex1 / cols) < rows - 1) {
-        const originalIndex2 = originalIndex1 + cols;
-        if (usedVertices.has(originalIndex2)) {
-          currentLinesIndices.push(
-            vertexMapping.get(originalIndex1),
-            vertexMapping.get(originalIndex2)
-          );
-        }
-      }
-    }
-
-    vertices.value = currentVertices;
-    originalVertices.value = [...currentVertices];
-
-    for (let i = 0; i < 3; i++) {
-      vertices2.value.push(currentVertices);
-      originalVertices2.value.push([...currentVertices]);
-      indices2.value.push(currentIndices);
-      linesIndices2.value.push(currentLinesIndices);
-    }
-
-    indices.value = currentIndices;
-    linesIndices.value = currentLinesIndices;
-
-
-    // 將 gridCells 儲存到某個可訪問的地方，例如 ref
-    gridCells.value = gridCells;
-
-
-    if (vbo2.value.length > 0) {
-      vbo2.value.forEach(buffer => {
-        if (buffer) gl.deleteBuffer(buffer);
-      });
-      vbo2.value = []; // 清空数组
-    }
-
-    // 处理 ebo2 数组
-    if (ebo2.value.length > 0) {
-      ebo2.value.forEach(buffer => {
-        if (buffer) gl.deleteBuffer(buffer);
-      });
-      ebo2.value = [];
-    }
-
-    // 处理 eboLines2 数组
-    if (eboLines2.value.length > 0) {
-      eboLines2.value.forEach(buffer => {
-        if (buffer) gl.deleteBuffer(buffer);
-      });
-      eboLines2.value = [];
-    }
-
-    //test for multi layer
-    for (let i = 0; i < 3; i++) {
-      vbo2.value.push(gl.createBuffer());
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[i]);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-
-      ebo2.value.push(gl.createBuffer());
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo2.value[i]);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-
-      eboLines2.value.push(gl.createBuffer());
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines2.value[i]);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-
-    }
-    console.log(" layer count : ", this.getLayerSize());
-
-
-
-
-
-    for (let i = 0; i < this.getLayerSize(); i++) {
-      const layer = this.layers[i];
-      if (layer) {
-        layer.vbo = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);  
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-        
-        layer.ebo = gl.createBuffer();
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-
-        layer.eboLines = gl.createBuffer();
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.eboLines);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-
-      
-
-      } else {
-        console.warn(`Layer ${i} does not exist.`);
-
-      }
-     
-        
-    }  
-   
-  };
 
 
   updateMeshForSkeletonPose() {
+
+   console.log(" gls get size : ",this.getLayerSize());
+
     console.log("updateMeshForSkeletonPose called");
     const numVertices = vertices.value.length / 4;
 
@@ -1025,11 +716,6 @@ createBuffers2(gl, image, width, height) {
       vertices.value[vertexOffset + 1] = skinnedY;
     }
 
-    // 更新GPU緩衝區
-    for (let i = 0; i < vbo2.value.length; i++) {
-      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, vbo2.value[i]);
-      gl.value.bufferData(gl.value.ARRAY_BUFFER, new Float32Array(vertices.value), gl.value.DYNAMIC_DRAW);
-    }
 
   };
 
@@ -1058,13 +744,7 @@ export {
   program,
   colorProgram,
   skeletonProgram,
- // vbo,
- // ebo,
- // eboLines,
 
-  vbo2,
-  ebo2,
-  eboLines2,
   vertices,
   originalVertices,
   indices,

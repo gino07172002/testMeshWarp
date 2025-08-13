@@ -15,19 +15,9 @@ import {
   program,
   colorProgram,
   skeletonProgram,
-  vbo2,
-  ebo2,
-  eboLines2,
-  vertices,
-  originalVertices,
+
   indices,
-  linesIndices,
-  gridCells,
-  transparentCells,
-  isAreaTransparent,
-  // imageData,
-  // imageWidth,
-  //imageHeight,
+  linesIndices
 } from './useWebGL.js';
 
 import {
@@ -699,8 +689,6 @@ const app = Vue.createApp({
       onUpdate: () => instance.proxy.$forceUpdate(),
       vueInstance: instance,
       gl: gl.value,
-      vertices: vertices,
-      originalVertices: originalVertices,
       selectedBone: selectedBone,
       isShiftPressed: isShiftPressed,
       skeletonIndices: skeletonIndices,
@@ -753,6 +741,7 @@ const app = Vue.createApp({
 
         if (e.button === 0 || e.button === 2) {
           if (activeTool.value === 'grab-point') {
+            /*
             let minDist = Infinity;
             localSelectedVertex = -1;
             for (let i = 0; i < vertices.value.length; i += 4) {
@@ -768,6 +757,7 @@ const app = Vue.createApp({
               isDragging = true;
               selectedVertex.value = localSelectedVertex;
             }
+              */
           } else if (activeTool.value === 'bone-create') {
             bonesInstance.handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
             isDragging = true;
@@ -787,11 +777,13 @@ const app = Vue.createApp({
         const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
 
         if (activeTool.value === 'grab-point' && localSelectedVertex !== -1) {
+          /*
           const index = localSelectedVertex * 4;
           vertices.value[index] = xNDC;
           vertices.value[index + 1] = yNDC;
           //    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
           gl.bufferSubData(gl.ARRAY_BUFFER, index * 4, new Float32Array([xNDC, yNDC]));
+          */
         } else if (activeTool.value === 'bone-create') {
           bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
         } else if (activeTool.value === 'bone-animate') {
@@ -887,7 +879,7 @@ const app = Vue.createApp({
       }
 
       // 渲染基本幾何形狀
-      renderBasicGeometry(gl, colorProgram);
+     // renderBasicGeometry(gl, colorProgram);
 
       // 渲染骨架
       renderSkeleton(gl, skeletonProgram);
@@ -895,20 +887,18 @@ const app = Vue.createApp({
       requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
     };
 
+    var time = 0;
 
     const render2 = (gl, program, colorProgram, skeletonProgram) => {
-      // 停止机制检查
-      // if (shouldStopAnimation) return;
-
-      // 清除画布
-      gl.clearColor(0.0, 0.0, 0.0, 1.0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-
-      // 启用混合
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-      // === 1. 渲染纹理图层 ===
+      // 关键修复：在每帧开始清除画布
+     // gl.clearColor(0.0, 0.0, 0.0, 1.0);
+     // gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+      time += 0.016; // 每幀遞增時間（大約60fps）
+
       if (texture.value) {
         const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
 
@@ -920,22 +910,35 @@ const app = Vue.createApp({
           const tex = textures[i];
           const layer = glsInstance.layers[i];
 
-          // === 网格动画更新 ===
-          if (layer.needsUpdate) {
+          // === VBO sin 波形更新 ===
+          if (layer.vbo && layer.vertices.value) {
+            const originalVertices = layer.vertices.value; // 假設 vertices 是 Float32Array
+
+            // 複製一份新的頂點資料
+            const updatedVertices = new Float32Array(originalVertices.length);
+
+            for (let j = 0; j < originalVertices.length; j += 4) {
+              const x = originalVertices[j];
+              const y = originalVertices[j + 1];
+              const z = originalVertices[j + 2];
+              const w = originalVertices[j + 3];
+
+              // 對 y 做 sin 波形變形，x 決定波長
+              //  const wave = Math.sin(x * 10 + time) * 0.05;
+              const wave = 0;
+              updatedVertices[j] = x;
+              updatedVertices[j + 1] = y + wave;
+              updatedVertices[j + 2] = z;
+              updatedVertices[j + 3] = w;
+            }
+
+            // 將更新後的頂點資料寫入 VBO
             gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
-
-            // 计算动画顶点（实现你的动画逻辑）
-            const updatedVertices = calculateAnimationVertices(layer);
-            gl.bufferSubData(gl.ARRAY_BUFFER, 0, updatedVertices);
-
-            layer.needsUpdate = false;
+            gl.bufferData(gl.ARRAY_BUFFER, updatedVertices, gl.DYNAMIC_DRAW);
           }
 
-          // 绑定当前图层缓冲区
-          gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
           gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
 
-          // 设置纹理变换矩阵
           const coords = tex.coords || {};
           const left = coords.left ?? -1.0;
           const right = coords.right ?? 1.0;
@@ -954,89 +957,57 @@ const app = Vue.createApp({
             translateX, translateY, 0, 1
           ]);
 
-          // 设置uniform
           gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
           gl.activeTexture(gl.TEXTURE0);
           gl.bindTexture(gl.TEXTURE_2D, tex.tex);
           gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
 
-          // 绘制
+          // 关键修复：确保纹理渲染使用正确的顶点属性
+          const positionAttrib = gl.getAttribLocation(program, 'aPosition');
+          gl.enableVertexAttribArray(positionAttrib);
+          gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 16, 0);
+
           gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
         }
       }
 
-      // === 2. 渲染几何形状 ===
+      // === 網格框線渲染 ===
       if (glsInstance.getLayerSize() > 0) {
         const baseLayer = glsInstance.layers[0];
-
         gl.useProgram(colorProgram);
 
-        // 绑定基础图层缓冲区
+        // 關鍵修復：重新綁定圖形VBO並設置頂點屬性
         gl.bindBuffer(gl.ARRAY_BUFFER, baseLayer.vbo);
 
-        // 渲染线条
+        const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
+        gl.enableVertexAttribArray(colorPosAttrib);
+        gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
+
         gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 1);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, baseLayer.eboLines);
         gl.drawElements(gl.LINES, linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
 
-        // 渲染点
         gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
         gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
-        gl.drawArrays(gl.POINTS, 0, vertices.value.length / 4);
+        gl.drawArrays(gl.POINTS, 0, baseLayer.vertices.value.length / 4);
       }
 
-      // === 3. 渲染骨架 ===
+      // 渲染骨架（已修復狀態污染問題）
       renderSkeleton(gl, skeletonProgram);
 
-      // 请求下一帧
       requestAnimationFrame(() => render2(gl, program, colorProgram, skeletonProgram));
     };
 
-    // 提取的基本幾何渲染函數
-    const renderBasicGeometry = (gl, colorProgram) => {
-      gl.useProgram(colorProgram);
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-      // gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[0]);
-
-      const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
-      gl.enableVertexAttribArray(colorPosAttrib);
-      gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
-
-      // 渲染線條
-      gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 1);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines.value);
-      gl.drawElements(gl.LINES, linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
-
-      // 渲染點
-      gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
-      gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
-      gl.drawArrays(gl.POINTS, 0, vertices.value.length / 4);
-    };
-
-
-    const renderBasicGeometry2 = (gl, colorProgram) => {
-      gl.useProgram(colorProgram);
-      // gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo2.value[0]);
-
-      const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
-      gl.enableVertexAttribArray(colorPosAttrib);
-      gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
-
-      // 渲染線條
-      gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 1);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboLines2.value[0]);
-      gl.drawElements(gl.LINES, linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
-
-      // 渲染點
-      gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
-      gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
-      gl.drawArrays(gl.POINTS, 0, vertices.value.length / 4);
-    };
 
     // 提取的骨架渲染函數
     const renderSkeleton = (gl, skeletonProgram) => {
       if (skeletonVertices.value.length === 0) return;
+
+      // 保存當前WebGL狀態
+      const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM);
+      const prevArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+      const prevElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
+      const prevBlend = gl.getParameter(gl.BLEND);
 
       gl.useProgram(skeletonProgram);
       const { skeletonVbo, skeletonEbo, skeletonVerticesArray, skeletonIndicesArray } =
@@ -1057,6 +1028,17 @@ const app = Vue.createApp({
 
       // 渲染骨架點
       renderSkeletonPoints(gl, skeletonProgram, skeletonVerticesArray);
+
+      // 恢復WebGL狀態
+      gl.useProgram(prevProgram);
+      gl.bindBuffer(gl.ARRAY_BUFFER, prevArrayBuffer);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, prevElementBuffer);
+
+      if (prevBlend) {
+        gl.enable(gl.BLEND);
+      } else {
+        gl.disable(gl.BLEND);
+      }
     };
 
     // 渲染選中的骨架
@@ -1106,17 +1088,17 @@ const app = Vue.createApp({
     };
 
     // 渲染點的輔助函數
-    const renderPoints = (gl, program, posAttrib, vertices, color, pointSize) => {
-      const vbo = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+    const renderPoints = (gl, program, posAttrib, verticesPoints, color, pointSize) => {
+      const vbo_temp = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo_temp);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verticesPoints), gl.STATIC_DRAW);
       gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 0, 0);
 
       gl.uniform4f(gl.getUniformLocation(program, 'uColor'), ...color);
       gl.uniform1f(gl.getUniformLocation(program, 'uPointSize'), pointSize);
-      gl.drawArrays(gl.POINTS, 0, vertices.length / 2);
+      gl.drawArrays(gl.POINTS, 0, verticesPoints.length / 2);
 
-      gl.deleteBuffer(vbo); // 清理臨時緩衝區
+      gl.deleteBuffer(vbo_temp); // 清理臨時緩衝區
     };
 
     // 渲染選中骨架的點
@@ -1183,8 +1165,8 @@ const app = Vue.createApp({
         const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
         gl.value.enableVertexAttribArray(posAttrib);
         gl.value.enableVertexAttribArray(texAttrib);
-        gl.value.vertexAttribPointer(posAttrib, 2,gl.value.FLOAT, false, 16, 0);
-        gl.value.vertexAttribPointer(texAttrib, 2,gl.value.FLOAT, false, 16, 8);
+        gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
+        gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
 
         // 2. 颜色程序的属性
         gl.value.useProgram(colorProgram.value);
