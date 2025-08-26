@@ -924,7 +924,7 @@ const app = Vue.createApp({
               const w = originalVertices[j + 3];
 
               // 對 y 做 sin 波形變形，x 決定波長
-              //  const wave = Math.sin(x * 10 + time) * 0.05;
+               //const wave = Math.sin(x * 10 + time) * 0.05;
               const wave = 0;
               updatedVertices[j] = x;
               updatedVertices[j + 1] = y + wave;

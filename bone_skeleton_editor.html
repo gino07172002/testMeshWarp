@@ -1,0 +1,1317 @@
+```html
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>骨骼與骨架編輯器</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: flex;
+            height: 100vh;
+            gap: 20px;
+        }
+        
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            background: #2a2a2a;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        .panel {
+            width: 300px;
+            background: #333;
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .controls {
+            margin-bottom: 30px;
+        }
+        
+        .control-group {
+            margin-bottom: 20px;
+        }
+        
+        .control-group h3 {
+            margin: 0 0 10px 0;
+            color: #4CAF50;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        
+        .btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 5px 5px 0;
+            font-size: 12px;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #45a049;
+        }
+        
+        .btn.active {
+            background: #FF9800;
+        }
+        
+        .btn.danger {
+            background: #f44336;
+        }
+        
+        .btn.danger:hover {
+            background: #d32f2f;
+        }
+        
+        .info {
+            background: #444;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+        
+        .bone-list {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 5px;
+        }
+        
+        .bone-item {
+            background: #555;
+            margin: 2px 0;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .bone-item:hover {
+            background: #666;
+        }
+        
+        .bone-item.selected {
+            background: #4CAF50;
+        }
+
+        .bone-children {
+            margin-left: 20px;
+            position: relative;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .bone-children::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #666;
+        }
+
+        .bone-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: space-between;
+        }
+
+        .bone-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .bone-header-right {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding-left: 8px;
+        }
+
+        .toggle-btn {
+            width: 16px;
+            height: 16px;
+            background: #444;
+            border: none;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 0;
+            flex-shrink: 0;
+        }
+
+        .toggle-btn:hover {
+            background: #555;
+        }
+
+        .bone-visibility {
+            width: 16px;
+            height: 16px;
+            background: none;
+            border: none;
+            color: #4CAF50;
+            cursor: pointer;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .bone-visibility.hidden {
+            color: #666;
+        }
+
+        .bone-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .instructions {
+            background: #2a2a2a;
+            border: 1px solid #4CAF50;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        
+        .status {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .checkbox-group, .input-group {
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        
+        .checkbox-group input, .input-group input {
+            margin-right: 8px;
+        }
+        
+        .input-group input[type="number"] {
+            width: 60px;
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            background: #444;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="canvas-container">
+            <canvas id="canvas"></canvas>
+            <div class="status" id="status">準備就緒</div>
+        </div>
+        
+        <div class="panel">
+            <div class="instructions">
+                <h3>操作說明</h3>
+                <p><strong>創建骨骼:</strong> 點擊畫布上兩個點</p>
+                <p><strong>選擇骨骼:</strong> 點擊骨骼線條</p>
+                <p><strong>移動骨骼:</strong> 拖拽骨骼的頭部或尾部</p>
+                <p><strong>創建子骨骼:</strong> 選中父骨骼後點擊尾部位置</p>
+                <p><strong>右鍵:</strong> 取消當前操作和選取</p>
+                <p><strong>近距離選擇:</strong> 勾選後，滑鼠靠近骨骼端點時自動切換到選擇/編輯</p>
+                <p><strong>滑鼠靠近:</strong> 滑鼠靠近骨骼端點時會變為黃色</p>
+                <p><strong>選擇距離:</strong> 調整滑鼠檢測骨骼端點的距離範圍</p>
+            </div>
+            
+            <div class="controls">
+                <div class="control-group">
+                    <h3>工具</h3>
+                    <button class="btn active" id="createTool">創建骨骼</button>
+                    <button class="btn" id="selectTool">選擇/編輯</button>
+                    <button class="btn danger" id="deleteTool">刪除</button>
+                </div>
+                
+                <div class="control-group">
+                    <h3>操作</h3>
+                    <button class="btn" id="clearAll">清空全部</button>
+                    <button class="btn" id="exportJson">匯出JSON</button>
+                </div>
+                
+                <div class="control-group">
+                    <h3>選項</h3>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="proximitySelect" checked>
+                        <label for="proximitySelect">啟用近距離選擇/編輯</label>
+                    </div>
+                    <div class="input-group">
+                        <input type="number" id="selectionDistance" value="8" min="1" max="50">
+                        <label for="selectionDistance">選擇距離 (像素)</label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="info">
+                <h3>骨架資訊</h3>
+                <div>骨骼數量: <span id="boneCount">0</span></div>
+                <div>根骨骼: <span id="rootCount">0</span></div>
+                <div>選中骨骼: <span id="selectedBone">無</span></div>
+            </div>
+            
+            <div class="control-group">
+                <h3>骨骼列表</h3>
+                <div class="bone-list" id="boneList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        class Vertex {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.groups = {};
+            }
+            
+            setWeight(groupName, weight) {
+                if (weight <= 0) {
+                    this.removeWeight(groupName);
+                    return;
+                }
+                this.groups[groupName] = Math.max(0, Math.min(1, weight));
+            }
+            
+            removeWeight(groupName) {
+                delete this.groups[groupName];
+            }
+            
+            getWeight(groupName) {
+                return this.groups[groupName] || 0;
+            }
+        }
+
+        class Bone {
+            constructor(name, headX, headY, length = 50, rotation = 0, parent = null, blenderMode = true) {
+                if (!name || typeof name !== 'string') {
+                    throw new Error('Bone name must be a non-empty string');
+                }
+
+                this.name = name;
+                this.localHead = { x: headX, y: headY };
+                this.length = Math.max(0, length);
+                this.rotation = rotation;
+                this.parent = parent;
+                this.children = [];
+                this.blenderMode = blenderMode;
+
+                this._globalTransformCache = null;
+                this._isDirty = true;
+
+                if (parent) {
+                    parent.children.push(this);
+                    parent._markDirty();
+                }
+            }
+
+            _markDirty() {
+                this._isDirty = true;
+                this._globalTransformCache = null;
+                this.children.forEach(child => child._markDirty());
+            }
+
+            _localToGlobal(localX, localY, parentTransform) {
+                if (!parentTransform) return { x: localX, y: localY };
+                
+                const cos = Math.cos(parentTransform.rotation);
+                const sin = Math.sin(parentTransform.rotation);
+                const basePoint = this.blenderMode ? parentTransform.tail : parentTransform.head;
+                
+                return {
+                    x: basePoint.x + localX * cos - localY * sin,
+                    y: basePoint.y + localX * sin + localY * cos
+                };
+            }
+
+            setLength(newLength) {
+                this.length = Math.max(0, newLength);
+                this._markDirty();
+            }
+
+            setRotation(newRotation) {
+                this.rotation = newRotation;
+                this._markDirty();
+            }
+
+            setLocalHead(x, y) {
+                this.localHead.x = x;
+                this.localHead.y = y;
+                this._markDirty();
+            }
+
+            setGlobalHead(x, y) {
+                if (!this.parent) {
+                    this.localHead.x = x;
+                    this.localHead.y = y;
+                } else {
+                    const parentTransform = this.parent.getGlobalTransform();
+                    const local = this._globalToLocal(x, y, parentTransform);
+                    this.localHead.x = local.x;
+                    this.localHead.y = local.y;
+                }
+                this._markDirty();
+            }
+
+            setGlobalTail(x, y) {
+                const globalHead = this.getGlobalTransform().head;
+                const dx = x - globalHead.x;
+                const dy = y - globalHead.y;
+                this.length = Math.sqrt(dx * dx + dy * dy);
+                const parentRotation = this.parent ? this.parent.getGlobalTransform().rotation : 0;
+                this.rotation = Math.atan2(dy, dx) - parentRotation;
+                this._markDirty();
+            }
+
+            _globalToLocal(globalX, globalY, parentTransform) {
+                if (!parentTransform) return { x: globalX, y: globalY };
+                
+                const basePoint = this.blenderMode ? parentTransform.tail : parentTransform.head;
+                const dx = globalX - basePoint.x;
+                const dy = globalY - basePoint.y;
+                const cos = Math.cos(-parentTransform.rotation);
+                const sin = Math.sin(-parentTransform.rotation);
+                
+                return {
+                    x: dx * cos - dy * sin,
+                    y: dx * sin + dy * cos
+                };
+            }
+
+            getGlobalTransform() {
+                if (!this._isDirty && this._globalTransformCache) {
+                    return this._globalTransformCache;
+                }
+
+                this._globalTransformCache = this._calculateGlobalTransform();
+                this._isDirty = false;
+                return this._globalTransformCache;
+            }
+
+            _calculateGlobalTransform() {
+                if (!this.parent) {
+                    const head = { x: this.localHead.x, y: this.localHead.y };
+                    const tail = {
+                        x: head.x + this.length * Math.cos(this.rotation),
+                        y: head.y + this.length * Math.sin(this.rotation)
+                    };
+                    return { head, tail, rotation: this.rotation };
+                }
+
+                const parentTransform = this.parent.getGlobalTransform();
+                const globalHead = this._localToGlobal(this.localHead.x, this.localHead.y, parentTransform);
+                
+                const totalRotation = parentTransform.rotation + this.rotation;
+                const tail = {
+                    x: globalHead.x + this.length * Math.cos(totalRotation),
+                    y: globalHead.y + this.length * Math.sin(totalRotation)
+                };
+
+                return {
+                    head: globalHead,
+                    tail: tail,
+                    rotation: totalRotation
+                };
+            }
+
+            setParent(newParent) {
+                if (this.parent) {
+                    const index = this.parent.children.indexOf(this);
+                    if (index >= 0) {
+                        this.parent.children.splice(index, 1);
+                    }
+                }
+
+                this.parent = newParent;
+                if (newParent) {
+                    newParent.children.push(this);
+                }
+                
+                this._markDirty();
+            }
+        }
+
+        class Skeleton {
+            constructor(name = "") {
+                this.name = name;
+                this.bones = [];
+                this.boneMap = new Map();
+                this.rootBones = [];
+            }
+
+            addBone(name, x, y, length = 50, rotation = 0, parent = null, blenderMode = true) {
+                if (this.boneMap.has(name)) {
+                    throw new Error(`Bone with name "${name}" already exists`);
+                }
+
+                const bone = new Bone(name, x, y, length, rotation, parent, blenderMode);
+                this.bones.push(bone);
+                this.boneMap.set(name, bone);
+                
+                if (!parent) {
+                    this.rootBones.push(bone);
+                }
+                
+                return bone;
+            }
+
+            getBone(name) {
+                return this.boneMap.get(name);
+            }
+
+            removeBone(name) {
+                const bone = this.getBone(name);
+                if (!bone) return false;
+                
+                if (bone.parent) {
+                    const index = bone.parent.children.indexOf(bone);
+                    if (index >= 0) bone.parent.children.splice(index, 1);
+                } else {
+                    const index = this.rootBones.indexOf(bone);
+                    if (index >= 0) this.rootBones.splice(index, 1);
+                }
+                
+                bone.children.forEach(child => {
+                    child.setParent(bone.parent);
+                });
+                
+                const boneIndex = this.bones.indexOf(bone);
+                if (boneIndex >= 0) this.bones.splice(boneIndex, 1);
+                this.boneMap.delete(name);
+                
+                return true;
+            }
+
+            forEachBone(callback) {
+                this.bones.forEach(callback);
+            }
+
+            clear() {
+                this.bones = [];
+                this.boneMap.clear();
+                this.rootBones = [];
+            }
+        }
+
+        class Project2D {
+            constructor(name = "Untitled Project") {
+                this.name = name;
+                this.skeletons = [];
+                this.skeletonMap = new Map();
+            }
+
+            addSkeleton(name) {
+                if (this.skeletonMap.has(name)) {
+                    throw new Error(`Skeleton with name "${name}" already exists`);
+                }
+                
+                const skeleton = new Skeleton(name);
+                this.skeletons.push(skeleton);
+                this.skeletonMap.set(name, skeleton);
+                return skeleton;
+            }
+
+            getSkeleton(name) {
+                return this.skeletonMap.get(name);
+            }
+        }
+
+        class BoneEditor {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.project = new Project2D('骨骼編輯器項目');
+                this.skeleton = this.project.addSkeleton('主骨架');
+                
+                this.currentTool = 'create';
+                this.selectedBone = null;
+                this.dragTarget = null;
+                this.isDragging = false;
+                this.createStep = 0;
+                this.tempPoint = null;
+                this.boneCounter = 1;
+                this.mouseX = 0;
+                this.mouseY = 0;
+                this.proximitySelectEnabled = true;
+                this.selectionDistance = 8;
+                
+                this.setupCanvas();
+                this.setupEventListeners();
+                this.setupUI();
+                this.render();
+            }
+
+            setupCanvas() {
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+            }
+
+            resizeCanvas() {
+                const rect = this.canvas.parentElement.getBoundingClientRect();
+                this.canvas.width = rect.width;
+                this.canvas.height = rect.height;
+                this.render();
+            }
+
+            setupEventListeners() {
+                this.canvas.addEventListener('mousedown', (e) => {
+                    if (e.button === 0) {
+                        this.handleMouseDown(e);
+                    }
+                });
+                this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+                this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+                this.canvas.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    this.selectedBone = null;
+                    this.cancelCurrentOperation();
+                    this.updateBoneList();
+                    this.render();
+                });
+            }
+
+            setupUI() {
+                document.getElementById('createTool').addEventListener('click', () => this.setTool('create'));
+                document.getElementById('selectTool').addEventListener('click', () => this.setTool('select'));
+                document.getElementById('deleteTool').addEventListener('click', () => this.setTool('delete'));
+                document.getElementById('clearAll').addEventListener('click', () => this.clearAll());
+                document.getElementById('exportJson').addEventListener('click', () => this.exportToJson());
+                document.getElementById('proximitySelect').addEventListener('change', (e) => {
+                    this.proximitySelectEnabled = e.target.checked;
+                });
+                document.getElementById('selectionDistance').addEventListener('input', (e) => {
+                    this.selectionDistance = Math.max(1, Math.min(50, parseFloat(e.target.value) || 8));
+                    this.render();
+                });
+            }
+
+            setTool(tool) {
+                this.currentTool = tool;
+                this.cancelCurrentOperation();
+                
+                document.querySelectorAll('.btn').forEach(btn => btn.classList.remove('active'));
+                document.getElementById(tool + 'Tool').classList.add('active');
+                
+                switch(tool) {
+                    case 'create':
+                        this.canvas.style.cursor = 'crosshair';
+                        break;
+                    case 'select':
+                        this.canvas.style.cursor = 'pointer';
+                        break;
+                    case 'delete':
+                        this.canvas.style.cursor = 'not-allowed';
+                        break;
+                }
+            }
+
+            getMousePos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+
+            handleMouseDown(e) {
+                const mousePos = this.getMousePos(e);
+                
+                switch(this.currentTool) {
+                    case 'create':
+                        this.handleCreateMouseDown(mousePos);
+                        break;
+                    case 'select':
+                        this.handleSelectMouseDown(mousePos);
+                        break;
+                    case 'delete':
+                        this.handleDeleteMouseDown(mousePos);
+                        break;
+                }
+            }
+
+            handleMouseMove(e) {
+                const mousePos = this.getMousePos(e);
+                this.mouseX = mousePos.x;
+                this.mouseY = mousePos.y;
+                
+                if (this.isDragging && this.dragTarget) {
+                    this.handleDrag(mousePos);
+                } else if (this.currentTool === 'create' && (this.createStep === 1 || this.selectedBone)) {
+                    this.render();
+                }
+                
+                this.updateStatus(mousePos);
+                this.render();
+            }
+
+            handleMouseUp(e) {
+                if (this.isDragging) {
+                    this.isDragging = false;
+                    this.dragTarget = null;
+                    this.updateBoneList();
+                    this.render();
+                }
+            }
+
+            handleCreateMouseDown(mousePos) {
+                if (this.proximitySelectEnabled && !this.selectedBone) {
+                    const endpoint = this.getEndpointAtPosition(mousePos);
+                    if (endpoint) {
+                        this.dragTarget = endpoint;
+                        this.isDragging = true;
+                        this.selectedBone = endpoint.bone;
+                        this.updateBoneList();
+                        this.render();
+                        return;
+                    }
+                }
+
+                if (this.selectedBone) {
+                    this.createChildBone(mousePos);
+                    return;
+                }
+                
+                if (this.createStep === 0) {
+                    this.tempPoint = mousePos;
+                    this.createStep = 1;
+                    this.updateStatus(mousePos, '點擊第二個點來完成骨骼');
+                } else {
+                    this.createBone(this.tempPoint, mousePos);
+                    this.createStep = 0;
+                    this.tempPoint = null;
+                    this.render();
+                }
+            }
+
+            createChildBone(endPos) {
+                const parent = this.selectedBone;
+                const parentTransform = parent.getGlobalTransform();
+                const basePoint = parent.blenderMode ? parentTransform.tail : parentTransform.head;
+                
+                const dx = endPos.x - basePoint.x;
+                const dy = endPos.y - basePoint.y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const rotation = Math.atan2(dy, dx) - parentTransform.rotation;
+                
+                const boneName = `bone_${this.boneCounter++}`;
+                
+                try {
+                    const bone = this.skeleton.addBone(boneName, 0, 0, length, rotation, parent);
+                    this.selectedBone = bone;
+                    this.updateBoneList();
+                    this.updateStatus(endPos, `創建了子骨骼: ${boneName}`);
+                } catch (error) {
+                    this.updateStatus(endPos, `錯誤: ${error.message}`);
+                }
+                
+                this.render();
+            }
+
+            handleSelectMouseDown(mousePos) {
+                const endpoint = this.getEndpointAtPosition(mousePos);
+                if (endpoint) {
+                    this.dragTarget = endpoint;
+                    this.isDragging = true;
+                    this.selectedBone = endpoint.bone;
+                    this.updateBoneList();
+                    return;
+                }
+                
+                const bone = this.getBoneAtPosition(mousePos);
+                if (bone) {
+                    this.selectedBone = bone;
+                    this.updateBoneList();
+                    this.render();
+                } else {
+                    this.selectedBone = null;
+                    this.updateBoneList();
+                    this.render();
+                }
+            }
+
+            handleDeleteMouseDown(mousePos) {
+                const bone = this.getBoneAtPosition(mousePos);
+                if (bone) {
+                    this.skeleton.removeBone(bone.name);
+                    this.selectedBone = null;
+                    this.updateBoneList();
+                    this.render();
+                }
+            }
+
+            handleDrag(mousePos) {
+                if (!this.dragTarget) return;
+                
+                const { bone, point } = this.dragTarget;
+                
+                if (point === 'head') {
+                    bone.setGlobalHead(mousePos.x, mousePos.y);
+                } else if (point === 'tail') {
+                    bone.setGlobalTail(mousePos.x, mousePos.y);
+                }
+                
+                this.render();
+            }
+
+            createBone(startPos, endPos) {
+                const dx = endPos.x - startPos.x;
+                const dy = endPos.y - startPos.y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                let rotation = Math.atan2(dy, dx);
+                
+                const boneName = `bone_${this.boneCounter++}`;
+                
+                try {
+                    let parent = null;
+                    let headX = startPos.x;
+                    let headY = startPos.y;
+                    
+                    if (this.selectedBone) {
+                        parent = this.selectedBone;
+                        const parentTransform = parent.getGlobalTransform();
+                        const local = this._globalToLocal(startPos.x, startPos.y, parentTransform, parent.blenderMode);
+                        headX = local.x;
+                        headY = local.y;
+                        rotation -= parentTransform.rotation;
+                    }
+                    
+                    const bone = this.skeleton.addBone(boneName, headX, headY, length, rotation, parent);
+                    this.selectedBone = bone;
+                    this.updateBoneList();
+                    
+                    this.updateStatus(endPos, `創建了骨骼: ${boneName}`);
+                } catch (error) {
+                    this.updateStatus(endPos, `錯誤: ${error.message}`);
+                }
+            }
+
+            _globalToLocal(globalX, globalY, parentTransform, blenderMode) {
+                const basePoint = blenderMode ? parentTransform.tail : parentTransform.head;
+                const dx = globalX - basePoint.x;
+                const dy = globalY - basePoint.y;
+                const cos = Math.cos(-parentTransform.rotation);
+                const sin = Math.sin(-parentTransform.rotation);
+                
+                return {
+                    x: dx * cos - dy * sin,
+                    y: dx * sin + dy * cos
+                };
+            }
+
+            getBoneAtPosition(pos) {
+                const tolerance = 5;
+                
+                for (const bone of this.skeleton.bones) {
+                    const transform = bone.getGlobalTransform();
+                    const head = transform.head;
+                    const tail = transform.tail;
+                    
+                    const dist = this.pointToLineDistance(pos, head, tail);
+                    if (dist <= tolerance) {
+                        return bone;
+                    }
+                }
+                
+                return null;
+            }
+
+            getEndpointAtPosition(pos) {
+                const tolerance = this.selectionDistance;
+                
+                for (const bone of this.skeleton.bones) {
+                    const transform = bone.getGlobalTransform();
+                    const head = transform.head;
+                    const tail = transform.tail;
+                    
+                    if (Math.sqrt((pos.x - head.x) ** 2 + (pos.y - head.y) ** 2) <= tolerance) {
+                        return { bone, point: 'head' };
+                    }
+                    
+                    if (Math.sqrt((pos.x - tail.x) ** 2 + (pos.y - tail.y) ** 2) <= tolerance) {
+                        return { bone, point: 'tail' };
+                    }
+                }
+                
+                return null;
+            }
+
+            pointToLineDistance(point, lineStart, lineEnd) {
+                const A = point.x - lineStart.x;
+                const B = point.y - lineStart.y;
+                const C = lineEnd.x - lineStart.x;
+                const D = lineEnd.y - lineStart.y;
+                
+                const dot = A * C + B * D;
+                const lenSq = C * C + D * D;
+                
+                if (lenSq === 0) return Math.sqrt(A * A + B * B);
+                
+                let param = dot / lenSq;
+                
+                if (param < 0) {
+                    return Math.sqrt(A * A + B * B);
+                } else if (param > 1) {
+                    const dx = point.x - lineEnd.x;
+                    const dy = point.y - lineEnd.y;
+                    return Math.sqrt(dx * dx + dy * dy);
+                } else {
+                    const projX = lineStart.x + param * C;
+                    const projY = lineStart.y + param * D;
+                    const dx = point.x - projX;
+                    const dy = point.y - projY;
+                    return Math.sqrt(dx * dx + dy * dy);
+                }
+            }
+
+            cancelCurrentOperation() {
+                this.createStep = 0;
+                this.tempPoint = null;
+                this.isDragging = false;
+                this.dragTarget = null;
+                this.render();
+            }
+
+            clearAll() {
+                this.skeleton.clear();
+                this.selectedBone = null;
+                this.cancelCurrentOperation();
+                this.boneCounter = 1;
+                this.updateBoneList();
+                this.render();
+            }
+
+            updateStatus(mousePos, customMessage = null) {
+                let message = customMessage || '';
+                
+                if (!customMessage) {
+                    if (this.currentTool === 'create') {
+                        if (this.selectedBone) {
+                            message = '點擊位置創建子骨骼';
+                        } else if (this.createStep === 0) {
+                            message = '點擊第一個點開始創建骨骼';
+                        } else {
+                            message = '點擊第二個點完成骨骼';
+                        }
+                    } else {
+                        message = `滑鼠位置: (${Math.round(mousePos.x)}, ${Math.round(mousePos.y)})`;
+                    }
+                }
+                
+                document.getElementById('status').textContent = message;
+            }
+
+            updateBoneList() {
+                const boneList = document.getElementById('boneList');
+                const boneCount = document.getElementById('boneCount');
+                const rootCount = document.getElementById('rootCount');
+                const selectedBone = document.getElementById('selectedBone');
+                
+                boneList.innerHTML = '';
+                boneCount.textContent = this.skeleton.bones.length;
+                rootCount.textContent = this.skeleton.rootBones.length;
+                selectedBone.textContent = this.selectedBone ? this.selectedBone.name : '無';
+
+                // 創建遞迴渲染函數
+                const renderBone = (bone, container) => {
+                    const item = document.createElement('div');
+                    item.className = 'bone-item';
+                    if (bone === this.selectedBone) {
+                        item.classList.add('selected');
+                    }
+
+                    const length = Math.round(bone.length);
+                    const rotation = Math.round(bone.rotation * 180 / Math.PI);
+                    
+                    const hasChildren = bone.children.length > 0;
+                    const isExpanded = bone.isExpanded !== false; // 默認展開
+                    const isVisible = bone.isVisible !== false; // 默認可見
+
+                    const header = document.createElement('div');
+                    header.className = 'bone-header';
+
+                    // 創建左側容器
+                    const headerLeft = document.createElement('div');
+                    headerLeft.className = 'bone-header-left';
+
+                    // 添加展開/收起按鈕
+                    if (hasChildren) {
+                        const toggleBtn = document.createElement('button');
+                        toggleBtn.className = 'toggle-btn';
+                        toggleBtn.innerHTML = isExpanded ? '−' : '+';
+                        toggleBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            bone.isExpanded = !isExpanded;
+                            this.updateBoneList();
+                        };
+                        headerLeft.appendChild(toggleBtn);
+                    } else {
+                        const spacer = document.createElement('div');
+                        spacer.style.width = '16px';
+                        headerLeft.appendChild(spacer);
+                    }
+
+                    // 添加骨骼信息
+                    const info = document.createElement('div');
+                    info.className = 'bone-info';
+                    info.innerHTML = `
+                        <div><strong>${bone.name}</strong></div>
+                        <div>長度: ${length}px, 角度: ${rotation}°</div>
+                    `;
+                    headerLeft.appendChild(info);
+
+                    // 創建右側容器
+                    const headerRight = document.createElement('div');
+                    headerRight.className = 'bone-header-right';
+
+                    // 添加可見性切換按鈕到右側
+                    const visibilityBtn = document.createElement('button');
+                    visibilityBtn.className = 'bone-visibility' + (isVisible ? '' : ' hidden');
+                    visibilityBtn.innerHTML = isVisible ? '👁️' : '👁️‍🗨️';
+                    visibilityBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        bone.isVisible = !isVisible;
+                        this.updateBoneList();
+                        this.render();
+                    };
+                    headerRight.appendChild(visibilityBtn);
+
+                    // 將左右兩側添加到header
+                    header.appendChild(headerLeft);
+                    header.appendChild(headerRight);
+                    
+                    item.appendChild(header);
+                    
+                    // 如果有子骨骼，創建子容器
+                    if (hasChildren) {
+                        const childContainer = document.createElement('div');
+                        childContainer.className = 'bone-children';
+                        childContainer.style.maxHeight = isExpanded ? '1000px' : '0';
+                        childContainer.style.display = isExpanded ? 'block' : 'none';
+                        
+                        bone.children.forEach(childBone => {
+                            renderBone(childBone, childContainer);
+                        });
+                        
+                        item.appendChild(childContainer);
+                    }
+
+                    item.addEventListener('click', (e) => {
+                        if (e.target.closest('.toggle-btn') || e.target.closest('.bone-visibility')) {
+                            return;
+                        }
+                        this.selectedBone = bone;
+                        this.updateBoneList();
+                        this.render();
+                    });
+                    
+                    container.appendChild(item);
+                };
+
+                // 渲染根骨骼
+                this.skeleton.rootBones.forEach(bone => {
+                    renderBone(bone, boneList);
+                });
+            }
+
+            exportToJson() {
+                const data = {
+                    skeleton: {
+                        name: this.skeleton.name,
+                        bones: this.skeleton.bones.map(bone => ({
+                            name: bone.name,
+                            localHead: bone.localHead,
+                            length: bone.length,
+                            rotation: bone.rotation,
+                            parentName: bone.parent ? bone.parent.name : null,
+                            blenderMode: bone.blenderMode
+                        }))
+                    }
+                };
+                
+                const json = JSON.stringify(data, null, 2);
+                const blob = new Blob([json], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'skeleton.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+
+            render() {
+                const ctx = this.ctx;
+                ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                this.drawGrid();
+                
+                const mousePos = { x: this.mouseX, y: this.mouseY };
+                const endpoint = this.getEndpointAtPosition(mousePos);
+                const highlightedBone = endpoint ? endpoint.bone : null;
+
+                this.skeleton.bones.forEach(bone => {
+                    this.drawBone(bone, bone === highlightedBone);
+                });
+                
+                if (this.currentTool === 'create') {
+                    if (this.selectedBone) {
+                        this.drawTempChildBone();
+                    } else if (this.createStep === 1 && this.tempPoint) {
+                        this.drawTempBone();
+                    }
+                }
+            }
+
+            drawGrid() {
+                const ctx = this.ctx;
+                const gridSize = 20;
+                
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 1;
+                
+                for (let x = 0; x <= this.canvas.width; x += gridSize) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, this.canvas.height);
+                    ctx.stroke();
+                }
+                
+                for (let y = 0; y <= this.canvas.height; y += gridSize) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(this.canvas.width, y);
+                    ctx.stroke();
+                }
+            }
+
+            drawBone(bone, isHighlighted = false) {
+                if (bone.isVisible === false) return;
+                
+                const ctx = this.ctx;
+                const transform = bone.getGlobalTransform();
+                const head = transform.head;
+                const tail = transform.tail;
+                
+                const isSelected = bone === this.selectedBone;
+                
+                ctx.strokeStyle = isHighlighted ? '#FFFF00' : (isSelected ? '#FF9800' : '#4CAF50');
+                ctx.lineWidth = isSelected ? 3 : 2;
+                ctx.beginPath();
+                ctx.moveTo(head.x, head.y);
+                ctx.lineTo(tail.x, tail.y);
+                ctx.stroke();
+                
+                ctx.fillStyle = isHighlighted ? '#FFFF00' : (isSelected ? '#FF9800' : '#2196F3');
+                ctx.beginPath();
+                ctx.arc(head.x, head.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+                
+                const angle = Math.atan2(tail.y - head.y, tail.x - head.x);
+                const size = 8;
+                
+                ctx.fillStyle = isHighlighted ? '#FFFF00' : (isSelected ? '#FF9800' : '#4CAF50');
+                ctx.beginPath();
+                ctx.moveTo(
+                    tail.x + Math.cos(angle) * size,
+                    tail.y + Math.sin(angle) * size
+                );
+                ctx.lineTo(
+                    tail.x + Math.cos(angle + 2.5) * size,
+                    tail.y + Math.sin(angle + 2.5) * size
+                );
+                ctx.lineTo(
+                    tail.x + Math.cos(angle - 2.5) * size,
+                    tail.y + Math.sin(angle - 2.5) * size
+                );
+                ctx.closePath();
+                ctx.fill();
+                
+                if (isSelected) {
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = '12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(
+                        bone.name,
+                        (head.x + tail.x) / 2,
+                        (head.y + tail.y) / 2 - 10
+                    );
+                }
+                
+                if (this.dragTarget && this.dragTarget.bone === bone) {
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = '10px Arial';
+                    ctx.textAlign = 'left';
+                    
+                    const info = [
+                        `Head: (${Math.round(head.x)}, ${Math.round(head.y)})`,
+                        `Tail: (${Math.round(tail.x)}, ${Math.round(tail.y)})`,
+                        `Length: ${Math.round(bone.length)}`,
+                        `Angle: ${Math.round(transform.rotation * 180 / Math.PI)}°`
+                    ];
+                    
+                    info.forEach((text, index) => {
+                        ctx.fillText(text, tail.x + 15, tail.y + (index * 12));
+                    });
+                }
+            }
+
+            drawTempBone() {
+                const ctx = this.ctx;
+                const head = this.tempPoint;
+                const tail = { x: this.mouseX, y: this.mouseY };
+                
+                ctx.strokeStyle = '#FFC107';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(head.x, head.y);
+                ctx.lineTo(tail.x, tail.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                ctx.fillStyle = '#FFC107';
+                ctx.beginPath();
+                ctx.arc(head.x, head.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+                
+                const length = Math.sqrt((tail.x - head.x) ** 2 + (tail.y - head.y) ** 2);
+                const angle = Math.atan2(tail.y - head.y, tail.x - head.x) * 180 / Math.PI;
+                
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = '10px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(
+                    `長度: ${Math.round(length)}px, 角度: ${Math.round(angle)}°`,
+                    (head.x + tail.x) / 2,
+                    (head.y + tail.y) / 2 - 10
+                );
+            }
+
+            drawTempChildBone() {
+                const ctx = this.ctx;
+                const parentTransform = this.selectedBone.getGlobalTransform();
+                const head = parentTransform.tail;
+                const tail = { x: this.mouseX, y: this.mouseY };
+                
+                ctx.strokeStyle = '#FFC107';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(head.x, head.y);
+                ctx.lineTo(tail.x, tail.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                ctx.fillStyle = '#FFC107';
+                ctx.beginPath();
+                ctx.arc(head.x, head.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+                
+                const length = Math.sqrt((tail.x - head.x) ** 2 + (tail.y - head.y) ** 2);
+                const angle = Math.atan2(tail.y - head.y, tail.x - head.x) * 180 / Math.PI;
+                
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = '10px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(
+                    `長度: ${Math.round(length)}px, 角度: ${Math.round(angle)}°`,
+                    (head.x + tail.x) / 2,
+                    (head.y + tail.y) / 2 - 10
+                );
+            }
+        }
+
+        const editor = new BoneEditor('canvas');
+        
+        editor.canvas.addEventListener('mousemove', (e) => {
+            const rect = editor.canvas.getBoundingClientRect();
+            editor.mouseX = e.clientX - rect.left;
+            editor.mouseY = e.clientY - rect.top;
+        });
+
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case '1':
+                    editor.setTool('create');
+                    break;
+                case '2':
+                    editor.setTool('select');
+                    break;
+                case '3':
+                    editor.setTool('delete');
+                    break;
+                case 'Escape':
+                    editor.cancelCurrentOperation();
+                    break;
+                case 'Delete':
+                    if (editor.selectedBone) {
+                        editor.skeleton.removeBone(editor.selectedBone.name);
+                        editor.selectedBone = null;
+                        editor.updateBoneList();
+                        editor.render();
+                    }
+                    break;
+            }
+        });
+
+        setTimeout(() => {
+            try {
+                const rootBone = editor.skeleton.addBone('root', 200, 200, 80, 0);
+                const childBone1 = editor.skeleton.addBone('arm_upper', 0, 0, 60, Math.PI/4, rootBone);
+                const childBone2 = editor.skeleton.addBone('arm_lower', 0, 0, 50, Math.PI/6, childBone1);
+                
+                editor.updateBoneList();
+                editor.render();
+                
+                document.getElementById('status').textContent = '已載入示例骨架';
+            } catch (error) {
+                console.error('Error creating example skeleton:', error);
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
+```

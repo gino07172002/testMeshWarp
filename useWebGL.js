@@ -8,6 +8,12 @@ import {
   vertexInfluences,
 } from './useBone.js';
 
+
+import
+{
+  Mesh2D,
+  Bone
+}from './mesh.js';
 // 📦 全局狀態區 (State)
 const gl = ref(null);                    // WebGL 上下文
 const texture = ref(null);               // 紋理

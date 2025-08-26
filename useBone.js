@@ -290,6 +290,11 @@ export default class Bones {
 
   // 處理滑鼠按下事件
   handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed) {
+
+
+    console.log(" [pressed ] hi I should add new point at : ",xNDC,' , ', yNDC);
+
+
     isEditingExistingBone.value = false;
     selectedBoneForEditing.value = -1;
     editingBoneEnd.value = null;
@@ -330,6 +335,9 @@ export default class Bones {
 
   // 處理滑鼠移動事件
   handleBoneCreateMouseMove(xNDC, yNDC) {
+
+       console.log(" [release ] hi I should add new point at : ",xNDC,' , ', yNDC);
+
     if (isEditingExistingBone.value && selectedBoneForEditing.value >= 0 && editingBoneEnd.value) {
       const boneIndex = selectedBoneForEditing.value;
       if (editingBoneEnd.value === 'head') {
