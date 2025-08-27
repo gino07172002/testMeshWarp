@@ -1,4 +1,43 @@
-```html
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script>```html
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -96,17 +135,16 @@
         .bone-list {
             max-height: 300px;
             overflow-y: auto;
-            padding: 5px;
         }
         
         .bone-item {
             background: #555;
-            margin: 2px 0;
+            margin-bottom: 5px;
             padding: 8px;
             border-radius: 4px;
             font-size: 12px;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: background 0.3s;
         }
         
         .bone-item:hover {
@@ -115,87 +153,6 @@
         
         .bone-item.selected {
             background: #4CAF50;
-        }
-
-        .bone-children {
-            margin-left: 20px;
-            position: relative;
-            overflow: hidden;
-            transition: max-height 0.3s ease-out;
-        }
-
-        .bone-children::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background: #666;
-        }
-
-        .bone-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            justify-content: space-between;
-        }
-
-        .bone-header-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex: 1;
-        }
-
-        .bone-header-right {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            padding-left: 8px;
-        }
-
-        .toggle-btn {
-            width: 16px;
-            height: 16px;
-            background: #444;
-            border: none;
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 12px;
-            padding: 0;
-            flex-shrink: 0;
-        }
-
-        .toggle-btn:hover {
-            background: #555;
-        }
-
-        .bone-visibility {
-            width: 16px;
-            height: 16px;
-            background: none;
-            border: none;
-            color: #4CAF50;
-            cursor: pointer;
-            padding: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .bone-visibility.hidden {
-            color: #666;
-        }
-
-        .bone-info {
-            flex: 1;
-            min-width: 0;
         }
         
         .instructions {
@@ -250,11 +207,11 @@
         <div class="panel">
             <div class="instructions">
                 <h3>操作說明</h3>
-                <p><strong>創建骨骼:</strong> 點擊畫布上兩個點</p>
-                <p><strong>選擇骨骼:</strong> 點擊骨骼線條</p>
-                <p><strong>移動骨骼:</strong> 拖拽骨骼的頭部或尾部</p>
-                <p><strong>創建子骨骼:</strong> 選中父骨骼後點擊尾部位置</p>
-                <p><strong>右鍵:</strong> 取消當前操作和選取</p>
+                <p><strong>創建骨骼:</strong> 左鍵點擊設定頭部，拖曳決定尾部</p>
+                <p><strong>選擇/編輯骨骼:</strong> 右鍵點擊骨骼線條或端點</p>
+                <p><strong>移動骨骼:</strong> 右鍵拖拽骨骼的頭部或尾部</p>
+                <p><strong>創建子骨骼:</strong> 選中父骨骼後，左鍵點擊任意位置設定頭部，拖曳決定尾部</p>
+                <p><strong>取消選擇:</strong> 右鍵點擊畫布空白處</p>
                 <p><strong>近距離選擇:</strong> 勾選後，滑鼠靠近骨骼端點時自動切換到選擇/編輯</p>
                 <p><strong>滑鼠靠近:</strong> 滑鼠靠近骨骼端點時會變為黃色</p>
                 <p><strong>選擇距離:</strong> 調整滑鼠檢測骨骼端點的距離範圍</p>
@@ -300,6 +257,24 @@
             </div>
         </div>
     </div>
+
+    <script id="vertex-shader-2d" type="notjs">
+        attribute vec2 a_position;
+        uniform vec2 u_resolution;
+        void main() {
+            vec2 zeroToOne = a_position / u_resolution;
+            vec2 zeroToTwo = zeroToOne * 2.0;
+            vec2 clipSpace = zeroToTwo - 1.0;
+            gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+        }
+    </script>
+    <script id="fragment-shader-2d" type="notjs">
+        precision mediump float;
+        uniform vec4 u_color;
+        void main() {
+            gl_FragColor = u_color;
+        }
+    </script>
 
     <script type="module">
         class Vertex {
@@ -563,7 +538,11 @@
         class BoneEditor {
             constructor(canvasId) {
                 this.canvas = document.getElementById(canvasId);
-                this.ctx = this.canvas.getContext('2d');
+                this.gl = this.canvas.getContext('webgl');
+                if (!this.gl) {
+                    console.error('WebGL not supported');
+                    return;
+                }
                 this.project = new Project2D('骨骼編輯器項目');
                 this.skeleton = this.project.addSkeleton('主骨架');
                 
@@ -572,46 +551,91 @@
                 this.dragTarget = null;
                 this.isDragging = false;
                 this.createStep = 0;
-                this.tempPoint = null;
+                this.tempHead = null;
+                this.tempTail = null;
                 this.boneCounter = 1;
                 this.mouseX = 0;
                 this.mouseY = 0;
                 this.proximitySelectEnabled = true;
                 this.selectionDistance = 8;
                 
-                this.setupCanvas();
+                this.setupWebGL();
                 this.setupEventListeners();
                 this.setupUI();
                 this.render();
             }
 
-            setupCanvas() {
-                this.resizeCanvas();
-                window.addEventListener('resize', () => this.resizeCanvas());
+            setupWebGL() {
+                this.vertexShaderSource = document.querySelector("#vertex-shader-2d").text;
+                this.fragmentShaderSource = document.querySelector("#fragment-shader-2d").text;
+
+                this.vertexShader = this.createShader(this.gl.VERTEX_SHADER, this.vertexShaderSource);
+                this.fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, this.fragmentShaderSource);
+
+                this.program = this.createProgram(this.vertexShader, this.fragmentShader);
+
+                this.positionAttributeLocation = this.gl.getAttribLocation(this.program, "a_position");
+                this.resolutionUniformLocation = this.gl.getUniformLocation(this.program, "u_resolution");
+                this.colorUniformLocation = this.gl.getUniformLocation(this.program, "u_color");
+
+                this.positionBuffer = this.gl.createBuffer();
+
+                this.gl.clearColor(0.164, 0.164, 0.164, 1.0); // #2a2a2a
+            }
+
+            createShader(type, source) {
+                const shader = this.gl.createShader(type);
+                this.gl.shaderSource(shader, source);
+                this.gl.compileShader(shader);
+                if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+                    console.error('Shader compile error:', this.gl.getShaderInfoLog(shader));
+                    this.gl.deleteShader(shader);
+                    return null;
+                }
+                return shader;
+            }
+
+            createProgram(vertexShader, fragmentShader) {
+                const program = this.gl.createProgram();
+                this.gl.attachShader(program, vertexShader);
+                this.gl.attachShader(program, fragmentShader);
+                this.gl.linkProgram(program);
+                if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+                    console.error('Program link error:', this.gl.getProgramInfoLog(program));
+                    this.gl.deleteProgram(program);
+                    return null;
+                }
+                return program;
             }
 
             resizeCanvas() {
                 const rect = this.canvas.parentElement.getBoundingClientRect();
-                this.canvas.width = rect.width;
-                this.canvas.height = rect.height;
-                this.render();
+                if (this.canvas.width !== rect.width || this.canvas.height !== rect.height) {
+                    this.canvas.width = rect.width;
+                    this.canvas.height = rect.height;
+                    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+                    this.render();
+                }
             }
 
             setupEventListeners() {
                 this.canvas.addEventListener('mousedown', (e) => {
-                    if (e.button === 0) {
+                    if (e.button === 0) { // Left click
                         this.handleMouseDown(e);
+                    } else if (e.button === 2) { // Right click
+                        this.handleRightClick(e);
                     }
                 });
                 this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-                this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
-                this.canvas.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
-                    this.selectedBone = null;
-                    this.cancelCurrentOperation();
-                    this.updateBoneList();
-                    this.render();
+                this.canvas.addEventListener('mouseup', (e) => {
+                    if (e.button === 0 || e.button === 2) {
+                        this.handleMouseUp(e);
+                    }
                 });
+                this.canvas.addEventListener('contextmenu', (e) => {
+                    e.preventDefault(); // Prevent default context menu
+                });
+                window.addEventListener('resize', () => this.resizeCanvas());
             }
 
             setupUI() {
@@ -664,12 +688,29 @@
                     case 'create':
                         this.handleCreateMouseDown(mousePos);
                         break;
-                    case 'select':
-                        this.handleSelectMouseDown(mousePos);
-                        break;
                     case 'delete':
                         this.handleDeleteMouseDown(mousePos);
                         break;
+                }
+            }
+
+            handleRightClick(e) {
+                const mousePos = this.getMousePos(e);
+                
+                if (this.currentTool === 'select' || this.currentTool === 'create') {
+                    this.handleSelectMouseDown(mousePos);
+                } else if (this.currentTool === 'delete') {
+                    this.handleDeleteMouseDown(mousePos);
+                } else {
+                    // Deselect if clicking on empty space
+                    const bone = this.getBoneAtPosition(mousePos);
+                    const endpoint = this.getEndpointAtPosition(mousePos);
+                    if (!bone && !endpoint) {
+                        this.selectedBone = null;
+                        this.cancelCurrentOperation();
+                        this.updateBoneList();
+                        this.render();
+                    }
                 }
             }
 
@@ -680,8 +721,8 @@
                 
                 if (this.isDragging && this.dragTarget) {
                     this.handleDrag(mousePos);
-                } else if (this.currentTool === 'create' && (this.createStep === 1 || this.selectedBone)) {
-                    this.render();
+                } else if (this.currentTool === 'create' && this.createStep === 1) {
+                    this.tempTail = mousePos;
                 }
                 
                 this.updateStatus(mousePos);
@@ -689,66 +730,66 @@
             }
 
             handleMouseUp(e) {
-                if (this.isDragging) {
+                const mousePos = this.getMousePos(e);
+                if (this.isDragging && this.dragTarget) {
                     this.isDragging = false;
                     this.dragTarget = null;
                     this.updateBoneList();
+                    this.render();
+                } else if (this.currentTool === 'create' && this.createStep === 1 && e.button === 0) {
+                    this.createBoneFromDrag(this.tempHead, mousePos);
+                    this.createStep = 0;
+                    this.tempHead = null;
+                    this.tempTail = null;
                     this.render();
                 }
             }
 
             handleCreateMouseDown(mousePos) {
-                if (this.proximitySelectEnabled && !this.selectedBone) {
+                if (this.proximitySelectEnabled && !this.selectedBone && this.currentTool === 'create') {
                     const endpoint = this.getEndpointAtPosition(mousePos);
                     if (endpoint) {
-                        this.dragTarget = endpoint;
-                        this.isDragging = true;
-                        this.selectedBone = endpoint.bone;
-                        this.updateBoneList();
-                        this.render();
-                        return;
+                        return; // Prevent creating when clicking near an endpoint
                     }
                 }
 
-                if (this.selectedBone) {
-                    this.createChildBone(mousePos);
-                    return;
-                }
-                
                 if (this.createStep === 0) {
-                    this.tempPoint = mousePos;
+                    this.tempHead = mousePos;
+                    this.tempTail = mousePos;
                     this.createStep = 1;
-                    this.updateStatus(mousePos, '點擊第二個點來完成骨骼');
-                } else {
-                    this.createBone(this.tempPoint, mousePos);
-                    this.createStep = 0;
-                    this.tempPoint = null;
-                    this.render();
+                    this.updateStatus(mousePos, '拖曳決定尾部位置');
                 }
             }
 
-            createChildBone(endPos) {
-                const parent = this.selectedBone;
-                const parentTransform = parent.getGlobalTransform();
-                const basePoint = parent.blenderMode ? parentTransform.tail : parentTransform.head;
-                
-                const dx = endPos.x - basePoint.x;
-                const dy = endPos.y - basePoint.y;
+            createBoneFromDrag(headPos, tailPos) {
+                const dx = tailPos.x - headPos.x;
+                const dy = tailPos.y - headPos.y;
                 const length = Math.sqrt(dx * dx + dy * dy);
-                const rotation = Math.atan2(dy, dx) - parentTransform.rotation;
+                let rotation = Math.atan2(dy, dx);
                 
                 const boneName = `bone_${this.boneCounter++}`;
                 
                 try {
-                    const bone = this.skeleton.addBone(boneName, 0, 0, length, rotation, parent);
+                    let parent = this.selectedBone;
+                    let headX = headPos.x;
+                    let headY = headPos.y;
+                    
+                    if (parent) {
+                        const parentTransform = parent.getGlobalTransform();
+                        const localHead = this._globalToLocal(headPos.x, headPos.y, parentTransform, parent.blenderMode);
+                        headX = localHead.x;
+                        headY = localHead.y;
+                        rotation -= parentTransform.rotation;
+                    }
+                    
+                    const bone = this.skeleton.addBone(boneName, headX, headY, length, rotation, parent);
                     this.selectedBone = bone;
                     this.updateBoneList();
-                    this.updateStatus(endPos, `創建了子骨骼: ${boneName}`);
+                    
+                    this.updateStatus(tailPos, `創建了骨骼: ${boneName}`);
                 } catch (error) {
-                    this.updateStatus(endPos, `錯誤: ${error.message}`);
+                    this.updateStatus(tailPos, `錯誤: ${error.message}`);
                 }
-                
-                this.render();
             }
 
             handleSelectMouseDown(mousePos) {
@@ -758,16 +799,13 @@
                     this.isDragging = true;
                     this.selectedBone = endpoint.bone;
                     this.updateBoneList();
+                    this.render();
                     return;
                 }
                 
                 const bone = this.getBoneAtPosition(mousePos);
                 if (bone) {
                     this.selectedBone = bone;
-                    this.updateBoneList();
-                    this.render();
-                } else {
-                    this.selectedBone = null;
                     this.updateBoneList();
                     this.render();
                 }
@@ -795,38 +833,6 @@
                 }
                 
                 this.render();
-            }
-
-            createBone(startPos, endPos) {
-                const dx = endPos.x - startPos.x;
-                const dy = endPos.y - startPos.y;
-                const length = Math.sqrt(dx * dx + dy * dy);
-                let rotation = Math.atan2(dy, dx);
-                
-                const boneName = `bone_${this.boneCounter++}`;
-                
-                try {
-                    let parent = null;
-                    let headX = startPos.x;
-                    let headY = startPos.y;
-                    
-                    if (this.selectedBone) {
-                        parent = this.selectedBone;
-                        const parentTransform = parent.getGlobalTransform();
-                        const local = this._globalToLocal(startPos.x, startPos.y, parentTransform, parent.blenderMode);
-                        headX = local.x;
-                        headY = local.y;
-                        rotation -= parentTransform.rotation;
-                    }
-                    
-                    const bone = this.skeleton.addBone(boneName, headX, headY, length, rotation, parent);
-                    this.selectedBone = bone;
-                    this.updateBoneList();
-                    
-                    this.updateStatus(endPos, `創建了骨骼: ${boneName}`);
-                } catch (error) {
-                    this.updateStatus(endPos, `錯誤: ${error.message}`);
-                }
             }
 
             _globalToLocal(globalX, globalY, parentTransform, blenderMode) {
@@ -909,7 +915,8 @@
 
             cancelCurrentOperation() {
                 this.createStep = 0;
-                this.tempPoint = null;
+                this.tempHead = null;
+                this.tempTail = null;
                 this.isDragging = false;
                 this.dragTarget = null;
                 this.render();
@@ -930,12 +937,16 @@
                 if (!customMessage) {
                     if (this.currentTool === 'create') {
                         if (this.selectedBone) {
-                            message = '點擊位置創建子骨骼';
+                            message = '左鍵點擊設定子骨骼頭部，拖曳決定尾部';
                         } else if (this.createStep === 0) {
-                            message = '點擊第一個點開始創建骨骼';
+                            message = '左鍵點擊設定頭部，拖曳決定尾部';
                         } else {
-                            message = '點擊第二個點完成骨骼';
+                            message = '拖曳決定尾部位置';
                         }
+                    } else if (this.currentTool === 'select') {
+                        message = '右鍵點擊選擇或編輯骨骼';
+                    } else if (this.currentTool === 'delete') {
+                        message = '右鍵點擊刪除骨骼';
                     } else {
                         message = `滑鼠位置: (${Math.round(mousePos.x)}, ${Math.round(mousePos.y)})`;
                     }
@@ -954,106 +965,31 @@
                 boneCount.textContent = this.skeleton.bones.length;
                 rootCount.textContent = this.skeleton.rootBones.length;
                 selectedBone.textContent = this.selectedBone ? this.selectedBone.name : '無';
-
-                // 創建遞迴渲染函數
-                const renderBone = (bone, container) => {
+                
+                this.skeleton.bones.forEach(bone => {
                     const item = document.createElement('div');
                     item.className = 'bone-item';
                     if (bone === this.selectedBone) {
                         item.classList.add('selected');
                     }
-
+                    
+                    const parentName = bone.parent ? bone.parent.name : '根骨骼';
                     const length = Math.round(bone.length);
                     const rotation = Math.round(bone.rotation * 180 / Math.PI);
                     
-                    const hasChildren = bone.children.length > 0;
-                    const isExpanded = bone.isExpanded !== false; // 默認展開
-                    const isVisible = bone.isVisible !== false; // 默認可見
-
-                    const header = document.createElement('div');
-                    header.className = 'bone-header';
-
-                    // 創建左側容器
-                    const headerLeft = document.createElement('div');
-                    headerLeft.className = 'bone-header-left';
-
-                    // 添加展開/收起按鈕
-                    if (hasChildren) {
-                        const toggleBtn = document.createElement('button');
-                        toggleBtn.className = 'toggle-btn';
-                        toggleBtn.innerHTML = isExpanded ? '−' : '+';
-                        toggleBtn.onclick = (e) => {
-                            e.stopPropagation();
-                            bone.isExpanded = !isExpanded;
-                            this.updateBoneList();
-                        };
-                        headerLeft.appendChild(toggleBtn);
-                    } else {
-                        const spacer = document.createElement('div');
-                        spacer.style.width = '16px';
-                        headerLeft.appendChild(spacer);
-                    }
-
-                    // 添加骨骼信息
-                    const info = document.createElement('div');
-                    info.className = 'bone-info';
-                    info.innerHTML = `
+                    item.innerHTML = `
                         <div><strong>${bone.name}</strong></div>
+                        <div>父骨骼: ${parentName}</div>
                         <div>長度: ${length}px, 角度: ${rotation}°</div>
                     `;
-                    headerLeft.appendChild(info);
-
-                    // 創建右側容器
-                    const headerRight = document.createElement('div');
-                    headerRight.className = 'bone-header-right';
-
-                    // 添加可見性切換按鈕到右側
-                    const visibilityBtn = document.createElement('button');
-                    visibilityBtn.className = 'bone-visibility' + (isVisible ? '' : ' hidden');
-                    visibilityBtn.innerHTML = isVisible ? '👁️' : '👁️‍🗨️';
-                    visibilityBtn.onclick = (e) => {
-                        e.stopPropagation();
-                        bone.isVisible = !isVisible;
-                        this.updateBoneList();
-                        this.render();
-                    };
-                    headerRight.appendChild(visibilityBtn);
-
-                    // 將左右兩側添加到header
-                    header.appendChild(headerLeft);
-                    header.appendChild(headerRight);
                     
-                    item.appendChild(header);
-                    
-                    // 如果有子骨骼，創建子容器
-                    if (hasChildren) {
-                        const childContainer = document.createElement('div');
-                        childContainer.className = 'bone-children';
-                        childContainer.style.maxHeight = isExpanded ? '1000px' : '0';
-                        childContainer.style.display = isExpanded ? 'block' : 'none';
-                        
-                        bone.children.forEach(childBone => {
-                            renderBone(childBone, childContainer);
-                        });
-                        
-                        item.appendChild(childContainer);
-                    }
-
-                    item.addEventListener('click', (e) => {
-                        if (e.target.closest('.toggle-btn') || e.target.closest('.bone-visibility')) {
-                            return;
-                        }
+                    item.addEventListener('click', () => {
                         this.selectedBone = bone;
                         this.updateBoneList();
                         this.render();
                     });
                     
-                    container.appendChild(item);
-                };
-
-                // 渲染根骨骼
-                this.skeleton.rootBones.forEach(bone => {
-                    renderBone(bone, boneList);
+                    boneList.appendChild(item);
                 });
             }
 
@@ -1083,184 +1019,123 @@
             }
 
             render() {
-                const ctx = this.ctx;
-                ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                const gl = this.gl;
+                gl.clear(gl.COLOR_BUFFER_BIT);
                 
-                this.drawGrid();
+                gl.useProgram(this.program);
+                gl.uniform2f(this.resolutionUniformLocation, gl.canvas.width, gl.canvas.height);
                 
+                this.drawGridWebGL();
+
                 const mousePos = { x: this.mouseX, y: this.mouseY };
                 const endpoint = this.getEndpointAtPosition(mousePos);
                 const highlightedBone = endpoint ? endpoint.bone : null;
 
                 this.skeleton.bones.forEach(bone => {
-                    this.drawBone(bone, bone === highlightedBone);
+                    this.drawBoneWebGL(bone, bone === highlightedBone);
                 });
                 
-                if (this.currentTool === 'create') {
-                    if (this.selectedBone) {
-                        this.drawTempChildBone();
-                    } else if (this.createStep === 1 && this.tempPoint) {
-                        this.drawTempBone();
-                    }
+                if (this.currentTool === 'create' && this.createStep === 1 && this.tempHead) {
+                    this.drawTempBoneWebGL(this.tempHead, this.tempTail || this.tempHead);
                 }
             }
 
-            drawGrid() {
-                const ctx = this.ctx;
+            drawGridWebGL() {
+                const gl = this.gl;
                 const gridSize = 20;
-                
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 1;
-                
+                const color = [0.2, 0.2, 0.2, 1.0]; // #333
+                gl.uniform4fv(this.colorUniformLocation, color);
+
+                let positions = [];
+
                 for (let x = 0; x <= this.canvas.width; x += gridSize) {
-                    ctx.beginPath();
-                    ctx.moveTo(x, 0);
-                    ctx.lineTo(x, this.canvas.height);
-                    ctx.stroke();
+                    positions.push(x, 0, x, this.canvas.height);
                 }
-                
+
                 for (let y = 0; y <= this.canvas.height; y += gridSize) {
-                    ctx.beginPath();
-                    ctx.moveTo(0, y);
-                    ctx.lineTo(this.canvas.width, y);
-                    ctx.stroke();
+                    positions.push(0, y, this.canvas.width, y);
                 }
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(this.positionAttributeLocation);
+                gl.vertexAttribPointer(this.positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+
+                gl.drawArrays(gl.LINES, 0, positions.length / 2);
             }
 
-            drawBone(bone, isHighlighted = false) {
-                if (bone.isVisible === false) return;
-                
-                const ctx = this.ctx;
+            drawBoneWebGL(bone, isHighlighted = false) {
+                const gl = this.gl;
                 const transform = bone.getGlobalTransform();
                 const head = transform.head;
                 const tail = transform.tail;
                 
                 const isSelected = bone === this.selectedBone;
                 
-                ctx.strokeStyle = isHighlighted ? '#FFFF00' : (isSelected ? '#FF9800' : '#4CAF50');
-                ctx.lineWidth = isSelected ? 3 : 2;
-                ctx.beginPath();
-                ctx.moveTo(head.x, head.y);
-                ctx.lineTo(tail.x, tail.y);
-                ctx.stroke();
+                let lineColor = isHighlighted ? [1.0, 1.0, 0.0, 1.0] : (isSelected ? [1.0, 0.596, 0.0, 1.0] : [0.298, 0.686, 0.314, 1.0]); // Yellow, Orange, Green
+                gl.uniform4fv(this.colorUniformLocation, lineColor);
                 
-                ctx.fillStyle = isHighlighted ? '#FFFF00' : (isSelected ? '#FF9800' : '#2196F3');
-                ctx.beginPath();
-                ctx.arc(head.x, head.y, 5, 0, Math.PI * 2);
-                ctx.fill();
-                
+                let positions = [head.x, head.y, tail.x, tail.y];
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(this.positionAttributeLocation);
+                gl.vertexAttribPointer(this.positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+                gl.drawArrays(gl.LINES, 0, 2);
+
+                let headColor = isHighlighted ? [1.0, 1.0, 0.0, 1.0] : (isSelected ? [1.0, 0.596, 0.0, 1.0] : [0.129, 0.588, 0.953, 1.0]); // Yellow, Orange, Blue
+                this.drawCircleWebGL(head.x, head.y, 5, headColor);
+
                 const angle = Math.atan2(tail.y - head.y, tail.x - head.x);
                 const size = 8;
-                
-                ctx.fillStyle = isHighlighted ? '#FFFF00' : (isSelected ? '#FF9800' : '#4CAF50');
-                ctx.beginPath();
-                ctx.moveTo(
-                    tail.x + Math.cos(angle) * size,
-                    tail.y + Math.sin(angle) * size
-                );
-                ctx.lineTo(
-                    tail.x + Math.cos(angle + 2.5) * size,
-                    tail.y + Math.sin(angle + 2.5) * size
-                );
-                ctx.lineTo(
-                    tail.x + Math.cos(angle - 2.5) * size,
-                    tail.y + Math.sin(angle - 2.5) * size
-                );
-                ctx.closePath();
-                ctx.fill();
-                
-                if (isSelected) {
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.font = '12px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(
-                        bone.name,
-                        (head.x + tail.x) / 2,
-                        (head.y + tail.y) / 2 - 10
-                    );
-                }
-                
-                if (this.dragTarget && this.dragTarget.bone === bone) {
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.font = '10px Arial';
-                    ctx.textAlign = 'left';
-                    
-                    const info = [
-                        `Head: (${Math.round(head.x)}, ${Math.round(head.y)})`,
-                        `Tail: (${Math.round(tail.x)}, ${Math.round(tail.y)})`,
-                        `Length: ${Math.round(bone.length)}`,
-                        `Angle: ${Math.round(transform.rotation * 180 / Math.PI)}°`
-                    ];
-                    
-                    info.forEach((text, index) => {
-                        ctx.fillText(text, tail.x + 15, tail.y + (index * 12));
-                    });
-                }
+                let tailColor = isHighlighted ? [1.0, 1.0, 0.0, 1.0] : (isSelected ? [1.0, 0.596, 0.0, 1.0] : [0.298, 0.686, 0.314, 1.0]); // Yellow, Orange, Green
+                const p1 = {x: tail.x + Math.cos(angle) * size, y: tail.y + Math.sin(angle) * size};
+                const p2 = {x: tail.x + Math.cos(angle + 2.5) * size, y: tail.y + Math.sin(angle + 2.5) * size};
+                const p3 = {x: tail.x + Math.cos(angle - 2.5) * size, y: tail.y + Math.sin(angle - 2.5) * size};
+                this.drawTriangleWebGL(p1, p2, p3, tailColor);
             }
 
-            drawTempBone() {
-                const ctx = this.ctx;
-                const head = this.tempPoint;
-                const tail = { x: this.mouseX, y: this.mouseY };
-                
-                ctx.strokeStyle = '#FFC107';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.beginPath();
-                ctx.moveTo(head.x, head.y);
-                ctx.lineTo(tail.x, tail.y);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                
-                ctx.fillStyle = '#FFC107';
-                ctx.beginPath();
-                ctx.arc(head.x, head.y, 4, 0, Math.PI * 2);
-                ctx.fill();
-                
-                const length = Math.sqrt((tail.x - head.x) ** 2 + (tail.y - head.y) ** 2);
-                const angle = Math.atan2(tail.y - head.y, tail.x - head.x) * 180 / Math.PI;
-                
-                ctx.fillStyle = '#FFFFFF';
-                ctx.font = '10px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(
-                    `長度: ${Math.round(length)}px, 角度: ${Math.round(angle)}°`,
-                    (head.x + tail.x) / 2,
-                    (head.y + tail.y) / 2 - 10
-                );
+            drawCircleWebGL(cx, cy, r, color) {
+                const gl = this.gl;
+                gl.uniform4fv(this.colorUniformLocation, color);
+
+                const segments = 32;
+                let positions = [];
+                for (let i = 0; i <= segments; i++) {
+                    const theta = i / segments * Math.PI * 2;
+                    positions.push(cx + Math.cos(theta) * r, cy + Math.sin(theta) * r);
+                }
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(this.positionAttributeLocation);
+                gl.vertexAttribPointer(this.positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+                gl.drawArrays(gl.TRIANGLE_FAN, 0, positions.length / 2);
             }
 
-            drawTempChildBone() {
-                const ctx = this.ctx;
-                const parentTransform = this.selectedBone.getGlobalTransform();
-                const head = parentTransform.tail;
-                const tail = { x: this.mouseX, y: this.mouseY };
-                
-                ctx.strokeStyle = '#FFC107';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.beginPath();
-                ctx.moveTo(head.x, head.y);
-                ctx.lineTo(tail.x, tail.y);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                
-                ctx.fillStyle = '#FFC107';
-                ctx.beginPath();
-                ctx.arc(head.x, head.y, 4, 0, Math.PI * 2);
-                ctx.fill();
-                
-                const length = Math.sqrt((tail.x - head.x) ** 2 + (tail.y - head.y) ** 2);
-                const angle = Math.atan2(tail.y - head.y, tail.x - head.x) * 180 / Math.PI;
-                
-                ctx.fillStyle = '#FFFFFF';
-                ctx.font = '10px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(
-                    `長度: ${Math.round(length)}px, 角度: ${Math.round(angle)}°`,
-                    (head.x + tail.x) / 2,
-                    (head.y + tail.y) / 2 - 10
-                );
+            drawTriangleWebGL(p1, p2, p3, color) {
+                const gl = this.gl;
+                gl.uniform4fv(this.colorUniformLocation, color);
+
+                const positions = [p1.x, p1.y, p2.x, p2.y, p3.x, p3.y];
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(this.positionAttributeLocation);
+                gl.vertexAttribPointer(this.positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+                gl.drawArrays(gl.TRIANGLES, 0, 3);
+            }
+
+            drawTempBoneWebGL(head, tail) {
+                const gl = this.gl;
+                gl.uniform4fv(this.colorUniformLocation, [1.0, 0.757, 0.027, 1.0]); // #FFC107
+                let positions = [head.x, head.y, tail.x, tail.y];
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(this.positionAttributeLocation);
+                gl.vertexAttribPointer(this.positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+                gl.drawArrays(gl.LINES, 0, 2);
+
+                this.drawCircleWebGL(head.x, head.y, 4, [1.0, 0.757, 0.027, 1.0]);
             }
         }
 
@@ -1300,8 +1175,8 @@
         setTimeout(() => {
             try {
                 const rootBone = editor.skeleton.addBone('root', 200, 200, 80, 0);
-                const childBone1 = editor.skeleton.addBone('arm_upper', 0, 0, 60, Math.PI/4, rootBone);
-                const childBone2 = editor.skeleton.addBone('arm_lower', 0, 0, 50, Math.PI/6, childBone1);
+                const childBone1 = editor.skeleton.addBone('arm_upper', 10, 10, 60, Math.PI/4, rootBone);
+                const childBone2 = editor.skeleton.addBone('arm_lower', 5, 5, 50, Math.PI/6, childBone1);
                 
                 editor.updateBoneList();
                 editor.render();
