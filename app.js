@@ -7,6 +7,7 @@ import {
   skeletonVertices,
   boneParents,
   boneChildren,
+  meshSkeleton,
 } from './useBone.js';
 
 import {
@@ -87,24 +88,25 @@ const shaders = {
 
 // Coordinate conversion utility function
 const convertToNDC = (e, canvas, container) => {
-  const rect = container.getBoundingClientRect();
-  const scrollLeft = container.scrollLeft;
-  const scrollTop = container.scrollTop;
+  const rect = canvas.getBoundingClientRect();
 
-  const x = e.clientX - rect.left + scrollLeft;
-  const y = e.clientY - rect.top + scrollTop;
+  // 考慮 devicePixelRatio
+  const dpr = window.devicePixelRatio || 1;
 
-  const scaleX = canvas.width / container.clientWidth;
-  const scaleY = canvas.height / container.clientHeight;
+  // 取得在 canvas 內的相對位置 (CSS 像素)
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
 
-  const canvasX = x * scaleX;
-  const canvasY = y * scaleY;
+  // 換算成 canvas 實際像素
+  const canvasX = x * (canvas.width / rect.width);
+  const canvasY = y * (canvas.height / rect.height);
 
   return {
-    x: (canvasX / canvas.width) * 2 - 1,
-    y: 1 - (canvasY / canvas.height) * 2
+    x: (canvasX / canvas.width) * 2 - 1, // NDC X
+    y: 1 - (canvasY / canvas.height) * 2 // NDC Y
   };
 };
+
 const changeImage = async (newUrl) => {
   if (!gl.value) return;
 
@@ -794,8 +796,11 @@ const app = Vue.createApp({
         }
       };
 
-      const handleMouseUp = () => {
+      const handleMouseUp = (e) => {
         if (activeTool.value === 'bone-create' && isDragging) {
+          const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
+
+          bonesInstance.MeshBoneCreate(xNDC, yNDC);
           bonesInstance.handleBoneCreateMouseUp();
           bonesInstance.assignVerticesToBones();
         } else if (activeTool.value === 'bone-animate' && isDragging) {
@@ -823,69 +828,7 @@ const app = Vue.createApp({
 
     //render start
 
-    const render = (gl, program, colorProgram, skeletonProgram) => {
-      gl.clearColor(0.0, 0.0, 0.0, 1.0);
-      //gl.clear(gl.COLOR_BUFFER_BIT);
-
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-      // 渲染紋理
-      if (texture.value) {
-        const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
-
-        gl.useProgram(program);
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo.value);
-
-        const posAttrib = gl.getAttribLocation(program, 'aPosition');
-        const texAttrib = gl.getAttribLocation(program, 'aTexCoord');
-
-        gl.enableVertexAttribArray(posAttrib);
-        gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 16, 0);
-
-        gl.enableVertexAttribArray(texAttrib);
-        gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
-
-        textures.forEach((tex, index) => {
-          const coords = tex.coords || {};
-          const left = coords.left !== undefined ? coords.left : -1.0;
-          const right = coords.right !== undefined ? coords.right : 1.0;
-          const top = coords.top !== undefined ? coords.top : 1.0;
-          const bottom = coords.bottom !== undefined ? coords.bottom : -1.0;
-
-          const scaleX = (right - left) / 2.0;
-          const scaleY = (top - bottom) / 2.0;
-          const translateX = (left + right) / 2.0;
-          const translateY = (bottom + top) / 2.0;
-
-          // 創建變換矩陣
-          let transformMatrix = [
-            scaleX, 0, 0, 0,
-            0, scaleY, 0, 0,
-            0, 0, 1, 0,
-            translateX, translateY, 0, 1
-          ];
-
-          // if (index ==1 )
-          {
-            gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, tex.tex);
-            gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
-            gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
-          }
-        });
-      }
-
-      // 渲染基本幾何形狀
-     // renderBasicGeometry(gl, colorProgram);
-
-      // 渲染骨架
-      renderSkeleton(gl, skeletonProgram);
-
-      requestAnimationFrame(() => render(gl, program, colorProgram, skeletonProgram));
-    };
+    
 
     var time = 0;
 
@@ -894,8 +837,8 @@ const app = Vue.createApp({
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
       // 关键修复：在每帧开始清除画布
-     // gl.clearColor(0.0, 0.0, 0.0, 1.0);
-     // gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      // gl.clearColor(0.0, 0.0, 0.0, 1.0);
+      // gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
       time += 0.016; // 每幀遞增時間（大約60fps）
 
@@ -924,7 +867,7 @@ const app = Vue.createApp({
               const w = originalVertices[j + 3];
 
               // 對 y 做 sin 波形變形，x 決定波長
-               //const wave = Math.sin(x * 10 + time) * 0.05;
+              //const wave = Math.sin(x * 10 + time) * 0.05;
               const wave = 0;
               updatedVertices[j] = x;
               updatedVertices[j + 1] = y + wave;
@@ -995,6 +938,7 @@ const app = Vue.createApp({
       // 渲染骨架（已修復狀態污染問題）
       renderSkeleton(gl, skeletonProgram);
 
+      renderMeshSkeleton(gl, skeletonProgram, meshSkeleton);
       requestAnimationFrame(() => render2(gl, program, colorProgram, skeletonProgram));
     };
 
@@ -1028,6 +972,75 @@ const app = Vue.createApp({
 
       // 渲染骨架點
       renderSkeletonPoints(gl, skeletonProgram, skeletonVerticesArray);
+
+      // 恢復WebGL狀態
+      gl.useProgram(prevProgram);
+      gl.bindBuffer(gl.ARRAY_BUFFER, prevArrayBuffer);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, prevElementBuffer);
+
+      if (prevBlend) {
+        gl.enable(gl.BLEND);
+      } else {
+        gl.disable(gl.BLEND);
+      }
+    };
+
+
+    const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton) => {
+      //console.log(" renderMeshSkeleton ... ", meshSkeleton);
+      if (!meshSkeleton || meshSkeleton.bones.length === 0) return;
+
+      // 保存當前WebGL狀態
+      const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM);
+      const prevArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+      const prevElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
+      const prevBlend = gl.getParameter(gl.BLEND);
+
+      gl.useProgram(skeletonProgram);
+
+      // 準備頂點和索引數據
+      const vertices = [];
+      const indices = [];
+      let vertexIndex = 0;
+
+   
+      // 遍歷所有骨骼，收集頂點和索引
+      //console.log(" meshSkeleton bones: ", meshSkeleton.bones.length);
+      meshSkeleton.forEachBone(bone => {
+        const transform = bone.getGlobalTransform();
+      //  console.log( " , transform: ", JSON.stringify(transform))
+        vertices.push(transform.head.x, transform.head.y);
+        vertices.push(transform.tail.x, transform.tail.y);
+        indices.push(vertexIndex, vertexIndex + 1);
+        vertexIndex += 2;
+      });
+
+      // 創建和綁定緩衝區
+      const skeletonVbo = gl.createBuffer();
+      const skeletonEbo = gl.createBuffer();
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+      // 設置頂點屬性
+      const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
+      gl.enableVertexAttribArray(skeletonPosAttrib);
+      gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+      // 渲染骨架線條
+      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 1, 1);
+      gl.drawElements(gl.LINES, indices.length, gl.UNSIGNED_SHORT, 0);
+
+      // 渲染骨骼點
+      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 1, 1);
+      gl.drawArrays(gl.POINTS, 0, vertices.length / 2);
+
+      // 清理緩衝區
+      gl.deleteBuffer(skeletonVbo);
+      gl.deleteBuffer(skeletonEbo);
 
       // 恢復WebGL狀態
       gl.useProgram(prevProgram);

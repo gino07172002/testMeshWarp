@@ -69,6 +69,7 @@ export class Vertex {
  */
 export class Bone {
   constructor(name, headX, headY, length = 50, rotation = 0, parent = null, blenderMode = true) {
+    console.log("Bone constructor got:", name, typeof name);
     if (!name || typeof name !== 'string') {
       throw new Error('Bone name must be a non-empty string');
     }
@@ -616,19 +617,35 @@ export class Mesh2D {
 
 /**
  * 骨架類
- */
-export class Skeleton {
+ */export class Skeleton {
   constructor(name = "") {
     this.name = name;
     this.bones = [];
     this.boneMap = new Map(); // 快速查找
     this.rootBones = []; // 根骨骼列表
+    this.autoBoneCounter = 1; // 自動命名計數器
+  }
+
+  /**
+   * 產生唯一骨骼名稱
+   */
+  _generateBoneName(base = "Bone") {
+    let name;
+    do {
+      name = `${base}_${this.autoBoneCounter++}`;
+    } while (this.boneMap.has(name));
+    return name;
   }
 
   /**
    * 添加骨骼
    */
   addBone(name, x, y, length = 50, rotation = 0, parent = null, blenderMode = true) {
+    // 如果沒有傳入 name，產生一個自動名稱
+    if (!name || name.trim() === "") {
+      name = this._generateBoneName();
+    }
+
     if (this.boneMap.has(name)) {
       throw new Error(`Bone with name "${name}" already exists`);
     }
@@ -636,11 +653,11 @@ export class Skeleton {
     const bone = new Bone(name, x, y, length, rotation, parent, blenderMode);
     this.bones.push(bone);
     this.boneMap.set(name, bone);
-    
+
     if (!parent) {
       this.rootBones.push(bone);
     }
-    
+
     return bone;
   }
 
@@ -657,7 +674,7 @@ export class Skeleton {
   removeBone(name) {
     const bone = this.getBone(name);
     if (!bone) return false;
-    
+
     // 移除父子關係
     if (bone.parent) {
       const index = bone.parent.children.indexOf(bone);
@@ -666,17 +683,17 @@ export class Skeleton {
       const index = this.rootBones.indexOf(bone);
       if (index >= 0) this.rootBones.splice(index, 1);
     }
-    
+
     // 重新設定子骨骼的父骨骼為此骨骼的父骨骼
     bone.children.forEach(child => {
       child.setParent(bone.parent);
     });
-    
+
     // 移除自身
     const boneIndex = this.bones.indexOf(bone);
     if (boneIndex >= 0) this.bones.splice(boneIndex, 1);
     this.boneMap.delete(name);
-    
+
     return true;
   }
 
@@ -687,14 +704,14 @@ export class Skeleton {
     if (this.boneMap.has(newName)) {
       throw new Error(`Bone with name "${newName}" already exists`);
     }
-    
+
     const bone = this.getBone(oldName);
     if (!bone) return false;
-    
+
     this.boneMap.delete(oldName);
     bone.name = newName;
     this.boneMap.set(newName, bone);
-    
+
     return true;
   }
 
@@ -717,22 +734,22 @@ export class Skeleton {
    */
   validate() {
     const errors = [];
-    
+
     this.bones.forEach(bone => {
       const boneErrors = bone.validate();
       errors.push(...boneErrors);
     });
-    
+
     return errors;
   }
 
   /**
    * 複製骨架
    */
-  clone(namePrefix = 'Copy_') {
+  clone(namePrefix = "Copy_") {
     const copy = new Skeleton(namePrefix + this.name);
     const boneMapping = new Map(); // 舊骨骼 -> 新骨骼的映射
-    
+
     // 第一遍：複製所有骨骼（不設定父子關係）
     this.bones.forEach(bone => {
       const boneCopy = new Bone(
@@ -748,7 +765,7 @@ export class Skeleton {
       copy.bones.push(boneCopy);
       copy.boneMap.set(boneCopy.name, boneCopy);
     });
-    
+
     // 第二遍：設定父子關係
     this.bones.forEach(bone => {
       const boneCopy = boneMapping.get(bone);
@@ -759,7 +776,7 @@ export class Skeleton {
         copy.rootBones.push(boneCopy);
       }
     });
-    
+
     return copy;
   }
 
@@ -770,8 +787,10 @@ export class Skeleton {
     this.bones = [];
     this.boneMap.clear();
     this.rootBones = [];
+    this.autoBoneCounter = 1; // 重置計數器
   }
 }
+
 
 /**
  * 2D 項目類 - 管理整個專案
