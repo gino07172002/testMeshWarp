@@ -1,6 +1,6 @@
 const { ref } = Vue;
 import glsInstance from './useWebGL.js';
-import { Bone as MeshBone, Vertex, Mesh2D, Skeleton } from './mesh.js';
+import { Bone as MeshBone, Vertex, Mesh2D, Skeleton,getClosestBoneAtClick } from './mesh.js';
 
 console.log("Creating spine with", MeshBone);
 const meshSkeleton = new Skeleton("HumanSkeleton");
@@ -19,8 +19,9 @@ var mousedown_x = null;
 var mousedown_y = null;
 var mousemove_x = null;
 var mousemove_y = null;
-const lastSelectedBone = ref([]);
+const lastSelectedBone = ref();
 
+const mouseHoveringBone  = ref();
 const isEditingExistingBone = ref(false);
 const selectedBoneForEditing = ref(-1);
 const editingBoneEnd = ref(null);
@@ -298,13 +299,8 @@ export default class Bones {
   }
 
   // 處理滑鼠按下事件
-  handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed) {
-
-
-    //console.log(" [pressed ] hi I should add new point at : ", xNDC, ' , ', yNDC);
-
-
-    if (isShiftPressed&&lastSelectedBone.value) {
+  handleMeshBoneCreateMouseDown(xNDC, yNDC, isShiftPressed) {
+    if (isShiftPressed && lastSelectedBone.value) {
       console.log(" ShlastSelectedBone.valueift is pressed! ");
       // use lastSelectedBone's getLocalTail() as mousedown position current xNDC as mousemove position 
       const bone = lastSelectedBone.value;
@@ -319,8 +315,10 @@ export default class Bones {
       mousedown_x = xNDC
       mousedown_y = yNDC
     }
+  }
 
 
+  handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed) {
 
     isEditingExistingBone.value = false;
     selectedBoneForEditing.value = -1;
@@ -360,11 +358,18 @@ export default class Bones {
     }
   }
 
+  meshboneCreateMouseMove(xNDC, yNDC) {
+    mousemove_x = xNDC;
+    mousemove_y = yNDC;
+
+  }
+
+
+
   // 處理滑鼠移動事件
   handleBoneCreateMouseMove(xNDC, yNDC) {
 
-    mousemove_x = xNDC;
-    mousemove_y = yNDC;
+
     //  console.log(" [release ] hi I should add new point at : ", xNDC, ' , ', yNDC);
 
     if (isEditingExistingBone.value && selectedBoneForEditing.value >= 0 && editingBoneEnd.value) {
@@ -397,6 +402,13 @@ export default class Bones {
     return { mousedown_x, mousedown_y, mousemove_x, mousemove_y };
   }
 
+  GetHoverBone() {
+    return mouseHoveringBone.value;
+  }
+  GetLastSelectedBone() {
+    return lastSelectedBone.value;
+  }
+
   MeshBoneCreate(xNDC, yNDC) {
     //boneLenth= distance between (mousedown_x, mousedown_y) and (xNDC, yNDC)
     let boneLength = this.calculateDistance(mousedown_x, mousedown_y, xNDC, yNDC);
@@ -411,7 +423,7 @@ export default class Bones {
     const newBone = meshSkeleton.addBone("", mousedown_x, mousedown_y, boneLength, angle, null, true);
     console.log("Created new bone:", newBone);
 
-    lastSelectedBone.value=newBone;
+    lastSelectedBone.value = newBone;
     console.log(" last selected bone: ", JSON.stringify(lastSelectedBone.value));
 
     //then clean mouse position  as null
@@ -483,6 +495,12 @@ export default class Bones {
   }
 
   // 修改後的 handleBoneAnimateMouseDown
+   handleMeshBoneAnimateMouseDown(xNDC, yNDC) {
+    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
+    console.log(" get bone at click : ", JSON.stringify(getBone));
+    mouseHoveringBone.value = getBone ? getBone.bone : null;
+    return getBone;
+   }
   handleBoneAnimateMouseDown(xNDC, yNDC) {
     const { selectedBoneIndex, boneEnd } = this.detectBoneClick(xNDC, yNDC);
     if (selectedBoneIndex >= 0) {

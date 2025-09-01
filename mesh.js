@@ -354,6 +354,181 @@ export class Bone {
 }
 
 /**
+ * 骨架類
+ */export class Skeleton {
+  constructor(name = "") {
+    this.name = name;
+    this.bones = [];
+    this.boneMap = new Map(); // 快速查找
+    this.rootBones = []; // 根骨骼列表
+    this.autoBoneCounter = 1; // 自動命名計數器
+  }
+
+  /**
+   * 產生唯一骨骼名稱
+   */
+  _generateBoneName(base = "Bone") {
+    let name;
+    do {
+      name = `${base}_${this.autoBoneCounter++}`;
+    } while (this.boneMap.has(name));
+    return name;
+  }
+
+  /**
+   * 添加骨骼
+   */
+  addBone(name, x, y, length = 50, rotation = 0, parent = null, blenderMode = true) {
+    // 如果沒有傳入 name，產生一個自動名稱
+    if (!name || name.trim() === "") {
+      name = this._generateBoneName();
+    }
+
+    if (this.boneMap.has(name)) {
+      throw new Error(`Bone with name "${name}" already exists`);
+    }
+
+    const bone = new Bone(name, x, y, length, rotation, parent, blenderMode);
+    this.bones.push(bone);
+    this.boneMap.set(name, bone);
+
+    if (!parent) {
+      this.rootBones.push(bone);
+    }
+
+    return bone;
+  }
+
+  /**
+   * 取得骨骼
+   */
+  getBone(name) {
+    return this.boneMap.get(name);
+  }
+
+  /**
+   * 移除骨骼
+   */
+  removeBone(name) {
+    const bone = this.getBone(name);
+    if (!bone) return false;
+
+    // 移除父子關係
+    if (bone.parent) {
+      const index = bone.parent.children.indexOf(bone);
+      if (index >= 0) bone.parent.children.splice(index, 1);
+    } else {
+      const index = this.rootBones.indexOf(bone);
+      if (index >= 0) this.rootBones.splice(index, 1);
+    }
+
+    // 重新設定子骨骼的父骨骼為此骨骼的父骨骼
+    bone.children.forEach(child => {
+      child.setParent(bone.parent);
+    });
+
+    // 移除自身
+    const boneIndex = this.bones.indexOf(bone);
+    if (boneIndex >= 0) this.bones.splice(boneIndex, 1);
+    this.boneMap.delete(name);
+
+    return true;
+  }
+
+  /**
+   * 重新命名骨骼
+   */
+  renameBone(oldName, newName) {
+    if (this.boneMap.has(newName)) {
+      throw new Error(`Bone with name "${newName}" already exists`);
+    }
+
+    const bone = this.getBone(oldName);
+    if (!bone) return false;
+
+    this.boneMap.delete(oldName);
+    bone.name = newName;
+    this.boneMap.set(newName, bone);
+
+    return true;
+  }
+
+  /**
+   * 取得所有根骨骼
+   */
+  getRootBones() {
+    return [...this.rootBones];
+  }
+
+  /**
+   * 遍歷所有骨骼
+   */
+  forEachBone(callback) {
+    this.bones.forEach(callback);
+  }
+
+  /**
+   * 驗證骨架結構
+   */
+  validate() {
+    const errors = [];
+
+    this.bones.forEach(bone => {
+      const boneErrors = bone.validate();
+      errors.push(...boneErrors);
+    });
+
+    return errors;
+  }
+
+  /**
+   * 複製骨架
+   */
+  clone(namePrefix = "Copy_") {
+    const copy = new Skeleton(namePrefix + this.name);
+    const boneMapping = new Map(); // 舊骨骼 -> 新骨骼的映射
+
+    // 第一遍：複製所有骨骼（不設定父子關係）
+    this.bones.forEach(bone => {
+      const boneCopy = new Bone(
+        bone.name,
+        bone.localHead.x,
+        bone.localHead.y,
+        bone.length,
+        bone.rotation,
+        null,
+        bone.blenderMode
+      );
+      boneMapping.set(bone, boneCopy);
+      copy.bones.push(boneCopy);
+      copy.boneMap.set(boneCopy.name, boneCopy);
+    });
+
+    // 第二遍：設定父子關係
+    this.bones.forEach(bone => {
+      const boneCopy = boneMapping.get(bone);
+      if (bone.parent) {
+        const parentCopy = boneMapping.get(bone.parent);
+        boneCopy.setParent(parentCopy);
+      } else {
+        copy.rootBones.push(boneCopy);
+      }
+    });
+
+    return copy;
+  }
+
+  /**
+   * 清空骨架
+   */
+  clear() {
+    this.bones = [];
+    this.boneMap.clear();
+    this.rootBones = [];
+    this.autoBoneCounter = 1; // 重置計數器
+  }
+}
+/**
  * 頂點群組類
  */
 export class VertexGroup {
@@ -372,6 +547,251 @@ export class VertexGroup {
     this.bone = bone;
   }
 }
+
+/**
+ * 計算點到線段的最短距離
+ * @param {number} px - 點的 x 座標
+ * @param {number} py - 點的 y 座標
+ * @param {number} x1 - 線段起點 x
+ * @param {number} y1 - 線段起點 y
+ * @param {number} x2 - 線段終點 x
+ * @param {number} y2 - 線段終點 y
+ * @returns {number} 最短距離
+ */
+function distanceToLineSegment(px, py, x1, y1, x2, y2) {
+  const A = px - x1;
+  const B = py - y1;
+  const C = x2 - x1;
+  const D = y2 - y1;
+
+  const dot = A * C + B * D;
+  const lenSq = C * C + D * D;
+  
+  if (lenSq === 0) {
+    // 線段長度為 0，返回點到點的距離
+    return Math.sqrt(A * A + B * B);
+  }
+
+  let param = dot / lenSq;
+
+  let xx, yy;
+
+  if (param < 0) {
+    // 最近點在線段起點
+    xx = x1;
+    yy = y1;
+  } else if (param > 1) {
+    // 最近點在線段終點
+    xx = x2;
+    yy = y2;
+  } else {
+    // 最近點在線段上
+    xx = x1 + param * C;
+    yy = y1 + param * D;
+  }
+
+  const dx = px - xx;
+  const dy = py - yy;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * 計算兩點之間的距離
+ * @param {number} x1 
+ * @param {number} y1 
+ * @param {number} x2 
+ * @param {number} y2 
+ * @returns {number}
+ */
+function distance(x1, y1, x2, y2) {
+  const dx = x1 - x2;
+  const dy = y1 - y2;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * 檢測滑鼠點擊最近的骨骼
+ * @param {Skeleton} skeleton - 骨架實例
+ * @param {number} clickX - 點擊的 x 座標
+ * @param {number} clickY - 點擊的 y 座標
+ * @param {number} headTailRadius - head/tail 檢測半徑，預設 8 像素
+ * @param {number} maxDistance - 最大檢測距離，預設 50 像素
+ * @returns {Object|null} 回傳 { bone, type, distance } 或 null
+ *   - bone: 最近的骨骼實例
+ *   - type: 'head', 'tail', 或 'body'
+ *   - distance: 到點擊點的距離
+ */
+export function getClosestBoneAtClick(skeleton, clickX, clickY, headTailRadius = 0.02, maxDistance = 0.03) {
+  let closestResult = null;
+  let minDistance = maxDistance;
+
+  skeleton.forEachBone(bone => {
+    const transform = bone.getGlobalTransform();
+    const head = transform.head;
+    const tail = transform.tail;
+
+    // 檢測 head
+    const headDist = distance(clickX, clickY, head.x, head.y);
+    console.log(" headDist : ", headDist, headTailRadius);
+    if (headDist <= headTailRadius && headDist < minDistance) {
+      minDistance = headDist;
+      closestResult = {
+        bone: bone,
+        type: 'head',
+        distance: headDist
+      };
+    }
+
+    // 檢測 tail
+    const tailDist = distance(clickX, clickY, tail.x, tail.y);
+    console.log(" tailDist : ", tailDist, headTailRadius);
+    if (tailDist <= headTailRadius && tailDist < minDistance) {
+      minDistance = tailDist;
+      closestResult = {
+        bone: bone,
+        type: 'tail',
+        distance: tailDist
+      };
+    }
+
+    // 檢測軀幹（只有在沒有點擊到 head/tail 時才檢查）
+    if (!closestResult || closestResult.type === 'body') {
+      const bodyDist = distanceToLineSegment(clickX, clickY, head.x, head.y, tail.x, tail.y);
+      if (bodyDist < minDistance) {
+        minDistance = bodyDist;
+        closestResult = {
+          bone: bone,
+          type: 'body',
+          distance: bodyDist
+        };
+      }
+    }
+  });
+
+  return closestResult;
+}
+
+/**
+ * 進階版本：回傳所有在指定距離內的骨骼，按距離排序
+ * @param {Skeleton} skeleton - 骨架實例
+ * @param {number} clickX - 點擊的 x 座標
+ * @param {number} clickY - 點擊的 y 座標
+ * @param {number} headTailRadius - head/tail 檢測半徑
+ * @param {number} maxDistance - 最大檢測距離
+ * @returns {Array} 回傳排序後的結果陣列
+ */
+export function getAllBonesAtClick(skeleton, clickX, clickY, headTailRadius = 8, maxDistance = 5) {
+  const results = [];
+
+  skeleton.forEachBone(bone => {
+    const transform = bone.getGlobalTransform();
+    const head = transform.head;
+    const tail = transform.tail;
+
+    // 檢測 head
+    const headDist = distance(clickX, clickY, head.x, head.y);
+    console.log(" headDist : ", headDist, headTailRadius);
+    if (headDist <= headTailRadius) {
+      results.push({
+        bone: bone,
+        type: 'head',
+        distance: headDist
+      });
+    }
+
+    // 檢測 tail
+    const tailDist = distance(clickX, clickY, tail.x, tail.y);
+ console.log(" tailDist : ", tailDist, headTailRadius);
+    if (tailDist <= headTailRadius) {
+      results.push({
+        bone: bone,
+        type: 'tail',
+        distance: tailDist
+      });
+    }
+
+    // 檢測軀幹
+    const bodyDist = distanceToLineSegment(clickX, clickY, head.x, head.y, tail.x, tail.y);
+    if (bodyDist <= maxDistance) {
+      results.push({
+        bone: bone,
+        type: 'body',
+        distance: bodyDist
+      });
+    }
+  });
+
+  // 按距離排序，優先選擇 head/tail
+  return results.sort((a, b) => {
+    // 如果距離相近，優先選擇 head/tail
+    if (Math.abs(a.distance - b.distance) < 1) {
+      const priorityA = a.type === 'body' ? 0 : 1;
+      const priorityB = b.type === 'body' ? 0 : 1;
+      return priorityB - priorityA;
+    }
+    return a.distance - b.distance;
+  });
+}
+
+// 使用範例：
+/*
+// 假設你有一個 skeleton 實例
+const skeleton = new Skeleton("MyArmature");
+
+// 添加一些骨骼
+const rootBone = skeleton.addBone("Root", 100, 100, 80, 0);
+const childBone = skeleton.addBone("Child", 0, 0, 60, Math.PI/4, rootBone);
+
+// 檢測點擊
+function onMouseClick(event) {
+  const rect = canvas.getBoundingClientRect();
+  const clickX = event.clientX - rect.left;
+  const clickY = event.clientY - rect.top;
+  
+  const result = getClosestBoneAtClick(skeleton, clickX, clickY);
+  
+  if (result) {
+    console.log(`點擊到骨骼: ${result.bone.name}`);
+    console.log(`點擊部位: ${result.type}`);
+    console.log(`距離: ${result.distance.toFixed(2)} 像素`);
+    
+    // 根據點擊類型執行不同操作
+    switch(result.type) {
+      case 'head':
+        console.log('可以拖拽移動 head 位置');
+        break;
+      case 'tail':
+        console.log('可以拖拽調整長度和角度');
+        break;
+      case 'body':
+        console.log('可以拖拽整個骨骼');
+        break;
+    }
+  } else {
+    console.log('沒有點擊到任何骨骼');
+  }
+}
+
+// 如果你想要更精確的控制，可以使用進階版本
+function onMouseClickAdvanced(event) {
+  const rect = canvas.getBoundingClientRect();
+  const clickX = event.clientX - rect.left;
+  const clickY = event.clientY - rect.top;
+  
+  const results = getAllBonesAtClick(skeleton, clickX, clickY);
+  
+  if (results.length > 0) {
+    console.log(`找到 ${results.length} 個可能的目標:`);
+    results.forEach((result, index) => {
+      console.log(`${index + 1}. ${result.bone.name} (${result.type}) - 距離: ${result.distance.toFixed(2)}`);
+    });
+    
+    // 使用最近的結果
+    const closest = results[0];
+    console.log(`選擇: ${closest.bone.name} 的 ${closest.type}`);
+  }
+}
+*/
 
 /**
  * 圖層類
@@ -615,181 +1035,6 @@ export class Mesh2D {
   }
 }
 
-/**
- * 骨架類
- */export class Skeleton {
-  constructor(name = "") {
-    this.name = name;
-    this.bones = [];
-    this.boneMap = new Map(); // 快速查找
-    this.rootBones = []; // 根骨骼列表
-    this.autoBoneCounter = 1; // 自動命名計數器
-  }
-
-  /**
-   * 產生唯一骨骼名稱
-   */
-  _generateBoneName(base = "Bone") {
-    let name;
-    do {
-      name = `${base}_${this.autoBoneCounter++}`;
-    } while (this.boneMap.has(name));
-    return name;
-  }
-
-  /**
-   * 添加骨骼
-   */
-  addBone(name, x, y, length = 50, rotation = 0, parent = null, blenderMode = true) {
-    // 如果沒有傳入 name，產生一個自動名稱
-    if (!name || name.trim() === "") {
-      name = this._generateBoneName();
-    }
-
-    if (this.boneMap.has(name)) {
-      throw new Error(`Bone with name "${name}" already exists`);
-    }
-
-    const bone = new Bone(name, x, y, length, rotation, parent, blenderMode);
-    this.bones.push(bone);
-    this.boneMap.set(name, bone);
-
-    if (!parent) {
-      this.rootBones.push(bone);
-    }
-
-    return bone;
-  }
-
-  /**
-   * 取得骨骼
-   */
-  getBone(name) {
-    return this.boneMap.get(name);
-  }
-
-  /**
-   * 移除骨骼
-   */
-  removeBone(name) {
-    const bone = this.getBone(name);
-    if (!bone) return false;
-
-    // 移除父子關係
-    if (bone.parent) {
-      const index = bone.parent.children.indexOf(bone);
-      if (index >= 0) bone.parent.children.splice(index, 1);
-    } else {
-      const index = this.rootBones.indexOf(bone);
-      if (index >= 0) this.rootBones.splice(index, 1);
-    }
-
-    // 重新設定子骨骼的父骨骼為此骨骼的父骨骼
-    bone.children.forEach(child => {
-      child.setParent(bone.parent);
-    });
-
-    // 移除自身
-    const boneIndex = this.bones.indexOf(bone);
-    if (boneIndex >= 0) this.bones.splice(boneIndex, 1);
-    this.boneMap.delete(name);
-
-    return true;
-  }
-
-  /**
-   * 重新命名骨骼
-   */
-  renameBone(oldName, newName) {
-    if (this.boneMap.has(newName)) {
-      throw new Error(`Bone with name "${newName}" already exists`);
-    }
-
-    const bone = this.getBone(oldName);
-    if (!bone) return false;
-
-    this.boneMap.delete(oldName);
-    bone.name = newName;
-    this.boneMap.set(newName, bone);
-
-    return true;
-  }
-
-  /**
-   * 取得所有根骨骼
-   */
-  getRootBones() {
-    return [...this.rootBones];
-  }
-
-  /**
-   * 遍歷所有骨骼
-   */
-  forEachBone(callback) {
-    this.bones.forEach(callback);
-  }
-
-  /**
-   * 驗證骨架結構
-   */
-  validate() {
-    const errors = [];
-
-    this.bones.forEach(bone => {
-      const boneErrors = bone.validate();
-      errors.push(...boneErrors);
-    });
-
-    return errors;
-  }
-
-  /**
-   * 複製骨架
-   */
-  clone(namePrefix = "Copy_") {
-    const copy = new Skeleton(namePrefix + this.name);
-    const boneMapping = new Map(); // 舊骨骼 -> 新骨骼的映射
-
-    // 第一遍：複製所有骨骼（不設定父子關係）
-    this.bones.forEach(bone => {
-      const boneCopy = new Bone(
-        bone.name,
-        bone.localHead.x,
-        bone.localHead.y,
-        bone.length,
-        bone.rotation,
-        null,
-        bone.blenderMode
-      );
-      boneMapping.set(bone, boneCopy);
-      copy.bones.push(boneCopy);
-      copy.boneMap.set(boneCopy.name, boneCopy);
-    });
-
-    // 第二遍：設定父子關係
-    this.bones.forEach(bone => {
-      const boneCopy = boneMapping.get(bone);
-      if (bone.parent) {
-        const parentCopy = boneMapping.get(bone.parent);
-        boneCopy.setParent(parentCopy);
-      } else {
-        copy.rootBones.push(boneCopy);
-      }
-    });
-
-    return copy;
-  }
-
-  /**
-   * 清空骨架
-   */
-  clear() {
-    this.bones = [];
-    this.boneMap.clear();
-    this.rootBones = [];
-    this.autoBoneCounter = 1; // 重置計數器
-  }
-}
 
 
 /**

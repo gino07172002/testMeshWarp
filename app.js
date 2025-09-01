@@ -761,15 +761,23 @@ const app = Vue.createApp({
             }
               */
           } else if (activeTool.value === 'bone-create') {
-            bonesInstance.handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
+            const getBone = bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
+           
+            if(getBone) return;
+          //  if(!getBone)
+            bonesInstance.handleMeshBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
+            //bonesInstance.handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
             isDragging = true;
           } else if (activeTool.value === 'bone-animate') {
+            bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
+            /*
             bonesInstance.handleBoneAnimateMouseDown(xNDC, yNDC);
             if (selectedBone.value.index >= 0) {
               isDragging = true;
               startPosX = xNDC;
               startPosY = yNDC;
             }
+              */
           }
         }
       };
@@ -787,6 +795,8 @@ const app = Vue.createApp({
           gl.bufferSubData(gl.ARRAY_BUFFER, index * 4, new Float32Array([xNDC, yNDC]));
           */
         } else if (activeTool.value === 'bone-create') {
+          
+          bonesInstance.meshboneCreateMouseMove(xNDC, yNDC);
           bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
         } else if (activeTool.value === 'bone-animate') {
           bonesInstance.handleBoneAnimateMouseMove(startPosX, startPosY, xNDC, yNDC, e.buttons);
@@ -994,33 +1004,27 @@ const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton) => {
 
   gl.useProgram(skeletonProgram);
   const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
-  
+
   // === 渲染現有骨架 ===
   if (meshSkeleton && meshSkeleton.bones.length > 0) {
-    // 準備頂點和索引數據
     const vertices = [];
     const indices = [];
-    const headVertices = [];  // 頭部頂點
-    const tailVertices = [];  // 尾部頂點
+    const headVertices = [];
+    const tailVertices = [];
     let vertexIndex = 0;
 
-    // 遍歷所有骨骼，收集頂點和索引
     meshSkeleton.forEachBone(bone => {
       const transform = bone.getGlobalTransform();
-      
-      // 添加到總頂點陣列
       vertices.push(transform.head.x, transform.head.y);
       vertices.push(transform.tail.x, transform.tail.y);
-      
-      // 分別收集頭部和尾部頂點
+
       headVertices.push(transform.head.x, transform.head.y);
       tailVertices.push(transform.tail.x, transform.tail.y);
-      
+
       indices.push(vertexIndex, vertexIndex + 1);
       vertexIndex += 2;
     });
 
-    // 創建和綁定緩衝區
     const skeletonVbo = gl.createBuffer();
     const skeletonEbo = gl.createBuffer();
 
@@ -1041,7 +1045,6 @@ const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton) => {
     renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array(headVertices), [1, 1, 0, 1], 7.0); // 黃色頭部
     renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array(tailVertices), [0, 0.5, 1, 1], 7.0); // 藍色尾部
 
-    // 清理骨架緩衝區
     gl.deleteBuffer(skeletonVbo);
     gl.deleteBuffer(skeletonEbo);
   }
@@ -1050,21 +1053,14 @@ const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton) => {
   if (bonesInstance) {
     const dragBoneData = bonesInstance.GetMouseDragBone?.() || {};
     const { mousedown_x, mousedown_y, mousemove_x, mousemove_y } = dragBoneData;
-    
-    // 檢查所有滑鼠座標都不是 null 且已定義
-    const hasValidDragData = mousedown_x !== null && mousedown_x !== undefined &&
-                            mousedown_y !== null && mousedown_y !== undefined &&
-                            mousemove_x !== null && mousemove_x !== undefined &&
-                            mousemove_y !== null && mousemove_y !== undefined;
-    
+
+    const hasValidDragData = mousedown_x != null && mousedown_y != null &&
+                             mousemove_x != null && mousemove_y != null;
+
     if (hasValidDragData) {
-      const tempVertices = new Float32Array([
-        mousedown_x, mousedown_y,
-        mousemove_x, mousemove_y
-      ]);
+      const tempVertices = new Float32Array([mousedown_x, mousedown_y, mousemove_x, mousemove_y]);
       const tempIndices = new Uint16Array([0, 1]);
 
-      // 建立暫時緩衝區
       const tempVbo = gl.createBuffer();
       const tempEbo = gl.createBuffer();
 
@@ -1077,19 +1073,82 @@ const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton) => {
       gl.enableVertexAttribArray(skeletonPosAttrib);
       gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
-      // 渲染暫時骨架線條（紅色）
+      // 暫時骨架（紅色）
       gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
       gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, 0);
-      
-      // 渲染暫時骨架的頭尾點
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousedown_x, mousedown_y]), [1, 0.5, 0, 1], 8.0); // 橘色頭部
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousemove_x, mousemove_y]), [1, 0, 0.5, 1], 8.0); // 粉紅色尾部
 
-      // 清理暫時緩衝區
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousedown_x, mousedown_y]), [1, 0.5, 0, 1], 8.0);
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousemove_x, mousemove_y]), [1, 0, 0.5, 1], 8.0);
+
       gl.deleteBuffer(tempVbo);
       gl.deleteBuffer(tempEbo);
     }
-    // 當拖拽數據無效時，不渲染任何暫時軌跡，WebGL會自動清理畫面
+  }
+
+  // === 渲染 lastSelectedBone ===
+  //get last selected bone from bonesInstance by GetLastSelectedBone() function
+    const lastSelectedBone = bonesInstance.GetLastSelectedBone?.();
+    if(lastSelectedBone) {
+    const bone = lastSelectedBone;
+    const transform = bone.getGlobalTransform();
+    const vertices = new Float32Array([transform.head.x, transform.head.y, transform.tail.x, transform.tail.y]);
+    const indices = new Uint16Array([0, 1]);
+
+    const vbo = gl.createBuffer();
+    const ebo = gl.createBuffer();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+    gl.enableVertexAttribArray(skeletonPosAttrib);
+    gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+    // 綠色選中骨架
+    gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 0, 1);
+    gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, 0);
+
+    // 頭尾點
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([transform.head.x, transform.head.y]), [0, 1, 0, 1], 9.0);
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([transform.tail.x, transform.tail.y]), [0, 1, 0, 1], 9.0);
+
+    gl.deleteBuffer(vbo);
+    gl.deleteBuffer(ebo);
+  }
+
+  // === 渲染 mouseHoveringBone ===
+ //get last mouseHoveringBone from bonesInstance by GetHoverBone() function
+    const mouseHoveringBone = bonesInstance.GetHoverBone?.();
+    if(mouseHoveringBone) {
+    const bone = mouseHoveringBone;
+    const transform = bone.getGlobalTransform();
+    const vertices = new Float32Array([transform.head.x, transform.head.y, transform.tail.x, transform.tail.y]);
+    const indices = new Uint16Array([0, 1]);
+
+    const vbo = gl.createBuffer();
+    const ebo = gl.createBuffer();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+    gl.enableVertexAttribArray(skeletonPosAttrib);
+    gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+    // 青色 Hover 骨架
+    gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 1, 1);
+    gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, 0);
+
+    // 頭尾點
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([transform.head.x, transform.head.y]), [0, 1, 1, 1], 8.0);
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([transform.tail.x, transform.tail.y]), [0, 1, 1, 1], 8.0);
+
+    gl.deleteBuffer(vbo);
+    gl.deleteBuffer(ebo);
   }
 
   // === 恢復WebGL狀態 ===
@@ -1103,6 +1162,7 @@ const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton) => {
     gl.disable(gl.BLEND);
   }
 };
+
 
 
     // 渲染選中的骨架
