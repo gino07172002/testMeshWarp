@@ -4,10 +4,6 @@ import { Bone as MeshBone, Vertex, Mesh2D, Skeleton } from './mesh.js';
 
 console.log("Creating spine with", MeshBone);
 const meshSkeleton = new Skeleton("HumanSkeleton");
-const spine = meshSkeleton.addBone("Spine", 0, 0, 50, 0, null, true);
-const arm = meshSkeleton.addBone("Arm", 0, 50, 40, Math.PI / 4, spine, true);
-const forearm = meshSkeleton.addBone("Forearm", 0, 40, 30, -Math.PI / 6, arm, true);
-const ttest = meshSkeleton.addBone("", 0, 50, 40, -Math.PI / 6, arm, true);
 
 console.log("網格骨骼系統創建完成");
 // 📦 全域狀態
@@ -19,8 +15,11 @@ const boneParents = ref([]);
 const boneChildren = ref([]);
 const vertexInfluences = ref([]);
 const vertexInfluences2 = ref([]);
-var mousedown_x = 0;
-var mousedown_y = 0;
+var mousedown_x = null;
+var mousedown_y = null;
+var mousemove_x = null;
+var mousemove_y = null;
+const lastSelectedBone = ref([]);
 
 const isEditingExistingBone = ref(false);
 const selectedBoneForEditing = ref(-1);
@@ -245,7 +244,7 @@ export default class Bones {
       };
       allBones.value.push(bone);
     }
-    console.log(" hi all bones:", JSON.stringify(allBones.value));
+    //console.log(" hi all bones:", JSON.stringify(allBones.value));
   }
 
   detectExistingBoneClick(xNDC, yNDC) {
@@ -302,9 +301,27 @@ export default class Bones {
   handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed) {
 
 
-    console.log(" [pressed ] hi I should add new point at : ", xNDC, ' , ', yNDC);
-    mousedown_x = xNDC
-    mousedown_y = yNDC
+    //console.log(" [pressed ] hi I should add new point at : ", xNDC, ' , ', yNDC);
+
+
+    if (isShiftPressed&&lastSelectedBone.value) {
+      console.log(" ShlastSelectedBone.valueift is pressed! ");
+      // use lastSelectedBone's getLocalTail() as mousedown position current xNDC as mousemove position 
+      const bone = lastSelectedBone.value;
+      if (!bone) return;
+      const tail = bone.getLocalTail();
+      mousedown_x = tail.x;
+      mousedown_y = tail.y;
+      mousemove_x = xNDC;
+      mousemove_y = yNDC;
+    }
+    else {
+      mousedown_x = xNDC
+      mousedown_y = yNDC
+    }
+
+
+
     isEditingExistingBone.value = false;
     selectedBoneForEditing.value = -1;
     editingBoneEnd.value = null;
@@ -346,7 +363,9 @@ export default class Bones {
   // 處理滑鼠移動事件
   handleBoneCreateMouseMove(xNDC, yNDC) {
 
-    console.log(" [release ] hi I should add new point at : ", xNDC, ' , ', yNDC);
+    mousemove_x = xNDC;
+    mousemove_y = yNDC;
+    //  console.log(" [release ] hi I should add new point at : ", xNDC, ' , ', yNDC);
 
     if (isEditingExistingBone.value && selectedBoneForEditing.value >= 0 && editingBoneEnd.value) {
       const boneIndex = selectedBoneForEditing.value;
@@ -374,10 +393,16 @@ export default class Bones {
     isEditingExistingBone.value = false;
   }
 
-  MeshBoneCreate(xNDC,yNDC)
-  {
+  GetMouseDragBone() {
+    return { mousedown_x, mousedown_y, mousemove_x, mousemove_y };
+  }
+
+  MeshBoneCreate(xNDC, yNDC) {
     //boneLenth= distance between (mousedown_x, mousedown_y) and (xNDC, yNDC)
     let boneLength = this.calculateDistance(mousedown_x, mousedown_y, xNDC, yNDC);
+
+
+
     if (boneLength < minBoneLength) {
       console.log("Bone length too short, not creating bone.");
       return;
@@ -385,6 +410,16 @@ export default class Bones {
     let angle = this.calculateAngle(mousedown_x, mousedown_y, xNDC, yNDC);
     const newBone = meshSkeleton.addBone("", mousedown_x, mousedown_y, boneLength, angle, null, true);
     console.log("Created new bone:", newBone);
+
+    lastSelectedBone.value=newBone;
+    console.log(" last selected bone: ", JSON.stringify(lastSelectedBone.value));
+
+    //then clean mouse position  as null
+    mousedown_x = null;
+    mousedown_y = null;
+    mousemove_x = null;
+    mousemove_y = null;
+
   }
 
   // 提取檢測骨骼點擊的邏輯

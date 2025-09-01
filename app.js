@@ -828,7 +828,7 @@ const app = Vue.createApp({
 
     //render start
 
-    
+
 
     var time = 0;
 
@@ -936,7 +936,7 @@ const app = Vue.createApp({
       }
 
       // 渲染骨架（已修復狀態污染問題）
-      renderSkeleton(gl, skeletonProgram);
+      // renderSkeleton(gl, skeletonProgram);
 
       renderMeshSkeleton(gl, skeletonProgram, meshSkeleton);
       requestAnimationFrame(() => render2(gl, program, colorProgram, skeletonProgram));
@@ -985,74 +985,125 @@ const app = Vue.createApp({
       }
     };
 
+const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton) => {
+  // 保存當前WebGL狀態
+  const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM);
+  const prevArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+  const prevElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
+  const prevBlend = gl.getParameter(gl.BLEND);
 
-    const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton) => {
-      //console.log(" renderMeshSkeleton ... ", meshSkeleton);
-      if (!meshSkeleton || meshSkeleton.bones.length === 0) return;
+  gl.useProgram(skeletonProgram);
+  const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
+  
+  // === 渲染現有骨架 ===
+  if (meshSkeleton && meshSkeleton.bones.length > 0) {
+    // 準備頂點和索引數據
+    const vertices = [];
+    const indices = [];
+    const headVertices = [];  // 頭部頂點
+    const tailVertices = [];  // 尾部頂點
+    let vertexIndex = 0;
 
-      // 保存當前WebGL狀態
-      const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM);
-      const prevArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
-      const prevElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
-      const prevBlend = gl.getParameter(gl.BLEND);
+    // 遍歷所有骨骼，收集頂點和索引
+    meshSkeleton.forEachBone(bone => {
+      const transform = bone.getGlobalTransform();
+      
+      // 添加到總頂點陣列
+      vertices.push(transform.head.x, transform.head.y);
+      vertices.push(transform.tail.x, transform.tail.y);
+      
+      // 分別收集頭部和尾部頂點
+      headVertices.push(transform.head.x, transform.head.y);
+      tailVertices.push(transform.tail.x, transform.tail.y);
+      
+      indices.push(vertexIndex, vertexIndex + 1);
+      vertexIndex += 2;
+    });
 
-      gl.useProgram(skeletonProgram);
+    // 創建和綁定緩衝區
+    const skeletonVbo = gl.createBuffer();
+    const skeletonEbo = gl.createBuffer();
 
-      // 準備頂點和索引數據
-      const vertices = [];
-      const indices = [];
-      let vertexIndex = 0;
+    gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
 
-   
-      // 遍歷所有骨骼，收集頂點和索引
-      //console.log(" meshSkeleton bones: ", meshSkeleton.bones.length);
-      meshSkeleton.forEachBone(bone => {
-        const transform = bone.getGlobalTransform();
-      //  console.log( " , transform: ", JSON.stringify(transform))
-        vertices.push(transform.head.x, transform.head.y);
-        vertices.push(transform.tail.x, transform.tail.y);
-        indices.push(vertexIndex, vertexIndex + 1);
-        vertexIndex += 2;
-      });
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
 
-      // 創建和綁定緩衝區
-      const skeletonVbo = gl.createBuffer();
-      const skeletonEbo = gl.createBuffer();
+    gl.enableVertexAttribArray(skeletonPosAttrib);
+    gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
-      gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+    // 渲染骨架線條（白色）
+    gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 1, 1);
+    gl.drawElements(gl.LINES, indices.length, gl.UNSIGNED_SHORT, 0);
 
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    // 渲染頭部和尾部點
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array(headVertices), [1, 1, 0, 1], 7.0); // 黃色頭部
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array(tailVertices), [0, 0.5, 1, 1], 7.0); // 藍色尾部
 
-      // 設置頂點屬性
-      const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
+    // 清理骨架緩衝區
+    gl.deleteBuffer(skeletonVbo);
+    gl.deleteBuffer(skeletonEbo);
+  }
+
+  // === 渲染滑鼠拖曳中的暫時骨架 ===
+  if (bonesInstance) {
+    const dragBoneData = bonesInstance.GetMouseDragBone?.() || {};
+    const { mousedown_x, mousedown_y, mousemove_x, mousemove_y } = dragBoneData;
+    
+    // 檢查所有滑鼠座標都不是 null 且已定義
+    const hasValidDragData = mousedown_x !== null && mousedown_x !== undefined &&
+                            mousedown_y !== null && mousedown_y !== undefined &&
+                            mousemove_x !== null && mousemove_x !== undefined &&
+                            mousemove_y !== null && mousemove_y !== undefined;
+    
+    if (hasValidDragData) {
+      const tempVertices = new Float32Array([
+        mousedown_x, mousedown_y,
+        mousemove_x, mousemove_y
+      ]);
+      const tempIndices = new Uint16Array([0, 1]);
+
+      // 建立暫時緩衝區
+      const tempVbo = gl.createBuffer();
+      const tempEbo = gl.createBuffer();
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, tempVbo);
+      gl.bufferData(gl.ARRAY_BUFFER, tempVertices, gl.STATIC_DRAW);
+
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tempEbo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, tempIndices, gl.STATIC_DRAW);
+
       gl.enableVertexAttribArray(skeletonPosAttrib);
       gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
-      // 渲染骨架線條
-      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 1, 1);
-      gl.drawElements(gl.LINES, indices.length, gl.UNSIGNED_SHORT, 0);
+      // 渲染暫時骨架線條（紅色）
+      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
+      gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, 0);
+      
+      // 渲染暫時骨架的頭尾點
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousedown_x, mousedown_y]), [1, 0.5, 0, 1], 8.0); // 橘色頭部
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousemove_x, mousemove_y]), [1, 0, 0.5, 1], 8.0); // 粉紅色尾部
 
-      // 渲染骨骼點
-      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 1, 1);
-      gl.drawArrays(gl.POINTS, 0, vertices.length / 2);
+      // 清理暫時緩衝區
+      gl.deleteBuffer(tempVbo);
+      gl.deleteBuffer(tempEbo);
+    }
+    // 當拖拽數據無效時，不渲染任何暫時軌跡，WebGL會自動清理畫面
+  }
 
-      // 清理緩衝區
-      gl.deleteBuffer(skeletonVbo);
-      gl.deleteBuffer(skeletonEbo);
+  // === 恢復WebGL狀態 ===
+  gl.useProgram(prevProgram);
+  gl.bindBuffer(gl.ARRAY_BUFFER, prevArrayBuffer);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, prevElementBuffer);
 
-      // 恢復WebGL狀態
-      gl.useProgram(prevProgram);
-      gl.bindBuffer(gl.ARRAY_BUFFER, prevArrayBuffer);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, prevElementBuffer);
+  if (prevBlend) {
+    gl.enable(gl.BLEND);
+  } else {
+    gl.disable(gl.BLEND);
+  }
+};
 
-      if (prevBlend) {
-        gl.enable(gl.BLEND);
-      } else {
-        gl.disable(gl.BLEND);
-      }
-    };
 
     // 渲染選中的骨架
     const renderSelectedBone = (gl, skeletonProgram, skeletonIndicesArray) => {
