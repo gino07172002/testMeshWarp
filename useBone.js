@@ -1,6 +1,6 @@
 const { ref } = Vue;
 import glsInstance from './useWebGL.js';
-import { Bone as MeshBone, Vertex, Mesh2D, Skeleton,getClosestBoneAtClick } from './mesh.js';
+import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick } from './mesh.js';
 
 console.log("Creating spine with", MeshBone);
 const meshSkeleton = new Skeleton("HumanSkeleton");
@@ -19,9 +19,15 @@ var mousedown_x = null;
 var mousedown_y = null;
 var mousemove_x = null;
 var mousemove_y = null;
-const lastSelectedBone = ref();
 
-const mouseHoveringBone  = ref();
+//mesh bone
+const lastSelectedBone = ref();
+const lastSelectedBonePart = ref(); // 'head', 'tail', or 'middle'
+const mouseHoveringBone = ref();
+const controlStatus = ref('none');  // status of current mouse behavior: 'create', 'edit' 'none'
+
+
+//old bone system
 const isEditingExistingBone = ref(false);
 const selectedBoneForEditing = ref(-1);
 const editingBoneEnd = ref(null);
@@ -364,6 +370,34 @@ export default class Bones {
 
   }
 
+  meshBoneEditMouseMove(xNDC, yNDC) {
+
+    console.log(" edit bone to : ", xNDC, ' , ', yNDC, 'lastBone? ', lastSelectedBone.value, ' part:', lastSelectedBonePart.value);
+    if (lastSelectedBone.value && lastSelectedBonePart.value) {
+      const bone = lastSelectedBone.value;
+      if (lastSelectedBonePart.value === 'head') { // edit head position
+        bone.setLocalHead(xNDC, yNDC);
+      } else if (lastSelectedBonePart.value === 'tail') { //edit tail position
+        bone.setLocalTail(xNDC, yNDC);
+      } else if (lastSelectedBonePart.value === 'middle') { //edit whole bone position  
+
+        //consider mousedown position as offset
+        if (mousedown_x !== null && mousedown_y !== null) {
+
+          //check contents of lastSelectedBone.value
+          console.log(" lastSelectedBone.value: ", JSON.stringify(lastSelectedBone.value));
+          const offsetX = lastSelectedBone.value.offsetX;
+          const offsetY = lastSelectedBone.value.offsetY ;
+          console.log(" offset: ", offsetX, ' , ', offsetY);
+          bone.setLocalHead(xNDC - offsetX, yNDC - offsetY);
+
+        }
+
+      }
+    }
+  }
+
+
 
 
   // 處理滑鼠移動事件
@@ -424,6 +458,7 @@ export default class Bones {
     console.log("Created new bone:", newBone);
 
     lastSelectedBone.value = newBone;
+    lastSelectedBonePart.value = 'tail'; // Since we created from head to tail
     console.log(" last selected bone: ", JSON.stringify(lastSelectedBone.value));
 
     //then clean mouse position  as null
@@ -495,12 +530,23 @@ export default class Bones {
   }
 
   // 修改後的 handleBoneAnimateMouseDown
-   handleMeshBoneAnimateMouseDown(xNDC, yNDC) {
+  handleMeshBoneAnimateMouseDown(xNDC, yNDC) {
     const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
-    console.log(" get bone at click : ", JSON.stringify(getBone));
+
     mouseHoveringBone.value = getBone ? getBone.bone : null;
+
     return getBone;
-   }
+  }
+
+  handleMeshBoneEditMouseDown(xNDC, yNDC) {
+    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
+
+    lastSelectedBone.value = getBone ? getBone.bone : null;
+    lastSelectedBonePart.value = getBone ? getBone.type : null; // 'head', 'tail', or 'middle'
+    mousedown_x = xNDC;
+    mousedown_y = yNDC;
+    return getBone;
+  }
   handleBoneAnimateMouseDown(xNDC, yNDC) {
     const { selectedBoneIndex, boneEnd } = this.detectBoneClick(xNDC, yNDC);
     if (selectedBoneIndex >= 0) {

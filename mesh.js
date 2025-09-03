@@ -48,7 +48,7 @@ export class Vertex {
   normalizeWeights() {
     const total = this.getTotalWeight();
     if (total === 0) return;
-    
+
     for (const groupName in this.groups) {
       this.groups[groupName] /= total;
     }
@@ -107,11 +107,11 @@ export class Bone {
    */
   _localToGlobal(localX, localY, parentTransform) {
     if (!parentTransform) return { x: localX, y: localY };
-    
+
     const cos = Math.cos(parentTransform.rotation);
     const sin = Math.sin(parentTransform.rotation);
     const basePoint = this.blenderMode ? parentTransform.tail : parentTransform.head;
-    
+
     return {
       x: basePoint.x + localX * cos - localY * sin,
       y: basePoint.y + localX * sin + localY * cos
@@ -123,13 +123,13 @@ export class Bone {
    */
   _globalToLocal(globalX, globalY, parentTransform) {
     if (!parentTransform) return { x: globalX, y: globalY };
-    
+
     const basePoint = this.blenderMode ? parentTransform.tail : parentTransform.head;
     const dx = globalX - basePoint.x;
     const dy = globalY - basePoint.y;
     const cos = Math.cos(-parentTransform.rotation);
     const sin = Math.sin(-parentTransform.rotation);
-    
+
     return {
       x: dx * cos - dy * sin,
       y: dx * sin + dy * cos
@@ -246,7 +246,7 @@ export class Bone {
 
     const parentTransform = this.parent.getGlobalTransform();
     const globalHead = this._localToGlobal(this.localHead.x, this.localHead.y, parentTransform);
-    
+
     const totalRotation = parentTransform.rotation + this.rotation;
     const tail = {
       x: globalHead.x + this.length * Math.cos(totalRotation),
@@ -277,7 +277,7 @@ export class Bone {
     if (newParent) {
       newParent.children.push(this);
     }
-    
+
     this._markDirty();
   }
 
@@ -336,7 +336,7 @@ export class Bone {
    */
   validate() {
     const errors = [];
-    
+
     // 檢查是否有循環引用
     const visited = new Set();
     let current = this;
@@ -566,7 +566,7 @@ function distanceToLineSegment(px, py, x1, y1, x2, y2) {
 
   const dot = A * C + B * D;
   const lenSq = C * C + D * D;
-  
+
   if (lenSq === 0) {
     // 線段長度為 0，返回點到點的距離
     return Math.sqrt(A * A + B * B);
@@ -629,10 +629,13 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY, headTailRadius =
     const transform = bone.getGlobalTransform();
     const head = transform.head;
     const tail = transform.tail;
+    // record mouse click offset to bone head
 
+    bone.offsetX = clickX - head.x;
+    bone.offsetY = clickY - head.y;
     // 檢測 head
     const headDist = distance(clickX, clickY, head.x, head.y);
-    console.log(" headDist : ", headDist, headTailRadius);
+    //console.log(" headDist : ", headDist, headTailRadius);
     if (headDist <= headTailRadius && headDist < minDistance) {
       minDistance = headDist;
       closestResult = {
@@ -644,7 +647,7 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY, headTailRadius =
 
     // 檢測 tail
     const tailDist = distance(clickX, clickY, tail.x, tail.y);
-    console.log(" tailDist : ", tailDist, headTailRadius);
+    // console.log(" tailDist : ", tailDist, headTailRadius);
     if (tailDist <= headTailRadius && tailDist < minDistance) {
       minDistance = tailDist;
       closestResult = {
@@ -655,15 +658,19 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY, headTailRadius =
     }
 
     // 檢測軀幹（只有在沒有點擊到 head/tail 時才檢查）
-    if (!closestResult || closestResult.type === 'body') {
+    if (!closestResult || closestResult.type === 'middle') {
       const bodyDist = distanceToLineSegment(clickX, clickY, head.x, head.y, tail.x, tail.y);
       if (bodyDist < minDistance) {
         minDistance = bodyDist;
         closestResult = {
           bone: bone,
-          type: 'body',
-          distance: bodyDist
+          type: 'middle',
+          distance: bodyDist,
+
+
+
         };
+        console.log(" clieck middle  result: ", JSON.stringify(closestResult));
       }
     }
   });
@@ -701,7 +708,7 @@ export function getAllBonesAtClick(skeleton, clickX, clickY, headTailRadius = 8,
 
     // 檢測 tail
     const tailDist = distance(clickX, clickY, tail.x, tail.y);
- console.log(" tailDist : ", tailDist, headTailRadius);
+    console.log(" tailDist : ", tailDist, headTailRadius);
     if (tailDist <= headTailRadius) {
       results.push({
         bone: bone,
@@ -849,14 +856,14 @@ export class Mesh2D {
   addVertex(x, y, layerName = null) {
     const vertex = new Vertex(x, y);
     this.vertices.push(vertex);
-    
+
     if (layerName) {
       const layer = this.getLayer(layerName);
       if (layer) {
         layer.addVertex(vertex);
       }
     }
-    
+
     return vertex;
   }
 
@@ -879,10 +886,10 @@ export class Mesh2D {
    */
   _updateIndicesAfterVertexRemoval(removedIndex) {
     // 移除包含此頂點的所有三角形
-    this.indices = this.indices.filter(triangleIndices => 
+    this.indices = this.indices.filter(triangleIndices =>
       !triangleIndices.includes(removedIndex)
     );
-    
+
     // 更新其他索引（減少大於移除索引的值）
     this.indices = this.indices.map(triangleIndices =>
       triangleIndices.map(index => index > removedIndex ? index - 1 : index)
@@ -948,9 +955,9 @@ export class Mesh2D {
    * 添加三角形
    */
   addTriangle(v1Index, v2Index, v3Index) {
-    if (v1Index < this.vertices.length && 
-        v2Index < this.vertices.length && 
-        v3Index < this.vertices.length) {
+    if (v1Index < this.vertices.length &&
+      v2Index < this.vertices.length &&
+      v3Index < this.vertices.length) {
       this.indices.push([v1Index, v2Index, v3Index]);
     }
   }
@@ -970,7 +977,7 @@ export class Mesh2D {
     for (const groupName in vertex.groups) {
       const weight = vertex.groups[groupName];
       const group = this.groups[groupName];
-      
+
       if (group && group.bone && weight > 0) {
         const boneTransform = group.bone.getGlobalTransform();
         // 這裡可以加入更複雜的變形邏輯
@@ -997,18 +1004,18 @@ export class Mesh2D {
   clone(namePrefix = 'Copy_') {
     const copy = new Mesh2D(namePrefix + this.name);
     copy.visible = this.visible;
-    
+
     // 複製頂點
     this.vertices.forEach(vertex => {
       copy.vertices.push(vertex.clone());
     });
-    
+
     // 複製群組
     for (const groupName in this.groups) {
       const group = this.groups[groupName];
       copy.addGroup(group.name, group.bone);
     }
-    
+
     // 複製圖層
     this.layers.forEach(layer => {
       const newLayer = copy.addLayer(layer.name);
@@ -1017,10 +1024,10 @@ export class Mesh2D {
         newLayer.locked = layer.locked;
       }
     });
-    
+
     // 複製索引
     copy.indices = this.indices.map(triangle => [...triangle]);
-    
+
     return copy;
   }
 
@@ -1056,7 +1063,7 @@ export class Project2D {
     if (this.meshMap.has(name)) {
       throw new Error(`Mesh with name "${name}" already exists`);
     }
-    
+
     const mesh = new Mesh2D(name);
     this.meshes.push(mesh);
     this.meshMap.set(name, mesh);
@@ -1070,7 +1077,7 @@ export class Project2D {
     if (this.skeletonMap.has(name)) {
       throw new Error(`Skeleton with name "${name}" already exists`);
     }
-    
+
     const skeleton = new Skeleton(name);
     this.skeletons.push(skeleton);
     this.skeletonMap.set(name, skeleton);
@@ -1097,11 +1104,11 @@ export class Project2D {
   removeMesh(name) {
     const mesh = this.getMesh(name);
     if (!mesh) return false;
-    
+
     const index = this.meshes.indexOf(mesh);
     if (index >= 0) this.meshes.splice(index, 1);
     this.meshMap.delete(name);
-    
+
     return true;
   }
 
@@ -1111,11 +1118,11 @@ export class Project2D {
   removeSkeleton(name) {
     const skeleton = this.getSkeleton(name);
     if (!skeleton) return false;
-    
+
     const index = this.skeletons.indexOf(skeleton);
     if (index >= 0) this.skeletons.splice(index, 1);
     this.skeletonMap.delete(name);
-    
+
     return true;
   }
 
@@ -1125,16 +1132,16 @@ export class Project2D {
   bindMeshToSkeleton(meshName, skeletonName) {
     const mesh = this.getMesh(meshName);
     const skeleton = this.getSkeleton(skeletonName);
-    
+
     if (!mesh || !skeleton) return false;
-    
+
     // 為骨架中的每個骨骼創建對應的頂點群組
     skeleton.forEachBone(bone => {
       if (!mesh.getGroup(bone.name)) {
         mesh.addGroup(bone.name, bone);
       }
     });
-    
+
     return true;
   }
 
@@ -1143,12 +1150,12 @@ export class Project2D {
    */
   validate() {
     const errors = [];
-    
+
     this.skeletons.forEach(skeleton => {
       const skeletonErrors = skeleton.validate();
       errors.push(...skeletonErrors.map(err => `Skeleton "${skeleton.name}": ${err}`));
     });
-    
+
     return errors;
   }
 
@@ -1197,12 +1204,12 @@ export class Project2D {
    */
   static fromJSON(jsonData) {
     const project = new Project2D(jsonData.name);
-    
+
     // 載入骨架
     jsonData.skeletons.forEach(skeletonData => {
       const skeleton = project.addSkeleton(skeletonData.name);
       const boneMap = new Map();
-      
+
       // 第一遍：創建所有骨骼
       skeletonData.bones.forEach(boneData => {
         const bone = new Bone(
@@ -1218,7 +1225,7 @@ export class Project2D {
         skeleton.boneMap.set(bone.name, bone);
         boneMap.set(boneData.name, bone);
       });
-      
+
       // 第二遍：設定父子關係
       skeletonData.bones.forEach(boneData => {
         const bone = boneMap.get(boneData.name);
@@ -1230,27 +1237,27 @@ export class Project2D {
         }
       });
     });
-    
+
     // 載入網格
     jsonData.meshes.forEach(meshData => {
       const mesh = project.addMesh(meshData.name);
       mesh.visible = meshData.visible;
-      
+
       // 載入頂點
       meshData.vertices.forEach(vertexData => {
         const vertex = new Vertex(vertexData.x, vertexData.y);
         vertex.groups = vertexData.groups;
         mesh.vertices.push(vertex);
       });
-      
+
       // 載入群組
       meshData.groups.forEach(groupData => {
-        const bone = groupData.boneName ? 
-          project.skeletons.find(s => s.getBone(groupData.boneName))?.getBone(groupData.boneName) : 
+        const bone = groupData.boneName ?
+          project.skeletons.find(s => s.getBone(groupData.boneName))?.getBone(groupData.boneName) :
           null;
         mesh.addGroup(groupData.name, bone);
       });
-      
+
       // 載入圖層
       if (meshData.layers) {
         meshData.layers.forEach(layerData => {
@@ -1267,11 +1274,11 @@ export class Project2D {
           }
         });
       }
-      
+
       // 載入索引
       mesh.indices = meshData.indices || [];
     });
-    
+
     return project;
   }
 
@@ -1322,13 +1329,13 @@ export class AnimationTrack {
    */
   addKeyframe(time, value, interpolation = 'linear') {
     const keyframe = new Keyframe(time, value, interpolation);
-    
+
     // 保持關鍵幀按時間排序
     let insertIndex = 0;
     while (insertIndex < this.keyframes.length && this.keyframes[insertIndex].time < time) {
       insertIndex++;
     }
-    
+
     this.keyframes.splice(insertIndex, 0, keyframe);
     return keyframe;
   }
@@ -1351,11 +1358,11 @@ export class AnimationTrack {
   evaluate(time) {
     if (this.keyframes.length === 0) return null;
     if (this.keyframes.length === 1) return this.keyframes[0].value;
-    
+
     // 找到時間範圍
     let leftIndex = -1;
     let rightIndex = -1;
-    
+
     for (let i = 0; i < this.keyframes.length; i++) {
       if (this.keyframes[i].time <= time) {
         leftIndex = i;
@@ -1365,17 +1372,17 @@ export class AnimationTrack {
         break;
       }
     }
-    
+
     // 邊界情況
     if (leftIndex === -1) return this.keyframes[0].value;
     if (rightIndex === -1) return this.keyframes[this.keyframes.length - 1].value;
     if (leftIndex === rightIndex) return this.keyframes[leftIndex].value;
-    
+
     // 插值計算
     const leftKf = this.keyframes[leftIndex];
     const rightKf = this.keyframes[rightIndex];
     const t = (time - leftKf.time) / (rightKf.time - leftKf.time);
-    
+
     return this._interpolate(leftKf, rightKf, t);
   }
 
@@ -1386,7 +1393,7 @@ export class AnimationTrack {
     switch (leftKf.interpolation) {
       case 'step':
         return leftKf.value;
-      
+
       case 'linear':
         if (typeof leftKf.value === 'number') {
           return leftKf.value + (rightKf.value - leftKf.value) * t;
@@ -1398,7 +1405,7 @@ export class AnimationTrack {
           };
         }
         break;
-      
+
       case 'bezier':
         // 簡化的貝塞爾插值（三次貝塞爾）
         const t2 = t * t;
@@ -1406,18 +1413,18 @@ export class AnimationTrack {
         const mt = 1 - t;
         const mt2 = mt * mt;
         const mt3 = mt2 * mt;
-        
+
         if (typeof leftKf.value === 'number') {
           const p0 = leftKf.value;
           const p1 = leftKf.outTangent || leftKf.value;
           const p2 = rightKf.inTangent || rightKf.value;
           const p3 = rightKf.value;
-          
+
           return mt3 * p0 + 3 * mt2 * t * p1 + 3 * mt * t2 * p2 + t3 * p3;
         }
         break;
     }
-    
+
     return leftKf.value;
   }
 
@@ -1457,7 +1464,7 @@ export class AnimationClip {
    * 移除軌道
    */
   removeTrack(targetPath, property) {
-    const index = this.tracks.findIndex(t => 
+    const index = this.tracks.findIndex(t =>
       t.targetPath === targetPath && t.property === property
     );
     if (index >= 0) {
@@ -1471,7 +1478,7 @@ export class AnimationClip {
    * 取得軌道
    */
   getTrack(targetPath, property) {
-    return this.tracks.find(t => 
+    return this.tracks.find(t =>
       t.targetPath === targetPath && t.property === property
     );
   }
@@ -1481,7 +1488,7 @@ export class AnimationClip {
    */
   evaluate(time) {
     const result = {};
-    
+
     this.tracks.forEach(track => {
       const value = track.evaluate(time);
       if (value !== null) {
@@ -1491,7 +1498,7 @@ export class AnimationClip {
         result[track.targetPath][track.property] = value;
       }
     });
-    
+
     return result;
   }
 
@@ -1533,7 +1540,7 @@ export class AnimationPlayer {
   play(clipName) {
     const clip = this.clips.get(clipName);
     if (!clip) return false;
-    
+
     this.currentClip = clip;
     this.isPlaying = true;
     return true;
@@ -1566,9 +1573,9 @@ export class AnimationPlayer {
    */
   update(deltaTime) {
     if (!this.isPlaying || !this.currentClip) return null;
-    
+
     this.currentTime += deltaTime * this.playbackSpeed;
-    
+
     // 處理循環
     if (this.currentTime >= this.currentClip.duration) {
       if (this.currentClip.loop) {
@@ -1578,7 +1585,7 @@ export class AnimationPlayer {
         this.isPlaying = false;
       }
     }
-    
+
     // 評估當前狀態
     return this.currentClip.evaluate(this.currentTime);
   }
@@ -1588,16 +1595,16 @@ export class AnimationPlayer {
    */
   applyToProject(project, animationState) {
     if (!animationState) return;
-    
+
     for (const targetPath in animationState) {
       const properties = animationState[targetPath];
       const target = this._resolveTargetPath(project, targetPath);
-      
+
       if (target) {
         for (const property in properties) {
           if (target[property] !== undefined) {
             target[property] = properties[property];
-            
+
             // 如果是骨骼，標記為需要更新
             if (target instanceof Bone) {
               target._markDirty();
@@ -1614,7 +1621,7 @@ export class AnimationPlayer {
   _resolveTargetPath(project, path) {
     const parts = path.split('.');
     let current = project;
-    
+
     for (const part of parts) {
       if (current.getSkeleton && current.getSkeleton(part)) {
         current = current.getSkeleton(part);
@@ -1628,7 +1635,7 @@ export class AnimationPlayer {
         return null;
       }
     }
-    
+
     return current;
   }
 }
