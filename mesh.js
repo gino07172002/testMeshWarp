@@ -68,19 +68,35 @@ export class Vertex {
  * 骨骼類 - 表示骨架中的一根骨骼
  */
 export class Bone {
-  constructor(name, headX, headY, length = 50, rotation = 0, parent = null, blenderMode = true) {
+  constructor(name, headX, headY, length = 50, rotation = 0, parent = null, isConnected = true) {
     console.log("Bone constructor got:", name, typeof name);
     if (!name || typeof name !== 'string') {
       throw new Error('Bone name must be a non-empty string');
     }
 
     this.name = name;
-    this.localHead = { x: headX, y: headY }; // 本地 head 偏移（對於父 tail 的偏移）
+
     this.length = Math.max(0, length);
-    this.rotation = rotation; // 本地旋轉（弧度）
     this.parent = parent;
+    this.isConnected = isConnected;
+
+    // 新增 local/global head/rotation
+    if (parent) {
+      console.log("Bone constructor parent:", parent.name);
+      const parentTransform = parent.getGlobalTransform();
+      const local = this._globalToLocal(headX, headY, parentTransform);
+      this.localHead = { x: local.x, y: local.y };
+      this.localRotation = rotation - parentTransform.rotation;
+      this.globalHead = { x: headX, y: headY };
+      this.globalRotation = rotation;
+    } else {
+      this.localHead = { x: headX, y: headY };
+      this.localRotation = rotation;
+      this.globalHead = { x: headX, y: headY };
+      this.globalRotation = rotation;
+    }
+
     this.children = [];
-    this.blenderMode = blenderMode; // true = head 跟隨父 tail
 
     // 快取相關
     this._globalTransformCache = null;
@@ -110,11 +126,11 @@ export class Bone {
 
     const cos = Math.cos(parentTransform.rotation);
     const sin = Math.sin(parentTransform.rotation);
-    const basePoint = this.blenderMode ? parentTransform.tail : parentTransform.head;
 
+    // 以父骨骼的頭部為基準點進行旋轉和平移
     return {
-      x: basePoint.x + localX * cos - localY * sin,
-      y: basePoint.y + localX * sin + localY * cos
+      x: parentTransform.head.x + (localX * cos - localY * sin),
+      y: parentTransform.head.y + (localX * sin + localY * cos)
     };
   }
 
@@ -124,9 +140,11 @@ export class Bone {
   _globalToLocal(globalX, globalY, parentTransform) {
     if (!parentTransform) return { x: globalX, y: globalY };
 
-    const basePoint = this.blenderMode ? parentTransform.tail : parentTransform.head;
-    const dx = globalX - basePoint.x;
-    const dy = globalY - basePoint.y;
+    // 先將點相對於父骨骼頭部進行平移
+    const dx = globalX - parentTransform.head.x;
+    const dy = globalY - parentTransform.head.y;
+
+    // 反向旋轉
     const cos = Math.cos(-parentTransform.rotation);
     const sin = Math.sin(-parentTransform.rotation);
 
@@ -148,8 +166,25 @@ export class Bone {
    */
   getLocalTail() {
     return {
-      x: this.localHead.x + this.length * Math.cos(this.rotation),
-      y: this.localHead.y + this.length * Math.sin(this.rotation)
+      x: this.localHead.x + this.length * Math.cos(this.localRotation),
+      y: this.localHead.y + this.length * Math.sin(this.localRotation)
+    };
+  }
+
+  /**
+   * 取得全域 head 位置
+   */
+  getGlobalHead() {
+    return { x: this.globalHead.x, y: this.globalHead.y };
+  }
+
+  /**
+   * 取得全域 tail 位置
+   */
+  getGlobalTail() {
+    return {
+      x: this.globalHead.x + this.length * Math.cos(this.globalRotation),
+      y: this.globalHead.y + this.length * Math.sin(this.globalRotation)
     };
   }
 
@@ -165,7 +200,7 @@ export class Bone {
    * 設定旋轉角度
    */
   setRotation(newRotation) {
-    this.rotation = newRotation;
+    this.localRotation = newRotation;
     this._markDirty();
   }
 
@@ -177,16 +212,14 @@ export class Bone {
     this.localHead.y = y;
     this._markDirty();
   }
-    setHeadOnly(x, y) {
-    const oldTailX = this.getLocalTail().x;
-    const oldTailY =this.getLocalTail().y;
+  setHeadOnly(x, y) {
+    const oldTail = this.getLocalTail();
     this.localHead.x = x;
     this.localHead.y = y;
     this.length = Math.sqrt(
-      Math.pow(oldTailX - x, 2) + Math.pow(oldTailY - y, 2)
+      Math.pow(oldTail.x - x, 2) + Math.pow(oldTail.y - y, 2)
     );
-    this.rotation = Math.atan2(oldTailY - y, oldTailX - x);
-  
+    this.localRotation = Math.atan2(oldTail.y - y, oldTail.x - x);
     this._markDirty();
   }
   /**
@@ -196,7 +229,7 @@ export class Bone {
     const dx = x - this.localHead.x;
     const dy = y - this.localHead.y;
     this.length = Math.sqrt(dx * dx + dy * dy);
-    this.rotation = Math.atan2(dy, dx);
+    this.localRotation = Math.atan2(dy, dx);
     this._markDirty();
   }
 
@@ -204,29 +237,188 @@ export class Bone {
    * 設定全域 head（會轉回本地座標）
    */
   setGlobalHead(x, y) {
+    // 保存原始尾部位置
+    const originalTail = this.getGlobalTail();
+
+    // 保存所有子骨骼的原始全域位置和旋轉
+    const childrenGlobalInfo = this.children.map(child => ({
+      bone: child,
+      headPos: child.getGlobalHead(),
+      tailPos: child.getGlobalTail(),
+      rotation: child.globalRotation
+    }));
+
+    // 設定當前骨骼的新全域頭部位置
+    this.globalHead.x = x;
+    this.globalHead.y = y;
+
+    // 根據新的頭部位置和原始尾部位置計算新的長度和旋轉
+    const dx = originalTail.x - x;
+    const dy = originalTail.y - y;
+    this.length = Math.sqrt(dx * dx + dy * dy);
+    this.globalRotation = Math.atan2(dy, dx);
+
+    // 計算新的本地座標
+    if (this.parent) {
+      const parentTransform = this.parent.getGlobalTransform();
+      const local = this._globalToLocal(x, y, parentTransform);
+      this.localHead.x = local.x;
+      this.localHead.y = local.y;
+      this.localRotation = this.globalRotation - parentTransform.rotation;
+    } else {
+      this.localHead.x = x;
+      this.localHead.y = y;
+      this.localRotation = this.globalRotation;
+    }
+
+    // 標記需要更新
+    this._markDirty();
+
+    // 更新子骨骼位置
+    childrenGlobalInfo.forEach(({ bone, headPos, tailPos, rotation }) => {
+      if (bone.isConnected) {
+        // 如果是連接的子骨骼，需要跟隨父骨骼的尾部
+        const parentTail = this.getGlobalTail();
+        bone.setGlobalHead(parentTail.x, parentTail.y);
+      } else {
+        // 如果不是連接的子骨骼，保持其原始全域位置
+        bone.poseGlobalHead(headPos.x, headPos.y);
+      }
+
+      // 重新設定子骨骼的全域旋轉
+      const parentTransform = bone.parent.getGlobalTransform();
+      bone.globalRotation = rotation;
+      bone.localRotation = rotation - parentTransform.rotation;
+      bone._markDirty();
+    });
+  }
+
+  /**
+   * 原本的 setGlobalHead 改名為 poseGlobalHead
+   * 用於直接設定骨骼的姿勢（global head），並同步 localHead
+   */
+  poseGlobalHead(x, y) {
     if (!this.parent) {
       this.localHead.x = x;
       this.localHead.y = y;
+      this.globalHead.x = x;
+      this.globalHead.y = y;
     } else {
       const parentTransform = this.parent.getGlobalTransform();
       const local = this._globalToLocal(x, y, parentTransform);
       this.localHead.x = local.x;
       this.localHead.y = local.y;
+      this.globalHead.x = x;
+      this.globalHead.y = y;
     }
     this._markDirty();
   }
 
   /**
-   * 設定全域 tail（會自動更新 rotation 與 length）
+   * 直接設定骨骼的全域尾部位置，用於姿勢
+   */
+  poseGlobalTail(x, y) {
+    // 儲存所有連接的子骨骼的原始尾部位置
+    const childrenOriginalTails = this.children
+      .filter(child => child.isConnected)
+      .map(child => ({
+        bone: child,
+        tail: child.getGlobalTail()
+      }));
+
+    // 計算新的長度和旋轉
+    const head = this.getGlobalHead();
+    const dx = x - head.x;
+    const dy = y - head.y;
+    this.length = Math.sqrt(dx * dx + dy * dy);
+
+    if (this.parent) {
+      const parentTransform = this.parent.getGlobalTransform();
+      this.localRotation = Math.atan2(dy, dx) - parentTransform.rotation;
+      this.globalRotation = Math.atan2(dy, dx);
+    } else {
+      this.localRotation = Math.atan2(dy, dx);
+      this.globalRotation = this.localRotation;
+    }
+
+    // 標記需要更新
+    this._markDirty();
+
+    // 更新所有連接的子骨骼位置
+    childrenOriginalTails.forEach(({ bone: childBone, tail }) => {
+      // 設置子骨骼的頭部到當前骨骼的新尾部位置
+      const newHead = { x, y };
+      childBone.poseGlobalHead(newHead.x, newHead.y);
+
+      // 計算並設置子骨骼的新角度和長度，以保持尾部在原位
+      const tailDx = tail.x - newHead.x;
+      const tailDy = tail.y - newHead.y;
+      childBone.length = Math.sqrt(tailDx * tailDx + tailDy * tailDy);
+      childBone.globalRotation = Math.atan2(tailDy, tailDx);
+
+      // 更新本地旋轉角度
+      if (childBone.parent) {
+        childBone.localRotation = childBone.globalRotation - childBone.parent.globalRotation;
+      } else {
+        childBone.localRotation = childBone.globalRotation;
+      }
+
+      childBone._markDirty();
+    });
+  }
+
+  /**
+   * 設定全域尾部位置，會影響到連接的子骨骼
    */
   setGlobalTail(x, y) {
-    const globalHead = this.getGlobalTransform().head;
-    const dx = x - globalHead.x;
-    const dy = y - globalHead.y;
+    // 儲存所有子骨骼的原始全域尾部位置
+    const childrenOriginalTails = this.children
+      .filter(child => child.isConnected)
+      .map(child => ({
+        bone: child,
+        tail: child.getGlobalTail()
+      }));
+
+    // 計算新的長度和旋轉
+    const head = this.getGlobalHead();
+    const dx = x - head.x;
+    const dy = y - head.y;
     this.length = Math.sqrt(dx * dx + dy * dy);
-    const parentRotation = this.parent ? this.parent.getGlobalTransform().rotation : 0;
-    this.rotation = Math.atan2(dy, dx) - parentRotation;
+
+    if (this.parent) {
+      const parentTransform = this.parent.getGlobalTransform();
+      this.localRotation = Math.atan2(dy, dx) - parentTransform.rotation;
+      this.globalRotation = Math.atan2(dy, dx);
+    } else {
+      this.localRotation = Math.atan2(dy, dx);
+      this.globalRotation = this.localRotation;
+    }
+
+    // 標記需要更新
     this._markDirty();
+
+    // 更新所有連接的子骨骼位置和旋轉
+    
+    childrenOriginalTails.forEach(({ bone: childBone, tail }) => {
+      // 設置子骨骼的頭部到當前骨骼的新尾部位置
+      childBone.poseGlobalHead(x, y);
+
+      // 計算並設置子骨骼的新角度和長度，以保持尾部在原位
+      const tailDx = tail.x - x;
+      const tailDy = tail.y - y;
+      childBone.length = Math.sqrt(tailDx * tailDx + tailDy * tailDy);
+      childBone.globalRotation = Math.atan2(tailDy, tailDx);
+
+      // 更新本地旋轉角度
+      if (childBone.parent) {
+        childBone.localRotation = childBone.globalRotation - childBone.parent.globalRotation;
+      } else {
+        childBone.localRotation = childBone.globalRotation;
+      }
+
+      childBone._markDirty();
+    });
+  
   }
 
   /**
@@ -236,7 +428,6 @@ export class Bone {
     if (!this._isDirty && this._globalTransformCache) {
       return this._globalTransformCache;
     }
-
     this._globalTransformCache = this._calculateGlobalTransform();
     this._isDirty = false;
     return this._globalTransformCache;
@@ -245,51 +436,49 @@ export class Bone {
   getLocalTransform() {
     return {
       head: { x: this.localHead.x, y: this.localHead.y },
-      tail: { 
-        x: this.localHead.x + this.length * Math.cos(this.rotation),
-        y: this.localHead.y + this.length * Math.sin(this.rotation)
+      tail: {
+        x: this.localHead.x + this.length * Math.cos(this.localRotation),
+        y: this.localHead.y + this.length * Math.sin(this.localRotation)
       },
-      rotation: this.rotation
+      rotation: this.localRotation
     };
   }
-  
+
 
   /**
    * 實際計算全域變換
    */
   _calculateGlobalTransform() {
-   if (!this.parent)
-      
-      {
+    if (!this.parent) {
       const head = { x: this.localHead.x, y: this.localHead.y };
       const tail = {
-        x: head.x + this.length * Math.cos(this.rotation),
-        y: head.y + this.length * Math.sin(this.rotation)
+        x: head.x + this.length * Math.cos(this.localRotation),
+        y: head.y + this.length * Math.sin(this.localRotation)
       };
-      return { head, tail, rotation: this.rotation };
+      this.globalHead = { ...head };
+      this.globalRotation = this.localRotation;
+      return { head, tail, rotation: this.localRotation };
     }
-/*
+
+    // 取得父骨骼的全域變換
     const parentTransform = this.parent.getGlobalTransform();
+
+    // 計算全域頭部位置
     const globalHead = this._localToGlobal(this.localHead.x, this.localHead.y, parentTransform);
 
-    
-    const totalRotation = parentTransform.rotation + this.rotation;
+    // 計算全域旋轉角度
+    const totalRotation = parentTransform.rotation + this.localRotation;
+
+    // 計算全域尾部位置
     const tail = {
       x: globalHead.x + this.length * Math.cos(totalRotation),
       y: globalHead.y + this.length * Math.sin(totalRotation)
     };
-    */
 
-    //test local only
-    {
-      const globalHead = { x: this.localHead.x, y: this.localHead.y };
-      const tail = {
-        x: globalHead.x + this.length * Math.cos(this.rotation),
-        y: globalHead.y + this.length * Math.sin(this.rotation)
-      };
-      const totalRotation = this.rotation;
-      return { head:globalHead, tail:tail, rotation: totalRotation };
-    }
+    // 更新骨骼的全域屬性
+    this.globalHead = { ...globalHead };
+    this.globalRotation = totalRotation;
+
     return {
       head: globalHead,
       tail: tail,
@@ -353,7 +542,7 @@ export class Bone {
       this.localHead.x,
       this.localHead.y,
       this.length,
-      this.rotation,
+      this.localRotation,
       null,
       this.blenderMode
     );
@@ -532,7 +721,7 @@ export class Bone {
         bone.localHead.x,
         bone.localHead.y,
         bone.length,
-        bone.rotation,
+        bone.localRotation,
         null,
         bone.blenderMode
       );
@@ -667,19 +856,29 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY, headTailRadius =
     const head = transform.head;
     const tail = transform.tail;
     // record mouse click offset to bone head
-
     bone.offsetX = clickX - head.x;
     bone.offsetY = clickY - head.y;
     // 檢測 head
     const headDist = distance(clickX, clickY, head.x, head.y);
-    //console.log(" headDist : ", headDist, headTailRadius);
     if (headDist <= headTailRadius && headDist < minDistance) {
-      minDistance = headDist;
-      closestResult = {
-        bone: bone,
-        type: 'head',
-        distance: headDist
-      };
+      // 如果是連接的骨骼的 head，自動轉向 parent 的 tail
+      if (bone.isConnected && bone.parent) {
+        const parentTail = bone.parent.getGlobalTail();
+        const parentTailDist = distance(clickX, clickY, parentTail.x, parentTail.y);
+        minDistance = parentTailDist;
+        closestResult = {
+          bone: bone.parent,
+          type: 'tail',
+          distance: parentTailDist
+        };
+      } else {
+        minDistance = headDist;
+        closestResult = {
+          bone: bone,
+          type: 'head',
+          distance: headDist
+        };
+      }
     }
 
     // 檢測 tail
@@ -704,7 +903,7 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY, headTailRadius =
           type: 'middle',
           distance: bodyDist,
         };
-       
+
       }
     }
   });
@@ -714,7 +913,7 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY, headTailRadius =
 
 /**
  * 進階版本：回傳所有在指定距離內的骨骼，按距離排序
- * @param {Skeleton} skeleton - 骨架實例
+ * @param {Skeleton} skeleton - 骼架實例
  * @param {number} clickX - 點擊的 x 座標
  * @param {number} clickY - 點擊的 y 座標
  * @param {number} headTailRadius - head/tail 檢測半徑
@@ -1227,7 +1426,10 @@ export class Project2D {
           length: bone.length,
           rotation: bone.rotation,
           parentName: bone.parent ? bone.parent.name : null,
-          blenderMode: bone.blenderMode
+          blenderMode: bone.blenderMode,
+          localRotation: bone.localRotation,
+          globalRotation: bone.globalRotation,
+          globalHead: bone.globalHead
         }))
       }))
     };

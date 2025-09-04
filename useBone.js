@@ -127,7 +127,7 @@ export default class Bones {
   }
 
   checkKeyframe() {
-    console.log(" hi check keyframe ... ", this.vueInstance.proxy.timeline);
+    console.log(" hi check key frame ... ", this.vueInstance.proxy.timeline);
   }
 
   // 💾 儲存骨架
@@ -307,19 +307,17 @@ export default class Bones {
   // 處理滑鼠按下事件
   handleMeshBoneCreateMouseDown(xNDC, yNDC, isShiftPressed) {
     if (isShiftPressed && lastSelectedBone.value) {
-      console.log(" ShlastSelectedBone.valueift is pressed! ");
-      // use lastSelectedBone's getLocalTail() as mousedown position current xNDC as mousemove position 
+      // 使用最後選中骨骼的全域尾部位置作為新骨骼的起點
       const bone = lastSelectedBone.value;
-      if (!bone) return;
-      const tail = bone.getLocalTail();
+      const tail = bone.getGlobalTail();
       mousedown_x = tail.x;
       mousedown_y = tail.y;
       mousemove_x = xNDC;
       mousemove_y = yNDC;
     }
     else {
-      mousedown_x = xNDC
-      mousedown_y = yNDC
+      mousedown_x = xNDC;
+      mousedown_y = yNDC;
     }
   }
 
@@ -371,28 +369,93 @@ export default class Bones {
   }
 
   meshBoneEditMouseMove(xNDC, yNDC) {
-
-    //console.log(" edit bone to : ", xNDC, ' , ', yNDC, 'lastBone? ', lastSelectedBone.value, ' part:', lastSelectedBonePart.value);
     if (lastSelectedBone.value && lastSelectedBonePart.value) {
       const bone = lastSelectedBone.value;
-      if (lastSelectedBonePart.value === 'head') { // edit head position
-        bone.setHeadOnly(xNDC, yNDC);
-      } else if (lastSelectedBonePart.value === 'tail') { //edit tail position
-        bone.setLocalTail(xNDC, yNDC);
-      } else if (lastSelectedBonePart.value === 'middle') { //edit whole bone position  
-
-        //consider mousedown position as offset
-        if (mousedown_x !== null && mousedown_y !== null) {
-
-          //check contents of lastSelectedBone.value
-         // console.log(" lastSelectedBone.value: ", JSON.stringify(lastSelectedBone.value));
-          const offsetX = lastSelectedBone.value.offsetX;
-          const offsetY = lastSelectedBone.value.offsetY ;
-       //   console.log(" offset: ", offsetX, ' , ', offsetY);
-          bone.setLocalHead(xNDC - offsetX, yNDC - offsetY);
-
+      
+      if (lastSelectedBonePart.value === 'head') {
+        if (bone.isConnected && bone.parent) {
+          // When connected, moving head also moves parent's tail
+          bone.parent.setGlobalTail(xNDC, yNDC);
+          bone.setGlobalHead(xNDC, yNDC);
+        } else {
+          // When disconnected, only move this bone's head
+          bone.setGlobalHead(xNDC, yNDC);
         }
+      } else if (lastSelectedBonePart.value === 'tail') {
+        if (bone.isConnected && bone.children.length > 0) {
+          // When connected, moving tail also moves children's heads
+          bone.setGlobalTail(xNDC, yNDC);
+          bone.children.forEach(child => {
+            child.setGlobalHead(xNDC, yNDC);
+          });
+        } else {
+          // Store original positions of disconnected children
+          const childrenOriginalPositions = bone.children
+            .filter(child => !child.isConnected)
+            .map(child => ({
+              bone: child,
+              head: child.getGlobalHead(),
+              tail: child.getGlobalTail(),
+              rotation: child.globalRotation
+            }));
 
+          // Move the parent bone's tail
+          bone.setGlobalTail(xNDC, yNDC);
+
+          // Restore disconnected children's positions
+          childrenOriginalPositions.forEach(({ bone: childBone, head, tail, rotation }) => {
+            childBone.poseGlobalHead(head.x, head.y);
+            childBone.length = Math.sqrt(
+              Math.pow(tail.x - head.x, 2) + 
+              Math.pow(tail.y - head.y, 2)
+            );
+            childBone.globalRotation = rotation;
+            if (childBone.parent) {
+              childBone.localRotation = rotation - childBone.parent.globalRotation;
+            } else {
+              childBone.localRotation = rotation;
+            }
+            childBone._markDirty();
+          });
+        }
+      } else if (lastSelectedBonePart.value === 'middle') {
+        if (mousedown_x !== null && mousedown_y !== null) {
+          const offsetX = lastSelectedBone.value.offsetX;
+          const offsetY = lastSelectedBone.value.offsetY;
+          
+          // Store original positions of the bone
+          const originalHead = bone.getGlobalHead();
+          const originalTail = bone.getGlobalTail();
+          
+          // Store positions of connected children before moving
+          const connectedChildrenPositions = bone.children
+            .filter(child => child.isConnected)
+            .map(child => ({
+              bone: child,
+              tail: child.getGlobalTail()
+            }));
+          
+          // Move the bone
+          bone.setGlobalHead(xNDC - offsetX, yNDC - offsetY);
+          const deltaX = bone.getGlobalHead().x - originalHead.x;
+          const deltaY = bone.getGlobalHead().y - originalHead.y;
+          bone.setGlobalTail(originalTail.x + deltaX, originalTail.y + deltaY);
+
+          // Update parent's tail if connected
+          if (bone.isConnected && bone.parent) {
+            bone.parent.setGlobalTail(bone.getGlobalHead().x, bone.getGlobalHead().y);
+          }
+
+          // Update connected children
+          connectedChildrenPositions.forEach(({ bone: childBone, tail }) => {
+            // Set child's head to parent's tail
+            const parentTail = bone.getGlobalTail();
+            childBone.setGlobalHead(parentTail.x, parentTail.y);
+            
+            // Restore child's tail to original position
+            childBone.poseGlobalTail(tail.x, tail.y);
+          });
+        }
       }
     }
   }
@@ -452,7 +515,8 @@ export default class Bones {
       return;
     }
     let angle = this.calculateAngle(mousedown_x, mousedown_y, xNDC, yNDC);
-    const newBone = meshSkeleton.addBone("", mousedown_x, mousedown_y, boneLength, angle, lastSelectedBone.value, true);
+    //lastSelectedBone.value
+    const newBone = meshSkeleton.addBone("", mousedown_x, mousedown_y, boneLength, angle,lastSelectedBone.value , true);
     //console.log("Created new bone:", newBone);
 
     lastSelectedBone.value = newBone;
