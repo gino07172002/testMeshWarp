@@ -808,13 +808,13 @@ const app = Vue.createApp({
           */
         } else if (activeTool.value === 'bone-create') {
 
-          console.log(" mouse move event : ", e.buttons);  // in mouse move e.buttons: 1:left, 2:right, 3:left+right
+         // console.log(" mouse move event : ", e.buttons);  // in mouse move e.buttons: 1:left, 2:right, 3:left+right
           if (e.buttons === 2) {  //edit selected bone
-            console.log(" right button move edit bone...  ");
+         //   console.log(" right button move edit bone...  ");
             bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
           }
           else {
-            console.log(" left button move create bone...  ");
+            //console.log(" left button move create bone...  ");
             bonesInstance.meshboneCreateMouseMove(xNDC, yNDC);
             bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
           }

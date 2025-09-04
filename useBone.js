@@ -372,11 +372,11 @@ export default class Bones {
 
   meshBoneEditMouseMove(xNDC, yNDC) {
 
-    console.log(" edit bone to : ", xNDC, ' , ', yNDC, 'lastBone? ', lastSelectedBone.value, ' part:', lastSelectedBonePart.value);
+    //console.log(" edit bone to : ", xNDC, ' , ', yNDC, 'lastBone? ', lastSelectedBone.value, ' part:', lastSelectedBonePart.value);
     if (lastSelectedBone.value && lastSelectedBonePart.value) {
       const bone = lastSelectedBone.value;
       if (lastSelectedBonePart.value === 'head') { // edit head position
-        bone.setLocalHead(xNDC, yNDC);
+        bone.setHeadOnly(xNDC, yNDC);
       } else if (lastSelectedBonePart.value === 'tail') { //edit tail position
         bone.setLocalTail(xNDC, yNDC);
       } else if (lastSelectedBonePart.value === 'middle') { //edit whole bone position  
@@ -385,10 +385,10 @@ export default class Bones {
         if (mousedown_x !== null && mousedown_y !== null) {
 
           //check contents of lastSelectedBone.value
-          console.log(" lastSelectedBone.value: ", JSON.stringify(lastSelectedBone.value));
+         // console.log(" lastSelectedBone.value: ", JSON.stringify(lastSelectedBone.value));
           const offsetX = lastSelectedBone.value.offsetX;
           const offsetY = lastSelectedBone.value.offsetY ;
-          console.log(" offset: ", offsetX, ' , ', offsetY);
+       //   console.log(" offset: ", offsetX, ' , ', offsetY);
           bone.setLocalHead(xNDC - offsetX, yNDC - offsetY);
 
         }
@@ -447,19 +447,17 @@ export default class Bones {
     //boneLenth= distance between (mousedown_x, mousedown_y) and (xNDC, yNDC)
     let boneLength = this.calculateDistance(mousedown_x, mousedown_y, xNDC, yNDC);
 
-
-
     if (boneLength < minBoneLength) {
-      console.log("Bone length too short, not creating bone.");
+      //console.log("Bone length too short, not creating bone.");
       return;
     }
     let angle = this.calculateAngle(mousedown_x, mousedown_y, xNDC, yNDC);
-    const newBone = meshSkeleton.addBone("", mousedown_x, mousedown_y, boneLength, angle, null, true);
-    console.log("Created new bone:", newBone);
+    const newBone = meshSkeleton.addBone("", mousedown_x, mousedown_y, boneLength, angle, lastSelectedBone.value, true);
+    //console.log("Created new bone:", newBone);
 
     lastSelectedBone.value = newBone;
     lastSelectedBonePart.value = 'tail'; // Since we created from head to tail
-    console.log(" last selected bone: ", JSON.stringify(lastSelectedBone.value));
+    //console.log(" last selected bone: ", JSON.stringify(lastSelectedBone.value));
 
     //then clean mouse position  as null
     mousedown_x = null;
@@ -545,6 +543,17 @@ export default class Bones {
     lastSelectedBonePart.value = getBone ? getBone.type : null; // 'head', 'tail', or 'middle'
     mousedown_x = xNDC;
     mousedown_y = yNDC;
+    
+
+    //show local and global transform of lastSelectedBone.value
+    if (lastSelectedBone.value) {
+      const localHead = lastSelectedBone.value.getLocalHead();
+      const localTail = lastSelectedBone.value.getLocalTail();
+      const globalHead = lastSelectedBone.value.getGlobalTransform().head;
+      const globalTail = lastSelectedBone.value.getGlobalTransform().tail;
+      console.log(" Selected Bone Local Head: ", JSON.stringify(localHead), " Local Tail: ", JSON.stringify(localTail));
+      console.log(" Selected Bone Global Head: ", JSON.stringify(globalHead), " Global Tail: ", JSON.stringify(globalTail));
+    }
     return getBone;
   }
   handleBoneAnimateMouseDown(xNDC, yNDC) {

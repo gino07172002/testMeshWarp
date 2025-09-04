@@ -177,7 +177,18 @@ export class Bone {
     this.localHead.y = y;
     this._markDirty();
   }
-
+    setHeadOnly(x, y) {
+    const oldTailX = this.getLocalTail().x;
+    const oldTailY =this.getLocalTail().y;
+    this.localHead.x = x;
+    this.localHead.y = y;
+    this.length = Math.sqrt(
+      Math.pow(oldTailX - x, 2) + Math.pow(oldTailY - y, 2)
+    );
+    this.rotation = Math.atan2(oldTailY - y, oldTailX - x);
+  
+    this._markDirty();
+  }
   /**
    * 設定本地 tail，並更新 length 與 rotation
    */
@@ -231,11 +242,25 @@ export class Bone {
     return this._globalTransformCache;
   }
 
+  getLocalTransform() {
+    return {
+      head: { x: this.localHead.x, y: this.localHead.y },
+      tail: { 
+        x: this.localHead.x + this.length * Math.cos(this.rotation),
+        y: this.localHead.y + this.length * Math.sin(this.rotation)
+      },
+      rotation: this.rotation
+    };
+  }
+  
+
   /**
    * 實際計算全域變換
    */
   _calculateGlobalTransform() {
-    if (!this.parent) {
+   if (!this.parent)
+      
+      {
       const head = { x: this.localHead.x, y: this.localHead.y };
       const tail = {
         x: head.x + this.length * Math.cos(this.rotation),
@@ -243,16 +268,28 @@ export class Bone {
       };
       return { head, tail, rotation: this.rotation };
     }
-
+/*
     const parentTransform = this.parent.getGlobalTransform();
     const globalHead = this._localToGlobal(this.localHead.x, this.localHead.y, parentTransform);
 
+    
     const totalRotation = parentTransform.rotation + this.rotation;
     const tail = {
       x: globalHead.x + this.length * Math.cos(totalRotation),
       y: globalHead.y + this.length * Math.sin(totalRotation)
     };
+    */
 
+    //test local only
+    {
+      const globalHead = { x: this.localHead.x, y: this.localHead.y };
+      const tail = {
+        x: globalHead.x + this.length * Math.cos(this.rotation),
+        y: globalHead.y + this.length * Math.sin(this.rotation)
+      };
+      const totalRotation = this.rotation;
+      return { head:globalHead, tail:tail, rotation: totalRotation };
+    }
     return {
       head: globalHead,
       tail: tail,
@@ -666,11 +703,8 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY, headTailRadius =
           bone: bone,
           type: 'middle',
           distance: bodyDist,
-
-
-
         };
-        console.log(" clieck middle  result: ", JSON.stringify(closestResult));
+       
       }
     }
   });
