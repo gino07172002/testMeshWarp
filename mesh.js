@@ -8,6 +8,8 @@ export class Vertex {
     this.x = x;
     this.y = y;
     this.groups = {}; // { groupName: weight }
+    this.poseX = x; // 動畫用的 pose 座標
+    this.poseY = y;
   }
 
   /**
@@ -45,6 +47,14 @@ export class Vertex {
   /**
    * 正規化所有權重，使總和為 1
    */
+  /**
+   * 重置頂點的 pose 位置到原始位置
+   */
+  resetPose() {
+    this.poseX = this.x;
+    this.poseY = this.y;
+  }
+
   normalizeWeights() {
     const total = this.getTotalWeight();
     if (total === 0) return;
@@ -94,6 +104,11 @@ export class Bone {
       this.localRotation = rotation;
       this.globalHead = { x: headX, y: headY };
       this.globalRotation = rotation;
+
+      // 初始化 pose 相關屬性
+      this.poseHead = { x: headX, y: headY };
+      this.poseRotation = rotation;
+      this.poseLength = length;
     }
 
     this.children = [];
@@ -201,7 +216,23 @@ export class Bone {
    */
   setRotation(newRotation) {
     this.localRotation = newRotation;
+    this.poseRotation = newRotation; // 同步更新 pose 旋轉
     this._markDirty();
+  }
+
+  /**
+   * 設定動畫用的 pose 旋轉角度
+   */
+  setPoseRotation(newRotation) {
+    this.poseRotation = newRotation;
+    this._markDirty();
+  }
+
+  /**
+   * 獲取當前 pose 旋轉角度
+   */
+  getPoseRotation() {
+    return this.poseRotation !== undefined ? this.poseRotation : this.localRotation;
   }
 
   /**
@@ -211,6 +242,40 @@ export class Bone {
     this.localHead.x = x;
     this.localHead.y = y;
     this._markDirty();
+  }
+
+  /**
+   * 設定 pose head 位置
+   */
+  setPoseHead(x, y) {
+    this.poseHead.x = x;
+    this.poseHead.y = y;
+    this._markDirty();
+  }
+
+  /**
+   * 獲取當前 pose head 位置
+   */
+  getPoseHead() {
+    return {
+      x: this.poseHead ? this.poseHead.x : this.localHead.x,
+      y: this.poseHead ? this.poseHead.y : this.localHead.y
+    };
+  }
+
+  /**
+   * 設定 pose 長度
+   */
+  setPoseLength(length) {
+    this.poseLength = Math.max(0, length);
+    this._markDirty();
+  }
+
+  /**
+   * 獲取當前 pose 長度
+   */
+  getPoseLength() {
+    return this.poseLength !== undefined ? this.poseLength : this.length;
   }
   setHeadOnly(x, y) {
     const oldTail = this.getLocalTail();
@@ -236,6 +301,29 @@ export class Bone {
   /**
    * 設定全域 head（會轉回本地座標）
    */
+  /**
+   * 重置骨骼的 pose 狀態到原始位置
+   * @param {boolean} recursive - 是否遞迴重置所有子骨骼
+   */
+  resetPose(recursive = true) {
+    // 重置 pose 屬性到原始狀態
+    this.poseHead = { 
+      x: this.localHead.x, 
+      y: this.localHead.y 
+    };
+    this.poseRotation = this.localRotation;
+    this.poseLength = this.length;
+
+    // 如果需要遞迴重置，處理所有子骨骼
+    if (recursive && this.children) {
+      this.children.forEach(child => {
+        child.resetPose(true);
+      });
+    }
+
+    this._markDirty();
+  }
+
   setGlobalHead(x, y) {
     // 保存原始尾部位置
     const originalTail = this.getGlobalTail();
