@@ -591,13 +591,35 @@ export default class Bones {
     this.applyTransformToChildren(boneIndex, 0, 0, rotationAngle, pivotX, pivotY);
   }
 
-  // 修改後的 handleBoneAnimateMouseDown
-  handleMeshBoneAnimateMouseDown(xNDC, yNDC) {
+
+  // a function to getting a cloest bone as hover bone:
+    
+
+GetCloestBoneAsHoverBone(xNDC, yNDC) {
     const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
 
     mouseHoveringBone.value = getBone ? getBone.bone : null;
 
     return getBone;
+  }
+
+  GetCloestBoneAsSelectBone(xNDC, yNDC) {
+    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
+
+    lastSelectedBone.value = getBone ? getBone.bone : null;
+    lastSelectedBonePart.value = getBone ? getBone.type : null; // 'head', 'tail', or 'middle'
+    mousedown_x = xNDC;
+    mousedown_y = yNDC;
+
+    return getBone;
+  }
+  
+  
+  // 修改後的 handleBoneAnimateMouseDown
+  handleMeshBoneAnimateMouseDown(xNDC, yNDC) {
+    console.log(" handleMeshBoneAnimateMouseDown at : ", xNDC, ' , ', yNDC);
+    mousemove_x = xNDC;
+    mousemove_y = yNDC;
   }
 
   handleMeshBoneEditMouseDown(xNDC, yNDC) {
@@ -608,16 +630,6 @@ export default class Bones {
     mousedown_x = xNDC;
     mousedown_y = yNDC;
     
-
-    //show local and global transform of lastSelectedBone.value
-    if (lastSelectedBone.value) {
-      const localHead = lastSelectedBone.value.getLocalHead();
-      const localTail = lastSelectedBone.value.getLocalTail();
-      const globalHead = lastSelectedBone.value.getGlobalTransform().head;
-      const globalTail = lastSelectedBone.value.getGlobalTransform().tail;
-      console.log(" Selected Bone Local Head: ", JSON.stringify(localHead), " Local Tail: ", JSON.stringify(localTail));
-      console.log(" Selected Bone Global Head: ", JSON.stringify(globalHead), " Global Tail: ", JSON.stringify(globalTail));
-    }
     return getBone;
   }
   handleBoneAnimateMouseDown(xNDC, yNDC) {
@@ -632,6 +644,14 @@ export default class Bones {
       this.selectedBone.value = { index: -1 };
       boneEndBeingDragged.value = null;
     }
+  }
+
+ handleMeshBoneAnimateMouseMove(xNDC, yNDC) {
+    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
+
+    mouseHoveringBone.value = getBone ? getBone.bone : null;
+
+    return getBone;
   }
 
   // 修改後的 handleBoneAnimateMouseMove

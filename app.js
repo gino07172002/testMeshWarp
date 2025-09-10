@@ -764,7 +764,6 @@ const app = Vue.createApp({
               */
           } else if (activeTool.value === 'bone-create') {
             if (e.button === 2) {
-              //  const getBone = bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
               console.log(" right button down edit bone...  ");
               bonesInstance.handleMeshBoneEditMouseDown(xNDC, yNDC);
               isDragging = true;
@@ -776,15 +775,9 @@ const app = Vue.createApp({
               isDragging = true;
             }
           } else if (activeTool.value === 'bone-animate') {
-            bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
-            /*
-            bonesInstance.handleBoneAnimateMouseDown(xNDC, yNDC);
-            if (selectedBone.value.index >= 0) {
+            bonesInstance.GetCloestBoneAsSelectBone(xNDC, yNDC);
+
               isDragging = true;
-              startPosX = xNDC;
-              startPosY = yNDC;
-            }
-              */
           }
         }
       };
@@ -793,7 +786,7 @@ const app = Vue.createApp({
         const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
 
         if (!isDragging) {
-          bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
+          bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC);
 
           return;
         }
@@ -816,14 +809,14 @@ const app = Vue.createApp({
           else {
             //console.log(" left button move create bone...  ");
             bonesInstance.meshboneCreateMouseMove(xNDC, yNDC);
-            bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
+           // bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
           }
 
         } else if (activeTool.value === 'bone-animate') {
-          bonesInstance.handleBoneAnimateMouseMove(startPosX, startPosY, xNDC, yNDC, e.buttons);
+          bonesInstance. handleMeshBoneAnimateMouseDown( xNDC, yNDC);
           // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
-          startPosX = xNDC;
-          startPosY = yNDC;
+       //   startPosX = xNDC;
+      //    startPosY = yNDC;
         }
       };
 
