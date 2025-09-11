@@ -85,7 +85,7 @@ export class Bone {
     }
 
     this.name = name;
-
+    this.children = []; // Initialize children array
     this.length = Math.max(0, length);
     this.parent = parent;
     this.isConnected = isConnected;
@@ -306,6 +306,7 @@ export class Bone {
    * @param {boolean} recursive - 是否遞迴重置所有子骨骼
    */
   resetPose(recursive = true) {
+    //console.log(" hi reset pose!");
     // 重置 pose 屬性到原始狀態
     this.poseHead = { 
       x: this.localHead.x, 
@@ -841,7 +842,32 @@ export class Bone {
     this.rootBones = [];
     this.autoBoneCounter = 1; // 重置計數器
   }
+
+  /**
+   * 更新整個骨架，透過遞迴更新所有骨骼
+   */
+  update() {
+    // 從根骨骼開始更新所有骨骼
+    this.rootBones.forEach(bone => {
+      this._updateBoneRecursive(bone);
+    });
+  }
+
+  /**
+   * 遞迴更新骨骼及其子骨骼
+   * @private
+   */
+  _updateBoneRecursive(bone) {
+    // 強制更新骨骼的變換
+    bone.getGlobalTransform();
+    
+    // 遞迴更新所有子骨骼
+    bone.children.forEach(child => {
+      this._updateBoneRecursive(child);
+    });
+  }
 }
+
 /**
  * 頂點群組類
  */

@@ -719,6 +719,10 @@ const app = Vue.createApp({
       }
     };
 
+    const resetPose = () => {
+      bonesInstance.resetPoseToOriginal()
+    }
+
     const handleKeyDown = (e) => {
       if (e.key === 'Shift') {
         isShiftPressed.value = true;
@@ -1355,6 +1359,7 @@ const app = Vue.createApp({
       activeTool,
       selectedBone,
       timeline,
+      resetPose,
       drawAgain
     };
   }

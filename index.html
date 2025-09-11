@@ -18,20 +18,20 @@
           <div class="menu-item" @click.stop="toggleDropdown('fileDropdown')"> <!-- 添加.stop修飾符 -->
             檔案
             <div class="dropdown-menu" v-show="fileDropdown">
-              <div class="dropdown-item" @click="handleFileAction('new')">新增</div>
-              <div class="dropdown-item" @click="handleFileAction('open')">開啟</div>
-              <div class="dropdown-item" @click="handleFileAction('save')">儲存</div>
-              <div class="dropdown-item" @click="handleFileAction('export')">匯出</div>
+              <div class="dropdown-item" @click.stop="handleFileAction('new')">新增</div>
+              <div class="dropdown-item" @click.stop="handleFileAction('open')">開啟</div>
+              <div class="dropdown-item" @click.stop="handleFileAction('save')">儲存</div>
+              <div class="dropdown-item" @click.stop="handleFileAction('export')">匯出</div>
             </div>
           </div>
-          <div class="menu-item" @click="toggleDropdown('editDropdown')">
+          <div class="menu-item" @click.stop="toggleDropdown('editDropdown')">
             編輯
             <div class="dropdown-menu" v-show="editDropdown">
-              <div class="dropdown-item" @click="handleEditAction('undo')">復原</div>
-              <div class="dropdown-item" @click="handleEditAction('redo')">重做</div>
-              <div class="dropdown-item" @click="handleEditAction('cut')">剪下</div>
-              <div class="dropdown-item" @click="handleEditAction('copy')">複製</div>
-              <div class="dropdown-item" @click="handleEditAction('paste')">貼上</div>
+              <div class="dropdown-item" @click.stop="handleEditAction('undo')">復原</div>
+              <div class="dropdown-item" @click.stop="handleEditAction('redo')">重做</div>
+              <div class="dropdown-item" @click.stop="handleEditAction('cut')">剪下</div>
+              <div class="dropdown-item" @click.stop="handleEditAction('copy')">複製</div>
+              <div class="dropdown-item" @click.stop="handleEditAction('paste')">貼上</div>
             </div>
           </div>
         </div>
@@ -53,6 +53,8 @@
             @contextmenu.prevent>bone-save</button>
           <button class="tool-btn" :class="{ active: activeTool === 'bone-read' }" @click="selectTool('bone-read')"
             @contextmenu.prevent>bone-read</button>
+            <button class="tool-btn" :class="{ active: activeTool === 'reset-pose' }" @click="resetPose()"
+            @contextmenu.prevent>reset pose</button>
         </div>
 
         <!-- 中間畫布 -->
