@@ -611,16 +611,16 @@ export default class Bones {
   // a function to getting a cloest bone as hover bone:
     
 
-GetCloestBoneAsHoverBone(xNDC, yNDC) {
-    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
+GetCloestBoneAsHoverBone(xNDC, yNDC,isCreatMode = true) {
+    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC,isCreatMode);
 
     mouseHoveringBone.value = getBone ? getBone.bone : null;
 
     return getBone;
   }
 
-  GetCloestBoneAsSelectBone(xNDC, yNDC) {
-    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
+  GetCloestBoneAsSelectBone(xNDC, yNDC,isCreatMode = true) {
+    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC,isCreatMode);
 
     lastSelectedBone.value = getBone ? getBone.bone : null;
     lastSelectedBonePart.value = getBone ? getBone.type : null; // 'head', 'tail', or 'middle'
@@ -633,96 +633,24 @@ GetCloestBoneAsHoverBone(xNDC, yNDC) {
   
   // 修改後的 handleBoneAnimateMouseDown
   handleMeshBoneAnimateMouseDown(xNDC, yNDC) {
-    console.log(" handleMeshBoneAnimateMouseDown at : ", xNDC, ' , ', yNDC);
+   // console.log(" handleMeshBoneAnimateMouseDown at : ", xNDC, ' , ', yNDC);
     if (lastSelectedBone.value && lastSelectedBonePart.value) {
       const bone = lastSelectedBone.value;
       
       if (lastSelectedBonePart.value === 'head') {
-        if (bone.isConnected && bone.parent) {
+        {
           // When connected, moving head also moves parent's tail
-          bone.parent.poseGlobalTail(xNDC, yNDC);
-          bone.poseGlobalHead(xNDC, yNDC);
-        } else {
-          // When disconnected, only move this bone's head
-          bone.poseGlobalHead(xNDC, yNDC);
+          console.log(" set head to : ", xNDC, ' , ', yNDC);
+          bone.setPoseHead(xNDC, yNDC);
+
+        
         }
       } else if (lastSelectedBonePart.value === 'tail') {
-        if (bone.isConnected && bone.children.length > 0) {
-          // When connected, moving tail also moves children's heads
-          bone.poseGlobalTail(xNDC, yNDC);
-          bone.children.forEach(child => {
-            child.poseGlobalHead(xNDC, yNDC);
-          });
-        } else {
-          // Store original positions of disconnected children
-          const childrenOriginalPositions = bone.children
-            .filter(child => !child.isConnected)
-            .map(child => ({
-              bone: child,
-              head: child.getGlobalHead(),
-              tail: child.getGlobalTail(),
-              rotation: child.globalRotation
-            }));
-
-          // Move the parent bone's tail
-          bone.poseGlobalTail(xNDC, yNDC);
-
-          // Restore disconnected children's positions
-          /*
-          childrenOriginalPositions.forEach(({ bone: childBone, head, tail, rotation }) => {
-            childBone.poseGlobalHead(head.x, head.y);
-            childBone.length = Math.sqrt(
-              Math.pow(tail.x - head.x, 2) + 
-              Math.pow(tail.y - head.y, 2)
-            );
-            childBone.globalRotation = rotation;
-            if (childBone.parent) {
-              childBone.localRotation = rotation - childBone.parent.globalRotation;
-            } else {
-              childBone.localRotation = rotation;
-            }
-            childBone._markDirty();
-          });
-          */
-        }
+        
+       
       } else if (lastSelectedBonePart.value === 'middle') {
-        if (mousedown_x !== null && mousedown_y !== null) {
-          const offsetX = lastSelectedBone.value.offsetX;
-          const offsetY = lastSelectedBone.value.offsetY;
-          
-          // Store original positions of the bone
-          const originalHead = bone.getGlobalHead();
-          const originalTail = bone.getGlobalTail();
-          
-          // Store positions of connected children before moving
-          const connectedChildrenPositions = bone.children
-            .filter(child => child.isConnected)
-            .map(child => ({
-              bone: child,
-              tail: child.getGlobalTail()
-            }));
-          
-          // Move the bone
-          bone.poseGlobalHead(xNDC - offsetX, yNDC - offsetY);
-          const deltaX = bone.getGlobalHead().x - originalHead.x;
-          const deltaY = bone.getGlobalHead().y - originalHead.y;
-          bone.poseGlobalTail(originalTail.x + deltaX, originalTail.y + deltaY);
-
-          // Update parent's tail if connected
-          if (bone.isConnected && bone.parent) {
-            bone.parent.poseGlobalTail(bone.getGlobalHead().x, bone.getGlobalHead().y);
-          }
-
-          // Update connected children
-          connectedChildrenPositions.forEach(({ bone: childBone, tail }) => {
-            // Set child's head to parent's tail
-            const parentTail = bone.getGlobalTail();
-            childBone.poseGlobalHead(parentTail.x, parentTail.y);
-            
-            // Restore child's tail to original position
-            childBone.poseGlobalTail(tail.x, tail.y);
-          });
-        }
+        
+       
       }
     }
   }
@@ -738,7 +666,7 @@ GetCloestBoneAsHoverBone(xNDC, yNDC) {
     return getBone;
   }
   handleBoneAnimateMouseDown(xNDC, yNDC) {
-    const { selectedBoneIndex, boneEnd } = this.detectBoneClick(xNDC, yNDC);
+    const { selectedBoneIndex, boneEnd } = this.detectBoneClick(xNDC, yNDC,false);
     if (selectedBoneIndex >= 0) {
       this.selectedBone.value = { index: selectedBoneIndex };
       boneEndBeingDragged.value = boneEnd;
@@ -752,7 +680,7 @@ GetCloestBoneAsHoverBone(xNDC, yNDC) {
   }
 
  handleMeshBoneAnimateMouseMove(xNDC, yNDC) {
-    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
+    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC,false);
 
     mouseHoveringBone.value = getBone ? getBone.bone : null;
 

@@ -95,10 +95,22 @@ export class Bone {
       console.log("Bone constructor parent:", parent.name);
       const parentTransform = parent.getGlobalTransform();
       const local = this._globalToLocal(headX, headY, parentTransform);
+
+      //parameter define: local is relative to parent head , global is world space
       this.localHead = { x: local.x, y: local.y };
       this.localRotation = rotation - parentTransform.rotation;
       this.globalHead = { x: headX, y: headY };
       this.globalRotation = rotation;
+
+      // 初始化 pose 相關屬性 base on relative to parent's pose
+      this.poseGlobalHead = { x: headX, y: headY };
+      this.poseGlobalRotation = rotation;
+      this.poseGlobalLength = length;
+      this.poseHead = { x: local.x, y: local.y };
+      this.poseRotation = rotation - parentTransform.rotation;
+      this.poseLength = length;
+
+
     } else {
       this.localHead = { x: headX, y: headY };
       this.localRotation = rotation;
@@ -109,9 +121,14 @@ export class Bone {
       this.poseHead = { x: headX, y: headY };
       this.poseRotation = rotation;
       this.poseLength = length;
+
+      // last recorded global pose infos, for child bone update use
+      this.poseGlobalHead = { x: headX, y: headY };
+      this.poseGlobalRotation = rotation;
+      this.poseGlobalLength = length;
+
     }
 
-    this.children = [];
 
     // 快取相關
     this._globalTransformCache = null;
@@ -149,9 +166,7 @@ export class Bone {
     };
   }
 
-  /**
-   * 座標轉換：全域座標轉本地座標
-   */
+  /**座標轉換：全域座標轉本地座標*/
   _globalToLocal(globalX, globalY, parentTransform) {
     if (!parentTransform) return { x: globalX, y: globalY };
 
@@ -235,6 +250,50 @@ export class Bone {
     return this.poseRotation !== undefined ? this.poseRotation : this.localRotation;
   }
 
+
+  //get caculated global pose transform for child bone use
+  getPoseGlobalTransform() {
+    return {
+      head: { x: this.poseGlobalHead.x, y: this.poseGlobalHead.y },
+      rotation: this.poseGlobalRotation,
+      length: this.poseGlobalLength,
+      //also caculate tail if needed
+      tail: {
+        x: this.poseGlobalHead.x + this.poseGlobalLength * Math.cos(this.poseGlobalRotation),
+        y: this.poseGlobalHead.y + this.poseGlobalLength * Math.sin(this.poseGlobalRotation)
+      }
+    };
+  }
+
+
+  //update current poseGlobal transform based on parent's poseGlobal , in order to draw world space pose
+  updatePoseGlobalTransform() {
+    if (!this.parent) {
+      //if no parent , poseGlobal is same as global head
+
+      this.poseGlobalHead = { x: this.poseHead.x, y: this.poseHead.y };
+      this.poseGlobalRotation = this.poseRotation;
+      this.poseGlobalLength = this.poseLength;
+    }
+    else  {
+      const parentPoseTransform = this.parent.getPoseGlobalTransform();
+      // caculate this bone's poseGlobalHead from localHead and parent's poseGlobal
+      //check poseHead console
+     
+
+      const local = this._localToGlobal(this.poseHead.x, this.poseHead.y, parentPoseTransform);
+      this.poseGlobalHead = { x: local.x, y: local.y };
+      this.poseGlobalRotation = parentPoseTransform.rotation + this.poseRotation;
+      this.poseGlobalLength = this.poseLength;
+
+     
+    }
+    //update all children too (maybe not needed here, because skeleton update will call this again)
+   // this.children.forEach(child => child.updatePoseGlobalTransform());
+
+  }
+
+
   /**
    * 設定本地 head 偏移
    */
@@ -247,9 +306,19 @@ export class Bone {
   /**
    * 設定 pose head 位置
    */
-  setPoseHead(x, y) {
-    this.poseHead.x = x;
-    this.poseHead.y = y;
+  setPoseHead(x, y) {  // get coordinate of global space, so we need to convert to local
+
+    if (!this.parent) {
+      console.log(" setPoseHead no parent to : ", x, ' , ', y);
+      this.poseHead = { x: x, y: y };
+    } else {
+      const parentTransform = this.parent.getPoseGlobalTransform();
+
+      const local = this._globalToLocal(x, y, parentTransform);
+      this.poseHead = { x: local.x, y: local.y };
+    }
+
+
     this._markDirty();
   }
 
@@ -533,6 +602,20 @@ export class Bone {
     };
   }
 
+  //get pose transform for animation use
+  getPoseTransform() {
+    const head = this.getPoseHead();
+    const length = this.getPoseLength();
+    const rotation = this.getPoseRotation();
+    const tail = {
+      x: head.x + length * Math.cos(rotation),
+      y: head.y + length * Math.sin(rotation)
+    };
+
+    return { head, tail, rotation };
+  }  // tips: getPoseTransform is not cached, because pose can change frequently during animation 
+
+
 
   /**
    * 實際計算全域變換
@@ -677,6 +760,49 @@ export class Bone {
     this.boneMap = new Map(); // 快速查找
     this.rootBones = []; // 根骨骼列表
     this.autoBoneCounter = 1; // 自動命名計數器
+  }
+
+  // 更新所有骨骼的全局變換
+  updateGlobalTransforms() {
+    // 使用已經存在的根骨骼列表
+    const rootBones = this.rootBones.length > 0 ? this.rootBones : this.bones.filter(bone => !bone.parent);
+    
+    // 遞迴更新每個骨骼的全局變換
+    const updateBoneTransform = (bone) => {
+      if (bone.parent) {
+        // 有父骨骼的情況：計算全局變換
+        const parentTransform = bone.parent.getGlobalTransform();
+        
+        // 計算全局頭部位置
+        const globalHead = bone._localToGlobal(
+          bone.localHead.x, 
+          bone.localHead.y, 
+          parentTransform
+        );
+        bone.globalHead.x = globalHead.x;
+        bone.globalHead.y = globalHead.y;
+        
+        // 計算全局旋轉
+        bone.globalRotation = parentTransform.rotation + bone.localRotation;
+      } else {
+        // 根骨骼：本地就是全局
+        bone.globalHead.x = bone.localHead.x;
+        bone.globalHead.y = bone.localHead.y;
+        bone.globalRotation = bone.localRotation;
+      }
+      
+      // 更新變換緩存
+      bone._globalTransformCache = {
+        head: { x: bone.globalHead.x, y: bone.globalHead.y },
+        rotation: bone.globalRotation
+      };
+      
+      // 遞迴處理所有子骨骼
+      bone.children.forEach(child => updateBoneTransform(child));
+    };
+
+    // 從每個根骨骼開始更新
+    rootBones.forEach(rootBone => updateBoneTransform(rootBone));
   }
 
   /**
@@ -961,12 +1087,20 @@ function distance(x1, y1, x2, y2) {
  *   - type: 'head', 'tail', 或 'body'
  *   - distance: 到點擊點的距離
  */
-export function getClosestBoneAtClick(skeleton, clickX, clickY, headTailRadius = 0.02, maxDistance = 0.03) {
+export function getClosestBoneAtClick(skeleton, clickX, clickY,isCreatMode=true, headTailRadius = 0.02, maxDistance = 0.03) {
   let closestResult = null;
   let minDistance = maxDistance;
 
+  if(isCreatMode==false)
+  {
+    console.log(" getClosestBoneAtClick in animation mode ");
+  }
+
   skeleton.forEachBone(bone => {
-    const transform = bone.getGlobalTransform();
+    //if isCreatMode, use getGlobalTransform, else use getPoseTransform
+    const transform = isCreatMode ? bone.getGlobalTransform() : bone.getPoseTransform();
+    //const transform = bone.getGlobalTransform();
+    if (!transform || !transform.head || !transform.tail) return;
     const head = transform.head;
     const tail = transform.tail;
     // record mouse click offset to bone head

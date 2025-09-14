@@ -779,7 +779,7 @@ const app = Vue.createApp({
               isDragging = true;
             }
           } else if (activeTool.value === 'bone-animate') {
-            bonesInstance.GetCloestBoneAsSelectBone(xNDC, yNDC);
+            bonesInstance.GetCloestBoneAsSelectBone(xNDC, yNDC,false);
 
               isDragging = true;
           }
@@ -790,7 +790,8 @@ const app = Vue.createApp({
         const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
 
         if (!isDragging) {
-          bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC);
+          const isCreatMode = (activeTool.value === 'bone-create');
+          bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC,isCreatMode);
 
           return;
         }
@@ -1038,17 +1039,40 @@ const app = Vue.createApp({
         const tailVertices = [];
         let vertexIndex = 0;
 
-        meshSkeleton.forEachBone(bone => {
-          const transform = bone.getGlobalTransform();
-          vertices.push(transform.head.x, transform.head.y);
-          vertices.push(transform.tail.x, transform.tail.y);
+        const processRootBones = () => {
+          // 獲取所有根骨骼
+          const rootBones = meshSkeleton.bones.filter(bone => !bone.parent);
+          
+          // 從每個根骨骼開始遞迴處理
+          const processBoneRecursive = (bone) => {
+            let transform;
+            if (activeTool.value === "bone-animate") {
+              // 在動畫模式下使用 pose transform
+              bone.updatePoseGlobalTransform(); // update pose transform from local and parent
+              transform = bone.getPoseGlobalTransform();
+            } else {
+              // 其他模式下使用一般的 global transform
+              transform = bone.getGlobalTransform();
+            }
 
-          headVertices.push(transform.head.x, transform.head.y);
-          tailVertices.push(transform.tail.x, transform.tail.y);
+            vertices.push(transform.head.x, transform.head.y);
+            vertices.push(transform.tail.x, transform.tail.y);
 
-          indices.push(vertexIndex, vertexIndex + 1);
-          vertexIndex += 2;
-        });
+            headVertices.push(transform.head.x, transform.head.y);
+            tailVertices.push(transform.tail.x, transform.tail.y);
+
+            indices.push(vertexIndex, vertexIndex + 1);
+            vertexIndex += 2;
+
+            // 遞迴處理所有子骨骼
+            bone.children.forEach(child => processBoneRecursive(child));
+          };
+
+          // 處理每個根骨骼
+          rootBones.forEach(rootBone => processBoneRecursive(rootBone));
+        };
+
+        processRootBones();
 
         const skeletonVbo = gl.createBuffer();
         const skeletonEbo = gl.createBuffer();
@@ -1115,7 +1139,10 @@ const app = Vue.createApp({
       const lastSelectedBone = bonesInstance.GetLastSelectedBone?.();
       if (lastSelectedBone) {
         const bone = lastSelectedBone;
-        const transform = bone.getGlobalTransform();
+
+        // 區分create mode 跟 pose mode的不同座標
+        const transform = (activeTool.value === "bone-animate") ? bone.getPoseGlobalTransform() : bone.getGlobalTransform();
+
         const vertices = new Float32Array([transform.head.x, transform.head.y, transform.tail.x, transform.tail.y]);
         const indices = new Uint16Array([0, 1]);
 
@@ -1148,7 +1175,8 @@ const app = Vue.createApp({
       const mouseHoveringBone = bonesInstance.GetHoverBone?.();
       if (mouseHoveringBone && (mouseHoveringBone !== lastSelectedBone)) {
         const bone = mouseHoveringBone;
-        const transform = bone.getGlobalTransform();
+        const transform = (activeTool.value === "bone-animate") ? bone.getPoseGlobalTransform() : bone.getGlobalTransform();
+
         const vertices = new Float32Array([transform.head.x, transform.head.y, transform.tail.x, transform.tail.y]);
         const indices = new Uint16Array([0, 1]);
 
