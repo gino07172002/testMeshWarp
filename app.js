@@ -1049,7 +1049,7 @@ const app = Vue.createApp({
             if (activeTool.value === "bone-animate") {
               // 在動畫模式下使用 pose transform
               bone.updatePoseGlobalTransform(); // update pose transform from local and parent
-              transform = bone.getPoseGlobalTransform();
+              transform = bone.getGlobalPoseTransform();
             } else {
               // 其他模式下使用一般的 global transform
               transform = bone.getGlobalTransform();
@@ -1141,7 +1141,7 @@ const app = Vue.createApp({
         const bone = lastSelectedBone;
 
         // 區分create mode 跟 pose mode的不同座標
-        const transform = (activeTool.value === "bone-animate") ? bone.getPoseGlobalTransform() : bone.getGlobalTransform();
+        const transform = (activeTool.value === "bone-animate") ? bone.getGlobalPoseTransform() : bone.getGlobalTransform();
 
         const vertices = new Float32Array([transform.head.x, transform.head.y, transform.tail.x, transform.tail.y]);
         const indices = new Uint16Array([0, 1]);
@@ -1175,7 +1175,7 @@ const app = Vue.createApp({
       const mouseHoveringBone = bonesInstance.GetHoverBone?.();
       if (mouseHoveringBone && (mouseHoveringBone !== lastSelectedBone)) {
         const bone = mouseHoveringBone;
-        const transform = (activeTool.value === "bone-animate") ? bone.getPoseGlobalTransform() : bone.getGlobalTransform();
+        const transform = (activeTool.value === "bone-animate") ? bone.getGlobalPoseTransform() : bone.getGlobalTransform();
 
         const vertices = new Float32Array([transform.head.x, transform.head.y, transform.tail.x, transform.tail.y]);
         const indices = new Uint16Array([0, 1]);

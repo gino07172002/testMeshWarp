@@ -252,7 +252,7 @@ export class Bone {
 
 
   //get caculated global pose transform for child bone use
-  getPoseGlobalTransform() {
+  getGlobalPoseTransform() {
     return {
       head: { x: this.poseGlobalHead.x, y: this.poseGlobalHead.y },
       rotation: this.poseGlobalRotation,
@@ -276,7 +276,7 @@ export class Bone {
       this.poseGlobalLength = this.poseLength;
     }
     else  {
-      const parentPoseTransform = this.parent.getPoseGlobalTransform();
+      const parentPoseTransform = this.parent.getGlobalPoseTransform();
       // caculate this bone's poseGlobalHead from localHead and parent's poseGlobal
       //check poseHead console
      
@@ -300,25 +300,6 @@ export class Bone {
   setLocalHead(x, y) {
     this.localHead.x = x;
     this.localHead.y = y;
-    this._markDirty();
-  }
-
-  /**
-   * 設定 pose head 位置
-   */
-  setPoseHead(x, y) {  // get coordinate of global space, so we need to convert to local
-
-    if (!this.parent) {
-      console.log(" setPoseHead no parent to : ", x, ' , ', y);
-      this.poseHead = { x: x, y: y };
-    } else {
-      const parentTransform = this.parent.getPoseGlobalTransform();
-
-      const local = this._globalToLocal(x, y, parentTransform);
-      this.poseHead = { x: local.x, y: local.y };
-    }
-
-
     this._markDirty();
   }
 
@@ -440,7 +421,7 @@ export class Bone {
         bone.setGlobalHead(parentTail.x, parentTail.y);
       } else {
         // 如果不是連接的子骨骼，保持其原始全域位置
-        bone.poseGlobalHead(headPos.x, headPos.y);
+        bone.setPoseGlobalHead(headPos.x, headPos.y);
       }
 
       // 重新設定子骨骼的全域旋轉
@@ -451,25 +432,57 @@ export class Bone {
     });
   }
 
-  /**
-   * 原本的 setGlobalHead 改名為 poseGlobalHead
-   * 用於直接設定骨骼的姿勢（global head），並同步 localHead
-   */
-  poseGlobalHead(x, y) {
-    if (!this.parent) {
-      this.localHead.x = x;
-      this.localHead.y = y;
-      this.globalHead.x = x;
-      this.globalHead.y = y;
+  //seting global head for animation pose use, tail and children's coordinates will move together
+  setPoseGlobalHead(x, y) {
+ 
+    this.poseGlobalHead.x = x;
+    this.poseGlobalHead.y = y;
+
+    //update local pose head based on parent's poseGlobal
+    if (this.parent) {
+      const parentPoseTransform = this.parent.getGlobalPoseTransform();
+      const local = this._globalToLocal(x, y, parentPoseTransform);
+      this.poseHead.x = local.x;
+      this.poseHead.y = local.y;
     } else {
-      const parentTransform = this.parent.getGlobalTransform();
-      const local = this._globalToLocal(x, y, parentTransform);
-      this.localHead.x = local.x;
-      this.localHead.y = local.y;
-      this.globalHead.x = x;
-      this.globalHead.y = y;
+      this.poseHead.x = x;
+      this.poseHead.y = y;
     }
+    
     this._markDirty();
+  }
+
+  
+
+  setPoseGlobalTail(x, y) {
+    // change global rotation and length based on new tail position
+    const head = this.getGlobalPoseTransform().head;
+    const dx = x - head.x;
+    const dy = y - head.y;
+    this.poseLength = Math.sqrt(dx * dx + dy * dy); 
+    this.globalRotation = Math.atan2(dy, dx);
+
+    if (this.parent) {
+      const parentTransform = this.parent.getGlobalPoseTransform();
+      this.poseRotation = Math.atan2(dy, dx) - parentTransform.rotation;
+      this.poseGlobalRotation = Math.atan2(dy, dx);
+    } else {
+      this.poseRotation = Math.atan2(dy, dx);
+      this.poseGlobalRotation = this.poseRotation;
+    }
+    this.poseGlobalHead = { ...head }; // keep head same
+    
+    this._markDirty();
+
+    //if children is connected, move them too
+    this.children.forEach(child => {
+      if (child.isConnected) {
+        //set child's head to this bone's new tail position
+        child.setPoseGlobalHead(x, y);
+        child._markDirty();
+      }
+    });
+
   }
 
   /**
@@ -506,7 +519,7 @@ export class Bone {
     childrenOriginalTails.forEach(({ bone: childBone, tail }) => {
       // 設置子骨骼的頭部到當前骨骼的新尾部位置
       const newHead = { x, y };
-      childBone.poseGlobalHead(newHead.x, newHead.y);
+      childBone.setPoseGlobalHead(newHead.x, newHead.y);
 
       // 計算並設置子骨骼的新角度和長度，以保持尾部在原位
       const tailDx = tail.x - newHead.x;
@@ -559,7 +572,7 @@ export class Bone {
     
     childrenOriginalTails.forEach(({ bone: childBone, tail }) => {
       // 設置子骨骼的頭部到當前骨骼的新尾部位置
-      childBone.poseGlobalHead(x, y);
+      childBone.setPoseGlobalHead(x, y);
 
       // 計算並設置子骨骼的新角度和長度，以保持尾部在原位
       const tailDx = tail.x - x;
@@ -1093,12 +1106,12 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY,isCreatMode=true,
 
   if(isCreatMode==false)
   {
-    console.log(" getClosestBoneAtClick in animation mode ");
+    //console.log(" getClosestBoneAtClick in animation mode ");
   }
 
   skeleton.forEachBone(bone => {
     //if isCreatMode, use getGlobalTransform, else use getPoseTransform
-    const transform = isCreatMode ? bone.getGlobalTransform() : bone.getPoseTransform();
+    const transform = isCreatMode ? bone.getGlobalTransform() : bone.getGlobalPoseTransform();
     //const transform = bone.getGlobalTransform();
     if (!transform || !transform.head || !transform.tail) return;
     const head = transform.head;
