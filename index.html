@@ -53,7 +53,7 @@
             @contextmenu.prevent>bone-save</button>
           <button class="tool-btn" :class="{ active: activeTool === 'bone-read' }" @click="selectTool('bone-read')"
             @contextmenu.prevent>bone-read</button>
-            <button class="tool-btn" :class="{ active: activeTool === 'reset-pose' }" @click="resetPose()"
+          <button class="tool-btn" :class="{ active: activeTool === 'reset-pose' }" @click="resetPose()"
             @contextmenu.prevent>reset pose</button>
         </div>
 
@@ -73,9 +73,13 @@
           <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
             <div class="panel-title">階層式物件</div>
             <div class="layers-container">
-              <tree-item v-for="root in boneTree" :key="root.id" :node="root" :expanded-nodes="expandedNodes"
-                :selected-bone="selectedBone" @toggle-node="toggleNode" @name-click="handleNameClick">
-              </tree-item>
+              <div v-for="skeleton in skeletons" :key="skeleton.name" class="skeleton-block">
+                <div class="skeleton-header">{{ skeleton.name }}</div>
+
+                <tree-item v-for="root in skeleton.rootBones" :key="root.id" :node="root"
+                  :expanded-nodes="expandedNodes" :selected-bone="selectedBone" @toggle-node="toggleNode"
+                  @name-click="handleNameClick" />
+              </div>
             </div>
           </div>
           <div class="panel-section layers-section" style="height:200px; flex: 0 0 200px;">

@@ -77,13 +77,15 @@ export class Vertex {
 /**
  * 骨骼類 - 表示骨架中的一根骨骼
  */
+
+let globalBoneId = 0;
 export class Bone {
   constructor(name, headX, headY, length = 50, rotation = 0, parent = null, isConnected = true) {
     console.log("Bone constructor got:", name, typeof name);
     if (!name || typeof name !== 'string') {
       throw new Error('Bone name must be a non-empty string');
     }
-
+     this.id = `${name}_${globalBoneId++}`;
     this.name = name;
     this.children = []; // Initialize children array
     this.length = Math.max(0, length);
@@ -410,6 +412,11 @@ export class Bone {
       this.localRotation = this.globalRotation;
     }
 
+    //update global pose too
+    this.setPoseGlobalHead(x, y);
+
+
+
     // 標記需要更新
     this._markDirty();
 
@@ -419,9 +426,10 @@ export class Bone {
         // 如果是連接的子骨骼，需要跟隨父骨骼的尾部
         const parentTail = this.getGlobalTail();
         bone.setGlobalHead(parentTail.x, parentTail.y);
+        bone.setPoseGlobalHead(parentTail.x, parentTail.y);
       } else {
         // 如果不是連接的子骨骼，保持其原始全域位置
-        bone.setPoseGlobalHead(headPos.x, headPos.y);
+      //  bone.setPoseGlobalHead(headPos.x, headPos.y);
       }
 
       // 重新設定子骨骼的全域旋轉
@@ -542,6 +550,7 @@ export class Bone {
    * 設定全域尾部位置，會影響到連接的子骨骼
    */
   setGlobalTail(x, y) {
+    console.log(" setGlobalTail called with:", x, y);
     // 儲存所有子骨骼的原始全域尾部位置
     const childrenOriginalTails = this.children
       .filter(child => child.isConnected)
@@ -555,6 +564,9 @@ export class Bone {
     const dx = x - head.x;
     const dy = y - head.y;
     this.length = Math.sqrt(dx * dx + dy * dy);
+    
+    this.setPoseGlobalTail(x, y); // also update pose tail and related infos
+      
 
     if (this.parent) {
       const parentTransform = this.parent.getGlobalTransform();
@@ -568,27 +580,21 @@ export class Bone {
     // 標記需要更新
     this._markDirty();
 
-    // 更新所有連接的子骨骼位置和旋轉
-    
+    // update first layer's child pose tail if connected
     childrenOriginalTails.forEach(({ bone: childBone, tail }) => {
-      // 設置子骨骼的頭部到當前骨骼的新尾部位置
-      childBone.setPoseGlobalHead(x, y);
+      if (childBone.isConnected) {
+        //set child's head to this bone's new tail position
+        const newHead = this.getGlobalTail();
+        childBone.setGlobalHead(newHead.x, newHead.y);
+        childBone.setGlobalTail(tail.x, tail.y); // keep original tail position
+        childBone.setPoseGlobalHead(newHead.x, newHead.y);
+        childBone.setPoseGlobalTail(tail.x, tail.y); // keep original tail position
 
-      // 計算並設置子骨骼的新角度和長度，以保持尾部在原位
-      const tailDx = tail.x - x;
-      const tailDy = tail.y - y;
-      childBone.length = Math.sqrt(tailDx * tailDx + tailDy * tailDy);
-      childBone.globalRotation = Math.atan2(tailDy, tailDx);
 
-      // 更新本地旋轉角度
-      if (childBone.parent) {
-        childBone.localRotation = childBone.globalRotation - childBone.parent.globalRotation;
-      } else {
-        childBone.localRotation = childBone.globalRotation;
+        childBone._markDirty();
       }
-
-      childBone._markDirty();
     });
+
   
   }
 
@@ -1100,7 +1106,7 @@ function distance(x1, y1, x2, y2) {
  *   - type: 'head', 'tail', 或 'body'
  *   - distance: 到點擊點的距離
  */
-export function getClosestBoneAtClick(skeleton, clickX, clickY,isCreatMode=true, headTailRadius = 0.02, maxDistance = 0.03) {
+export function getClosestBoneAtClick(skeleton, clickX, clickY,isCreatMode=true, headTailRadius = 0.05, maxDistance = 0.05) {
   let closestResult = null;
   let minDistance = maxDistance;
 
@@ -1167,6 +1173,7 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY,isCreatMode=true,
 
       }
     }
+ 
   });
 
   return closestResult;

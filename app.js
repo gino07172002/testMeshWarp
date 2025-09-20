@@ -8,6 +8,7 @@ import {
   boneParents,
   boneChildren,
   meshSkeleton,
+  skeletons,
 } from './useBone.js';
 
 import {
@@ -289,6 +290,7 @@ const app = Vue.createApp({
       scrollLeft: 0,
       dragStartX: 0,
       dragStartY: 0,
+      refreshKey: 0,
       timelineLength: 1000,
       dragInfo: { dragging: false, startX: 0, type: null },
       timeSelection: { active: false, start: 0, end: 0 },
@@ -298,23 +300,8 @@ const app = Vue.createApp({
       psdLayers: [],
       fileDropdown: false,
       editDropdown: false,
-      hierarchicalData: {
-        children: [
-          {
-            children: [
-              {
-                name: "GrandChild"
-              }
-            ],
-            name: "Child1"
-          },
-          {
-            name: "Child2"
-          }
-        ],
-        name: "Root"
-      },
-      expandedNodes: []
+
+
     };
   },
   async mounted() {
@@ -370,6 +357,9 @@ const app = Vue.createApp({
     document.removeEventListener('click', this.handleClickOutside);
   },
   methods: {
+    forceUpdate() {
+      this.refreshKey++;
+    },
     addLayer() {
       this.layerCounter++;
       const newLayer = {
@@ -585,59 +575,6 @@ const app = Vue.createApp({
         this.closeAllDropdowns();
       }
     },
-    renderHierarchicalData(node, parentId = '') {
-      const nodeId = parentId ? `${parentId}-${node.name}` : node.name;
-      const hasChildren = node.children && node.children.length > 0;
-      return {
-        id: nodeId,
-        name: node.name,
-        hasChildren: hasChildren,
-        children: hasChildren ? node.children.map(child => this.renderHierarchicalData(child, nodeId)) : []
-      };
-    },
-    buildBoneTree(boneIndex, parentId = null, boneIdToIndexMap = {}) {
-      const boneId = `bone${boneIndex}`;
-      const boneName = `Bone ${boneIndex}`;
-      const index = boneIndex;
-
-      boneIdToIndexMap[boneId] = boneIndex;
-
-      const headX = skeletonVertices.value[boneIndex * 4];
-      const headY = skeletonVertices.value[boneIndex * 4 + 1];
-      const tailX = skeletonVertices.value[boneIndex * 4 + 2];
-      const tailY = skeletonVertices.value[boneIndex * 4 + 3];
-
-      const children = boneChildren.value[boneIndex] || [];
-      return {
-        id: boneId,
-        name: boneName,
-        parentId: parentId,
-        index: boneIndex,
-        head: { x: Math.round(headX * 100) / 100, y: Math.round(headY * 100) / 100 },
-        tail: { x: Math.round(tailX * 100) / 100, y: Math.round(tailY * 100) / 100 },
-        children: children.map(childIndex => this.buildBoneTree(childIndex, boneId, boneIdToIndexMap))
-      };
-    },
-    getParentBoneById(boneId) {
-      const targetBone = this.flattenedBones.find(b => b.id === boneId);
-      if (!targetBone?.parentId) return null;
-      return this.flattenedBones.find(b => b.id === targetBone.parentId);
-    },
-    getChildBonesById(boneId) {
-      const targetBone = this.flattenedBones.find(b => b.id === boneId);
-      if (!targetBone?.childIds?.length) return [];
-      return this.flattenedBones.filter(b => targetBone.childIds.includes(b.id));
-    },
-    toggleNode(nodeId) {
-      if (this.expandedNodes.includes(nodeId)) {
-        this.expandedNodes = this.expandedNodes.filter(id => id !== nodeId);
-      } else {
-        this.expandedNodes.push(nodeId);
-      }
-    },
-    handleNameClick(boneIndex) {
-      this.selectedBone = { index: boneIndex };
-    },
     showBone() {
       console.log("hi show bone");
       console.log("hi bone ", JSON.stringify(this.boneTree));
@@ -680,14 +617,30 @@ const app = Vue.createApp({
     const skeletonIndices = ref([]);
     const isShiftPressed = ref(false);
     const instance = Vue.getCurrentInstance();
-    const mousePressed = ref() ; // e event of mouse down , ex: 0:left, 2:right
-
+    const mousePressed = ref(); // e event of mouse down , ex: 0:left, 2:right
+    const refreshKey = ref(0);
+    const expandedNodes = reactive([]);
     const timeline = reactive(new Timeline({
       onUpdate: () => instance.proxy.$forceUpdate(),
       vueInstance: instance,
       updateMeshForSkeletonPose: glsInstance.updateMeshForSkeletonPose,
     }));
+    const forceUpdate = () => {
+      refreshKey.value++; // 每次加 1 → 會觸發 template 重新渲染
+    };
+    function toggleNode(nodeId) {
+      const idx = expandedNodes.indexOf(nodeId);
+      if (idx >= 0) {
+        expandedNodes.splice(idx, 1);
+      } else {
+        expandedNodes.push(nodeId);
+      }
+    };
 
+    function handleNameClick(boneId) {
+      selectedBone.value = boneId; // 或做你原本選骨骼的處理
+      bonesInstance.findBoneById(boneId);
+    };
     const bonesInstance = new Bones({
       onUpdate: () => instance.proxy.$forceUpdate(),
       vueInstance: instance,
@@ -702,11 +655,11 @@ const app = Vue.createApp({
       activeTool.value = tool;
       console.log("switch to tool : ", tool);
       if (activeTool.value === 'bone-animate') {
-        bonesInstance.restoreSkeletonVerticesFromLast();
+        // bonesInstance.restoreSkeletonVerticesFromLast();
       }
       else if (tool === 'bone-create') {
         glsInstance.resetMeshToOriginal();
-        bonesInstance.resetSkeletonToOriginal();
+        // bonesInstance.resetSkeletonToOriginal();
       }
       else if (tool === 'bone-clear') {
         bonesInstance.clearBones();
@@ -720,7 +673,7 @@ const app = Vue.createApp({
     };
 
     const resetPose = () => {
-      bonesInstance.resetPoseToOriginal()
+      //bonesInstance.resetPoseToOriginal()
     }
 
     const handleKeyDown = (e) => {
@@ -737,12 +690,13 @@ const app = Vue.createApp({
 
     const setupCanvasEvents = (canvas, gl, container) => {
       let isDragging = false;
+      let alreadySelect = false;
       let localSelectedVertex = -1;
       let startPosX = 0;
       let startPosY = 0;
 
       const handleMouseDown = (e) => {
-         mousePressed.value = e.button;
+        mousePressed.value = e.button;
         const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
         startPosX = xNDC;
         startPosY = yNDC;
@@ -779,9 +733,9 @@ const app = Vue.createApp({
               isDragging = true;
             }
           } else if (activeTool.value === 'bone-animate') {
-            bonesInstance.GetCloestBoneAsSelectBone(xNDC, yNDC,false);
+            bonesInstance.GetCloestBoneAsSelectBone(xNDC, yNDC, false);
 
-              isDragging = true;
+            isDragging = true;
           }
         }
       };
@@ -791,7 +745,7 @@ const app = Vue.createApp({
 
         if (!isDragging) {
           const isCreatMode = (activeTool.value === 'bone-create');
-          bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC,isCreatMode);
+          bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC, isCreatMode);
 
           return;
         }
@@ -806,22 +760,21 @@ const app = Vue.createApp({
           */
         } else if (activeTool.value === 'bone-create') {
 
-         // console.log(" mouse move event : ", e.buttons);  // in mouse move e.buttons: 1:left, 2:right, 3:left+right
+          // console.log(" mouse move event : ", e.buttons);  // in mouse move e.buttons: 1:left, 2:right, 3:left+right
           if (e.buttons === 2) {  //edit selected bone
-         //   console.log(" right button move edit bone...  ");
+            //   console.log(" right button move edit bone...  ");
             bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
           }
           else {
             //console.log(" left button move create bone...  ");
             bonesInstance.meshboneCreateMouseMove(xNDC, yNDC);
-           // bonesInstance.handleBoneCreateMouseMove(xNDC, yNDC);
           }
 
         } else if (activeTool.value === 'bone-animate') {
-          bonesInstance. handleMeshBoneAnimateMouseDown( xNDC, yNDC);
+          bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
           // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
-       //   startPosX = xNDC;
-      //    startPosY = yNDC;
+          //   startPosX = xNDC;
+          //    startPosY = yNDC;
         }
       };
 
@@ -835,15 +788,16 @@ const app = Vue.createApp({
           else {
             bonesInstance.MeshBoneCreate(xNDC, yNDC);
           }
-          bonesInstance.handleBoneCreateMouseUp();
 
-          bonesInstance.assignVerticesToBones();
+
+          //bonesInstance.assignVerticesToBones();
         } else if (activeTool.value === 'bone-animate' && isDragging) {
-          bonesInstance.handleBoneAnimateMouseUp();
+          // bonesInstance.handleBoneAnimateMouseUp();
         }
         isDragging = false;
         selectedVertex.value = -1;
         mousePressed.value = null;
+        forceUpdate();
       };
 
       canvas.removeEventListener('mousedown', handleMouseDown);
@@ -1042,7 +996,7 @@ const app = Vue.createApp({
         const processRootBones = () => {
           // 獲取所有根骨骼
           const rootBones = meshSkeleton.bones.filter(bone => !bone.parent);
-          
+
           // 從每個根骨骼開始遞迴處理
           const processBoneRecursive = (bone) => {
             let transform;
@@ -1388,7 +1342,11 @@ const app = Vue.createApp({
       selectedBone,
       timeline,
       resetPose,
-      drawAgain
+      drawAgain,
+      skeletons,
+      toggleNode,
+      expandedNodes,
+      handleNameClick
     };
   }
 });
@@ -1397,39 +1355,54 @@ const TreeItem = {
   props: ['node', 'expandedNodes', 'selectedBone'],
   template: `
     <div class="tree-item">
-      <div class="tree-item-header" :class="{ 'highlighted': checkIsSelected() }">
-        <span class="tree-toggle-icon" 
-              :class="{ 'expanded': expandedNodes.includes(node.id) }" 
-              @click.stop="toggleNode(node.id)" 
-              v-if="node.children && node.children.length > 0">▶</span>
-        <span class="tree-item-name" @click.stop="handleNameClick(node.name)">{{ node.name }}</span>
-      </div>
-      <div class="tree-children" v-if="expandedNodes.includes(node.id)">
-        <tree-item v-for="child in node.children" 
-                  :key="child.id" 
-                  :node="child" 
-                  :expanded-nodes="expandedNodes" 
-                  :selected-bone="selectedBone"
-                  @toggle-node="$emit('toggle-node', $event)" 
-                  @name-click="$emit('name-click', $event)">
-        </tree-item>
-      </div>
-    </div>
+  <div class="tree-item-header" style="display: flex; align-items: center;">
+    <!-- 箭頭按鈕 -->
+    <span v-if="hasChildren"
+          style="cursor: pointer; width: 16px; display: inline-block;"
+          @click.stop="toggleNode(node.id)">
+      {{ isExpanded ? '▼' : '▶' }}
+    </span>
+
+    <!-- 名稱文字 -->
+    <span style="cursor: pointer;" @click="selectBone(node.id)">
+      {{ node.name }}
+    </span>
+  </div>
+
+  <!-- 子節點 -->
+  <div v-if="isExpanded" class="tree-item-children" style="padding-left: 16px;">
+    <tree-item
+      v-for="child in node.children"
+      :key="child.id"
+      :node="child"
+      :expanded-nodes="expandedNodes"
+      :selected-bone="selectedBone"
+      @toggle-node="$emit('toggle-node', $event)"
+      @name-click="$emit('name-click', $event)"
+    />
+  </div>
+</div>
   `,
+  computed: {
+    hasChildren() {
+      return this.node.children && this.node.children.length > 0;
+    },
+    isExpanded() {
+      return this.expandedNodes.includes(this.node.id);
+    }
+  },
   methods: {
     toggleNode(nodeId) {
       this.$emit('toggle-node', nodeId);
     },
-    handleNameClick(name) {
-      const boneIndex = this.node.index;
-      this.$emit('name-click', boneIndex);
-    },
-    checkIsSelected() {
-      const boneIndex = this.node.index;
-      return boneIndex === this.selectedBone.index;
+    selectBone(boneId) {
+      this.$emit('name-click', boneId);
     }
   }
 };
+
+
+
 
 app.component('tree-item', TreeItem);
 export default app;
