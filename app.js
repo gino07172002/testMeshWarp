@@ -261,6 +261,7 @@ const layerToTexture = (gl, layer) => {
     gl.bindTexture(gl.TEXTURE_2D, null);
     let coords = { top: layer.top, left: layer.left, bottom: layer.bottom, right: layer.right };
     // 解析 Promise，返回紋理 all coordinate needed
+    console.log(" top : ",layer.top," , left: ",layer.left);
     resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height, top: layer.top, left: layer.left, image: imageData });
   });
 };
@@ -563,9 +564,12 @@ const app = Vue.createApp({
               opacity: layer.opacity || 1.0,
               blendMode: layer.blendMode || 'normal'
             };
+              console.log("let see new psd layer: ",layer.top," , ",layer.left);
+
 
             layersForTexture.push(layerForTexture);
           }
+        
 
           console.log(" then renew canvas... ");
 
@@ -908,10 +912,11 @@ const app = Vue.createApp({
       }
 
       const textures = texture.value;
-      const layerCount = Math.min(textures.length, renderLayer.length);
+      const layerCount = textures.length;
 
       gl.useProgram(program);
 
+      //console.log(" layer count : ",layerCount);
       for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
         const tex = textures[layerIndex];
         const layer = renderLayer[layerIndex];
@@ -946,11 +951,14 @@ const app = Vue.createApp({
 
         // === 計算轉換矩陣 ===
         const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
+        
         const glLeft = (left / canvasWidth) * 2 - 1;
         const glRight = ((left + width) / canvasWidth) * 2 - 1;
         const glTop = 1 - (top / canvasHeight) * 2;
         const glBottom = 1 - ((top + height) / canvasHeight) * 2;
+       // console.log(" what's my top :",top," left: ",left);
 
+      //  console.log(" checking width : ",width," canvas widith : ",canvasWidth);
         const sx = (glRight - glLeft) / 2;
         const sy = (glTop - glBottom) / 2;
         const tx = glLeft + sx;
@@ -960,7 +968,7 @@ const app = Vue.createApp({
           sx, 0, 0, 0,
           0, sy, 0, 0,
           0, 0, 1, 0,
-          0, 0, 0, 1
+          tx,ty, 0, 1
         ]);
 
         const transformLocation = gl.getUniformLocation(program, 'uTransform');
