@@ -703,5 +703,6 @@ export {
   downloadImage,
   Bones,
   meshSkeleton,
-  skeletons
+  skeletons,
+  lastSelectedBone,
 };

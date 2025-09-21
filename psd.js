@@ -193,38 +193,42 @@ function drawSelectedLayers() {
   });
 }
 
-// 將事件處理函數重構為可以從外部調用的函數
+
+
+// 修复后的 processPSDFile 函数
 function processPSDFile(file) {
-  return new Promise((resolve) => {
-    console.log("let's doing process psd ... ");
-    if (file) {
-      readPSD(file, function () {
-        const layerContainer = document.getElementById('layerContainer');
-        layerContainer.innerHTML = '';
-        allLayers.forEach((layer, index) => {
-          const checkbox = document.createElement('input');
-          checkbox.type = 'checkbox';
-          checkbox.className = 'layer-checkbox';
-          checkbox.id = `layer-${index}`;
-          checkbox.checked = true;
-          checkbox.addEventListener('change', drawSelectedLayers);
+    return new Promise((resolve) => {
+        console.log("Processing PSD file...");
+        if (file) {
+            readPSD(file, function () {
+                const layerContainer = document.getElementById('layerContainer');
+                layerContainer.innerHTML = '';
+                
+                allLayers.forEach((layer, index) => {
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.className = 'layer-checkbox';
+                    checkbox.id = `layer-${index}`;
+                    checkbox.checked = true;
+                    checkbox.addEventListener('change', drawSelectedLayers);
 
-          const label = document.createElement('label');
-          label.htmlFor = `layer-${index}`;
-          label.textContent = `圖層 ${index}`;
+                    const label = document.createElement('label');
+                    label.htmlFor = `layer-${index}`;
+                    label.textContent = `圖層 ${index}`;
 
-          layerContainer.appendChild(checkbox);
-          layerContainer.appendChild(label);
-          layerContainer.appendChild(document.createElement('br'));
-        });
-        //  console.log(" all layers: ", JSON.stringify(allLayers));
-        drawSelectedLayers();
-        resolve(); // 解析 Promise
-      });
-    } else {
-      resolve(); // 無檔案時直接解析
-    }
-  });
+                    layerContainer.appendChild(checkbox);
+                    layerContainer.appendChild(label);
+                    layerContainer.appendChild(document.createElement('br'));
+                });
+                
+                console.log("All layers loaded:", allLayers.length);
+                drawSelectedLayers();
+                resolve();
+            });
+        } else {
+            resolve();
+        }
+    });
 }
 
 // 如果你想保留原來的事件監聽器，可以這樣使用新函數：

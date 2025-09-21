@@ -9,6 +9,7 @@ import {
   boneChildren,
   meshSkeleton,
   skeletons,
+  lastSelectedBone
 } from './useBone.js';
 
 import {
@@ -51,8 +52,10 @@ const shaders = {
         precision mediump float;
         varying vec2 vTexCoord;
         uniform sampler2D uTexture;
+        uniform float uOpacity;
         void main() {
-          gl_FragColor = texture2D(uTexture, vTexCoord);
+          vec4 color = texture2D(uTexture, vTexCoord);
+          gl_FragColor = vec4(color.rgb, color.a * uOpacity);
         }
       `,
   colorVertex: `
@@ -86,7 +89,8 @@ const shaders = {
         }
       `
 };
-
+// 準備多圖層資料結構陣列
+let layersForTexture = [];
 // Coordinate conversion utility function
 const convertToNDC = (e, canvas, container) => {
   const rect = canvas.getBoundingClientRect();
@@ -125,7 +129,7 @@ const changeImage = async (newUrl) => {
     imageWidth.value = result.width;
     imageHeight.value = result.height;
     // 根據新圖片尺寸重新建立頂點緩衝
-    glsInstance.createBuffers(gl.value);
+    glsInstance.createBuffers2(gl.value);
 
     // 若骨架數據與圖片相關，需重新初始化
 
@@ -152,9 +156,9 @@ const changeImage2 = async (layerIndices = null) => {
 
     //console.log(" test all layer ", JSON.stringify(allLayers));
     // 確定要渲染的圖層：如果未傳入 layerIndices，則渲染所有圖層
+
     const layersToRender = layerIndices ? layerIndices.map(index => allLayers[index]) : allLayers;
 
-    console.log(" hi layer length : ", allLayers.length);
 
     // 為每個圖層創建紋理，並存儲為數組
     texture.value = await Promise.all(layersToRender.map(layer => layerToTexture(gl.value, layer)));
@@ -165,13 +169,50 @@ const changeImage2 = async (layerIndices = null) => {
     for (let i = 0; i < texture.value.length; i++) {
       console.log(" hi loading gl value : ", i);
       glsInstance.createLayerBuffers(texture.value[i]);
+
+      // 绑定当前图层的缓冲区
+      const layer = glsInstance.layers[i];
+      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
+      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
+
+      // === 设置顶点属性（只需一次）===
+      // 1. 纹理程序的属性
+      gl.value.useProgram(program.value);
+      const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
+      const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
+      gl.value.enableVertexAttribArray(posAttrib);
+      gl.value.enableVertexAttribArray(texAttrib);
+      gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
+      gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
+
+      // 2. 颜色程序的属性
+      gl.value.useProgram(colorProgram.value);
+      const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
+      gl.value.enableVertexAttribArray(colorPosAttrib);
+      gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
     }
 
-    console.log(" end adding layers =================================== ");
-    console.log(" hi texture : ", texture.value);
+    // 为第0层设置线条缓冲区
+    if (glsInstance.getLayerSize() > 0) {
+      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, glsInstance.layers[0].eboLines);
+      gl.value.bufferData(gl.value.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices.value), gl.value.STATIC_DRAW);
+    }
+
+    // 解绑所有缓冲区
+    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
+    gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
+
+    console.log("WebGL initialization complete");
+
+    // 启动渲染循环
+    render2(gl.value, program.value, colorProgram.value, skeletonProgram.value);
+
+
+    //console.log(" end adding layers =================================== ");
+    // console.log(" hi texture : ", texture.value);
 
     // 根據新圖片尺寸重新建立頂點緩衝（假設所有圖層共享相同網格）
-    glsInstance.createBuffers(gl.value);
+    // glsInstance.createBuffers2(gl.value);
 
   } catch (error) {
     console.error("更換圖片失敗:", error);
@@ -219,8 +260,8 @@ const layerToTexture = (gl, layer) => {
     // 解綁紋理
     gl.bindTexture(gl.TEXTURE_2D, null);
     let coords = { top: layer.top, left: layer.left, bottom: layer.bottom, right: layer.right };
-    // 解析 Promise，返回紋理
-    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height, image: imageData });
+    // 解析 Promise，返回紋理 all coordinate needed
+    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height, top: layer.top, left: layer.left, image: imageData });
   });
 };
 
@@ -305,6 +346,7 @@ const app = Vue.createApp({
     };
   },
   async mounted() {
+    this.addLayer();
     this.addLayer();
     console.log("somehow mount here ... ");
     document.addEventListener('click', this.closeAllDropdowns);
@@ -429,7 +471,7 @@ const app = Vue.createApp({
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
 
-      console.log("Processing layer:", layer.name, "ImageData type:", Object.prototype.toString.call(layer.imageData));
+      //console.log("Processing layer:", layer.name, "ImageData type:", Object.prototype.toString.call(layer.imageData));
 
       // Handle different types of imageData
       if (layer.imageData instanceof ImageData) {
@@ -465,10 +507,16 @@ const app = Vue.createApp({
       try {
         const file = event.target.files[0];
         if (file) {
+          layersForTexture = [];
           await processPSDFile(file);
           this.psdLayers = allLayers;
+          console.log("Loaded PSD layers:", JSON.stringify(this.psdLayers[0].width));
 
+          let imageWidth = this.psdLayers[0].width;
+          let imageHeight = this.psdLayers[0].height;
           const glContext = gl.value; // WebGL context from useWebGL.js
+
+
 
           for (const layer of this.psdLayers) {
             // Create texture for the layer
@@ -477,13 +525,13 @@ const app = Vue.createApp({
             // Calculate NDC coordinates based on layer position and size
             const left = layer.left || 0;
             const top = layer.top || 0;
-            const right = left + (layer.width || imageWidth.value);
-            const bottom = top + (layer.height || imageHeight.value);
+            const right = left + (layer.width || imageWidth);
+            const bottom = top + (layer.height || imageHeight);
 
-            const ndcLeft = (left / imageWidth.value) * 2 - 1;
-            const ndcRight = (right / imageWidth.value) * 2 - 1;
-            const ndcTop = 1 - (top / imageHeight.value) * 2;
-            const ndcBottom = 1 - (bottom / imageHeight.value) * 2;
+            const ndcLeft = (left / imageWidth) * 2 - 1;
+            const ndcRight = (right / imageWidth) * 2 - 1;
+            const ndcTop = 1 - (top / imageHeight) * 2;
+            const ndcBottom = 1 - (bottom / imageHeight) * 2;
 
             // Define vertices for the quad (position and texture coordinates)
             const layerVertices = [
@@ -502,11 +550,27 @@ const app = Vue.createApp({
             layer.ebo = glContext.createBuffer();
             glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, layer.ebo);
             glContext.bufferData(glContext.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 0, 2, 3]), glContext.STATIC_DRAW);
-            //  console.log(" layer : ",JSON.stringify(layer));
+
+            // 將圖層轉換成與 PNG 相同的資料結構格式
+            const layerForTexture = {
+              imageData: layer.imageData, // 假設 PSD 圖層已經有 imageData (Uint8Array 格式)
+              width: layer.width,
+              height: layer.height,
+              // 如果需要額外的圖層資訊，可以加上：
+              left: layer.left || -1,
+              top: layer.top || 1,
+              name: layer.name || `Layer ${layersForTexture.length}`,
+              opacity: layer.opacity || 1.0,
+              blendMode: layer.blendMode || 'normal'
+            };
+
+            layersForTexture.push(layerForTexture);
           }
 
           console.log(" then renew canvas... ");
-          // No need to call drawSelectedLayers() here; rendering is handled in the render loop
+
+
+
         }
       } catch (error) {
         console.error("處理 PSD 檔案時出錯:", error);
@@ -620,6 +684,8 @@ const app = Vue.createApp({
     const mousePressed = ref(); // e event of mouse down , ex: 0:left, 2:right
     const refreshKey = ref(0);
     const expandedNodes = reactive([]);
+
+    let currentJobName = null;
     const timeline = reactive(new Timeline({
       onUpdate: () => instance.proxy.$forceUpdate(),
       vueInstance: instance,
@@ -822,115 +888,269 @@ const app = Vue.createApp({
 
     var time = 0;
 
-    const render2 = (gl, program, colorProgram, skeletonProgram) => {
+    // 修复后的渲染函数 - 解决只能看到最后一个图层的问题
+    const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer, jobName) => {
+      if (currentJobName != jobName)
+        return;
+
+      // 啟用混合，但不要用深度測試（透明圖層會出問題）
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-      // 关键修复：在每帧开始清除画布
-      // gl.clearColor(0.0, 0.0, 0.0, 1.0);
-      // gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      // 不要清掉畫布，不然會只剩最後一層
+      // gl.clear(gl.COLOR_BUFFER_BIT);
 
-      time += 0.016; // 每幀遞增時間（大約60fps）
+      time += 0.016;
 
-      if (texture.value) {
-        const textures = Array.isArray(texture.value) ? texture.value : [texture.value];
-
-        gl.useProgram(program);
-
-        for (let i = 0; i < textures.length; i++) {
-          if (i >= glsInstance.getLayerSize()) break;
-
-          const tex = textures[i];
-          const layer = glsInstance.layers[i];
-
-          // === VBO sin 波形更新 ===
-          if (layer.vbo && layer.vertices.value) {
-            const originalVertices = layer.vertices.value; // 假設 vertices 是 Float32Array
-
-            // 複製一份新的頂點資料
-            const updatedVertices = new Float32Array(originalVertices.length);
-
-            for (let j = 0; j < originalVertices.length; j += 4) {
-              const x = originalVertices[j];
-              const y = originalVertices[j + 1];
-              const z = originalVertices[j + 2];
-              const w = originalVertices[j + 3];
-
-              // 對 y 做 sin 波形變形，x 決定波長
-              //const wave = Math.sin(x * 10 + time) * 0.05;
-              const wave = 0;
-              updatedVertices[j] = x;
-              updatedVertices[j + 1] = y + wave;
-              updatedVertices[j + 2] = z;
-              updatedVertices[j + 3] = w;
-            }
-
-            // 將更新後的頂點資料寫入 VBO
-            gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
-            gl.bufferData(gl.ARRAY_BUFFER, updatedVertices, gl.DYNAMIC_DRAW);
-          }
-
-          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
-
-          const coords = tex.coords || {};
-          const left = coords.left ?? -1.0;
-          const right = coords.right ?? 1.0;
-          const top = coords.top ?? 1.0;
-          const bottom = coords.bottom ?? -1.0;
-
-          const scaleX = (right - left) / 2.0;
-          const scaleY = (top - bottom) / 2.0;
-          const translateX = (left + right) / 2.0;
-          const translateY = (bottom + top) / 2.0;
-
-          const transformMatrix = new Float32Array([
-            scaleX, 0, 0, 0,
-            0, scaleY, 0, 0,
-            0, 0, 1, 0,
-            translateX, translateY, 0, 1
-          ]);
-
-          gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
-          gl.activeTexture(gl.TEXTURE0);
-          gl.bindTexture(gl.TEXTURE_2D, tex.tex);
-          gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
-
-          // 关键修复：确保纹理渲染使用正确的顶点属性
-          const positionAttrib = gl.getAttribLocation(program, 'aPosition');
-          gl.enableVertexAttribArray(positionAttrib);
-          gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 16, 0);
-
-          gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
-        }
+      if (!texture.value || !Array.isArray(texture.value) || texture.value.length === 0) {
+        console.log(" nothing here, stop loop");
+        return;
       }
 
-      // === 網格框線渲染 ===
-      if (glsInstance.getLayerSize() > 0) {
-        const baseLayer = glsInstance.layers[0];
-        gl.useProgram(colorProgram);
+      const textures = texture.value;
+      const layerCount = Math.min(textures.length, renderLayer.length);
 
-        // 關鍵修復：重新綁定圖形VBO並設置頂點屬性
-        gl.bindBuffer(gl.ARRAY_BUFFER, baseLayer.vbo);
+      gl.useProgram(program);
 
-        const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
+      for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
+        const tex = textures[layerIndex];
+        const layer = renderLayer[layerIndex];
+
+        if (!tex || !tex.tex || !layer || !layer.vbo || !layer.ebo) {
+          console.warn(`Skipping layer ${layerIndex}: missing resources`);
+          continue;
+        }
+
+        if (layer.visible === false) {
+          console.log(`Layer ${layerIndex} is hidden`);
+          continue;
+        }
+
+        // === 綁定當前圖層的緩衝區 ===
+        gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
+
+        // === 設定頂點屬性 ===
+        const positionAttrib = gl.getAttribLocation(program, 'aPosition');
+        const texCoordAttrib = gl.getAttribLocation(program, 'aTexCoord');
+
+        if (positionAttrib !== -1) {
+          gl.enableVertexAttribArray(positionAttrib);
+          gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 16, 0);
+        }
+
+        if (texCoordAttrib !== -1) {
+          gl.enableVertexAttribArray(texCoordAttrib);
+          gl.vertexAttribPointer(texCoordAttrib, 2, gl.FLOAT, false, 16, 8);
+        }
+
+        // === 計算轉換矩陣 ===
+        const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
+        const glLeft = (left / canvasWidth) * 2 - 1;
+        const glRight = ((left + width) / canvasWidth) * 2 - 1;
+        const glTop = 1 - (top / canvasHeight) * 2;
+        const glBottom = 1 - ((top + height) / canvasHeight) * 2;
+
+        const sx = (glRight - glLeft) / 2;
+        const sy = (glTop - glBottom) / 2;
+        const tx = glLeft + sx;
+        const ty = glBottom + sy;
+
+        const transformMatrix = new Float32Array([
+          sx, 0, 0, 0,
+          0, sy, 0, 0,
+          0, 0, 1, 0,
+          0, 0, 0, 1
+        ]);
+
+        const transformLocation = gl.getUniformLocation(program, 'uTransform');
+        if (transformLocation) {
+          gl.uniformMatrix4fv(transformLocation, false, transformMatrix);
+        }
+
+        // === 設定透明度 ===
+        const opacity = layer.opacity?.value ?? 1.0;
+        const opacityLocation = gl.getUniformLocation(program, 'uOpacity');
+        if (opacityLocation !== null) {
+          gl.uniform1f(opacityLocation, opacity);
+        }
+
+        // === 綁定紋理 ===
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, tex.tex);
+        gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
+
+        // === 繪製圖層 ===
+        gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+      }
+
+      // === 在所有圖層之後渲染格線/骨架 ===
+      renderGridOnly(gl, colorProgram, skeletonProgram);
+
+      // 下一幀
+      requestAnimationFrame(() =>
+        render2(gl, program, colorProgram, skeletonProgram, renderLayer, jobName)
+      );
+    };
+
+    // 辅助函数：更新图层顶点
+    function updateLayerVertices(gl, layer, layerIndex) {
+      if (!layer.vertices.value || !layer.originalVertices.value) {
+        console.warn(`Layer ${layerIndex} missing vertex data`);
+        return;
+      }
+
+      const originalVertices = layer.originalVertices.value;
+      const updatedVertices = new Float32Array(originalVertices.length);
+
+      for (let j = 0; j < originalVertices.length; j += 4) {
+        const x = originalVertices[j];
+        const y = originalVertices[j + 1];
+        const u = originalVertices[j + 2];
+        const v = originalVertices[j + 3];
+
+        // 暂时禁用动画，先确保基础渲染正常
+        const wave = 0; // Math.sin(x * 10 + time + layerIndex * Math.PI / 4) * 0.05;
+
+        updatedVertices[j] = x;
+        updatedVertices[j + 1] = y + wave;
+        updatedVertices[j + 2] = u;
+        updatedVertices[j + 3] = v;
+      }
+
+      // 更新VBO
+      gl.bufferData(gl.ARRAY_BUFFER, updatedVertices, gl.DYNAMIC_DRAW);
+      layer.vertices.value = updatedVertices;
+    }
+
+    // 辅助函数：只渲染网格
+    function renderGridOnly(gl, colorProgram, skeletonProgram) {
+      if (glsInstance.getLayerSize() === 0) return;
+
+      const baseLayer = glsInstance.layers[0];
+      if (!baseLayer || !baseLayer.vbo) return;
+
+      // === 渲染网格线 ===
+      gl.useProgram(colorProgram);
+      gl.bindBuffer(gl.ARRAY_BUFFER, baseLayer.vbo);
+
+      const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
+      if (colorPosAttrib !== -1) {
         gl.enableVertexAttribArray(colorPosAttrib);
         gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
+      }
 
-        gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 1);
+      // 渲染网格线
+      if (baseLayer.eboLines && linesIndices.value && linesIndices.value.length > 0) {
+        gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 0.3);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, baseLayer.eboLines);
         gl.drawElements(gl.LINES, linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
+      }
 
+      // 渲染顶点
+      if (baseLayer.vertices.value && baseLayer.vertices.value.length > 0) {
         gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
-        gl.uniform1f(gl.getUniformLocation(colorProgram, 'uPointSize'), 5.0);
+        const pointSizeLocation = gl.getUniformLocation(colorProgram, 'uPointSize');
+        if (pointSizeLocation !== null) {
+          gl.uniform1f(pointSizeLocation, 3.0);
+        }
         gl.drawArrays(gl.POINTS, 0, baseLayer.vertices.value.length / 4);
       }
 
-      // 渲染骨架（已修復狀態污染問題）
-      // renderSkeleton(gl, skeletonProgram);
+      // === 渲染骨架 ===
+      if (typeof renderMeshSkeleton === 'function' && meshSkeleton) {
+        renderMeshSkeleton(gl, skeletonProgram, meshSkeleton);
+      }
+    }
 
-      renderMeshSkeleton(gl, skeletonProgram, meshSkeleton);
-      requestAnimationFrame(() => render2(gl, program, colorProgram, skeletonProgram));
-    };
+    // 调试函数：打印图层信息
+    function debugLayers() {
+      console.log("=== Layer Debug Info ===");
+      console.log("Total layers:", glsInstance.getLayerSize());
+      console.log("Texture count:", texture.value?.length || 0);
+
+      for (let i = 0; i < glsInstance.getLayerSize(); i++) {
+        const layer = glsInstance.layers[i];
+        const tex = texture.value?.[i];
+
+        console.log(`Layer ${i}:`, {
+          name: layer?.name?.value || 'unnamed',
+          hasVbo: !!layer?.vbo,
+          hasEbo: !!layer?.ebo,
+          hasTexture: !!tex?.tex,
+          visible: layer?.visible !== false,
+          opacity: layer?.opacity?.value ?? 1.0,
+          vertexCount: layer?.vertices?.value?.length / 4 || 0
+        });
+      }
+    }
+
+    // 图层控制函数
+    function setLayerVisibility(layerIndex, visible) {
+      if (layerIndex >= 0 && layerIndex < glsInstance.getLayerSize()) {
+        const layer = glsInstance.layers[layerIndex];
+        if (layer) {
+          layer.visible = visible;
+          console.log(`Layer ${layerIndex} visibility set to:`, visible);
+        }
+      }
+    }
+
+    function setLayerOpacity(layerIndex, opacity) {
+      if (layerIndex >= 0 && layerIndex < glsInstance.getLayerSize()) {
+        const layer = glsInstance.layers[layerIndex];
+        if (layer) {
+          if (!layer.opacity) layer.opacity = { value: 1.0 };
+          layer.opacity.value = Math.max(0, Math.min(1, opacity));
+          console.log(`Layer ${layerIndex} opacity set to:`, layer.opacity.value);
+        }
+      }
+    }
+
+    // 初始化时的处理
+    function initializeLayerVisibility() {
+      // 确保所有图层默认可见
+      for (let i = 0; i < glsInstance.getLayerSize(); i++) {
+        const layer = glsInstance.layers[i];
+        if (layer) {
+          if (layer.visible === undefined) {
+            layer.visible = true;
+          }
+          if (!layer.opacity) {
+            layer.opacity = { value: 1.0 };
+          }
+        }
+      }
+    }
+
+    // 测试函数：逐个显示图层
+    function testLayerVisibility() {
+      console.log("Testing layer visibility...");
+
+      // 先隐藏所有图层
+      for (let i = 0; i < glsInstance.getLayerSize(); i++) {
+        setLayerVisibility(i, false);
+      }
+
+      // 每2秒显示下一个图层
+      let currentLayer = 0;
+      const showNextLayer = () => {
+        if (currentLayer < glsInstance.getLayerSize()) {
+          setLayerVisibility(currentLayer, true);
+          console.log(`Showing layer ${currentLayer}`);
+          currentLayer++;
+          setTimeout(showNextLayer, 2000);
+        } else {
+          // 显示所有图层
+          for (let i = 0; i < glsInstance.getLayerSize(); i++) {
+            setLayerVisibility(i, true);
+          }
+          console.log("All layers visible");
+        }
+      };
+
+      showNextLayer();
+    }
 
 
     // 提取的骨架渲染函數
@@ -1269,6 +1489,13 @@ const app = Vue.createApp({
       colorProgram.value = glsInstance.createProgram(gl.value, shaders.colorVertex, shaders.colorFragment);
       skeletonProgram.value = glsInstance.createProgram(gl.value, shaders.skeletonVertex, shaders.skeletonFragment);
 
+
+      firstImage();
+    };
+
+    const firstImage = async () => {
+
+      console.log(" load first image ... ");
       // 加载纹理
       let result = await loadTexture(gl.value, './png3.png');
       texture.value = [];
@@ -1279,10 +1506,12 @@ const app = Vue.createApp({
         height: result.height
       };
       texture.value.push(await layerToTexture(gl.value, layer));
-
+      glsInstance.addLayer("QQ");
+      let canvasHeight = layer.height;
+      let canvasWidth = layer.width;
       // === 初始化图层缓冲区和顶点属性 ===
       for (let i = 0; i < texture.value.length; i++) {
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height);
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight);
 
         // 绑定当前图层的缓冲区
         const layer = glsInstance.layers[i];
@@ -1317,10 +1546,160 @@ const app = Vue.createApp({
       gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
 
       console.log("WebGL initialization complete");
-
+      currentJobName = "png";
       // 启动渲染循环
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value);
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "png");
+    }
+
+    const secondImage = async () => {
+
+      console.log(" load first image ... ");
+      // 加载纹理
+      let result = await loadTexture(gl.value, './png4.png');
+      texture.value = [];
+
+      let layer = {
+        imageData: result.data,
+        width: result.width,
+        height: result.height
+      };
+
+      let result2 = await loadTexture(gl.value, './png2.png');
+
+
+      let layer2 = {
+        imageData: result2.data,
+        width: result2.width,
+        height: result2.height
+      };
+      texture.value.push(await layerToTexture(gl.value, layer));
+      texture.value.push(await layerToTexture(gl.value, layer2));
+
+      let canvasHeight = layer.height;
+      let canvasWidth = layer.width;
+      glsInstance.addLayer("QQ");
+      glsInstance.addLayer("ahaha");
+      // === 初始化图层缓冲区和顶点属性 ===
+      for (let i = 0; i < texture.value.length; i++) {
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight);
+
+        // 绑定当前图层的缓冲区
+        const layer = glsInstance.layers[i];
+        console.log("hi layer", layer);
+        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
+        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
+
+        // === 设置顶点属性（只需一次）===
+        // 1. 纹理程序的属性
+        gl.value.useProgram(program.value);
+        const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
+        const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
+        gl.value.enableVertexAttribArray(posAttrib);
+        gl.value.enableVertexAttribArray(texAttrib);
+        gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
+        gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
+
+        // 2. 颜色程序的属性
+        gl.value.useProgram(colorProgram.value);
+        const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
+        gl.value.enableVertexAttribArray(colorPosAttrib);
+        gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
+      }
+
+      // 为第0层设置线条缓冲区
+      if (glsInstance.getLayerSize() > 0) {
+        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, glsInstance.layers[0].eboLines);
+        gl.value.bufferData(gl.value.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices.value), gl.value.STATIC_DRAW);
+      }
+
+      // 解绑所有缓冲区
+      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
+      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
+
+      console.log("WebGL initialization complete");
+      currentJobName = "png2";
+      // 启动渲染循环
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "png2");
+    }
+
+    const psdImage = async (layerIndices = []) => {
+      if (!gl.value) return;
+
+      texture.value = [];
+      // 現在您可以使用這個陣列來建立紋理
+      let index = 0;
+      for (const layerData of layersForTexture) {
+        console.log(" layer data image scale info : ", layerData.width, " , ", layerData.height, " , layerData.top : ", layerData.top, " , ", layerData.left);
+        texture.value.push(await layerToTexture(gl.value, layerData));
+        glsInstance.addLayer("psd" + index);
+        index += 1;
+      }
+
+      // 或者如果您想要單獨處理每個圖層：
+      // for (let i = 0; i < layersForTexture.length; i++) {
+      //   const layerTexture = await layerToTexture(gl.value, layersForTexture[i]);
+      //   texture.value.push(layerTexture);
+      //   console.log(`Layer ${i} texture created:`, layerTexture);
+      // }
+
+      console.log("checking anything in all layers ", allLayers);
+      // 确定要处理的图层
+      /*
+      const psdLayers = layerIndices.length > 0
+        ? layerIndices.map(index => allLayers[index])
+        : allLayers;
+        */
+      let canvasHeight = texture.value[0].height;
+      let canvasWidth = texture.value[0].width;
+
+
+      console.log(" image expected size : ", texture.value[0].height, " , ", texture.value[0].width);
+      for (let i = 0; i < texture.value.length; i++)
+      // for (let i = 0; i < 1; i++) 
+      {
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, texture.value[i].top, texture.value[i].left, canvasWidth, canvasHeight);
+
+        // 绑定当前图层的缓冲区
+        const layer = glsInstance.layers[i];
+        console.log("hi layer", layer);
+        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
+        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
+
+        // === 设置顶点属性（只需一次）===
+        // 1. 纹理程序的属性
+        gl.value.useProgram(program.value);
+        const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
+        const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
+        gl.value.enableVertexAttribArray(posAttrib);
+        gl.value.enableVertexAttribArray(texAttrib);
+        gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
+        gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
+
+        // 2. 颜色程序的属性
+        gl.value.useProgram(colorProgram.value);
+        const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
+        gl.value.enableVertexAttribArray(colorPosAttrib);
+        gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
+      }
+
+      // 为第0层设置线条缓冲区
+      if (glsInstance.getLayerSize() > 0) {
+        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, glsInstance.layers[0].eboLines);
+        gl.value.bufferData(gl.value.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices.value), gl.value.STATIC_DRAW);
+      }
+
+      // 解绑所有缓冲区
+      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
+      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
+
+      console.log("WebGL initialization complete");
+      currentJobName = "psd";
+      // 启动渲染循环
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "psd");
     };
+
+
+
     const drawAgain = () => {
       drawGlCanvas();
     };
@@ -1346,7 +1725,11 @@ const app = Vue.createApp({
       skeletons,
       toggleNode,
       expandedNodes,
-      handleNameClick
+      handleNameClick,
+      lastSelectedBone,
+      psdImage,
+      secondImage,
+      firstImage
     };
   }
 });
