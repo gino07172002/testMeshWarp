@@ -643,7 +643,7 @@ class gls {
       linesIndices: meshLinesIndices
     };
   }
-  createLayerBuffers(gl, image, width, height, top, left, canvasWidth, canvasHeight) {
+  createLayerBuffers(gl, image, width, height, top, left, canvasWidth, canvasHeight,outputLayer) {
     console.log("checking inside create buffer : width:", width, " height:", height,
       " top:", top, " left:", left, " canvasWidth:", canvasWidth, " canvasHeight:", canvasHeight);
 
@@ -778,33 +778,26 @@ class gls {
     transparentCells.value = transparentSet;
     gridCells.value = gridCellsTemp;
 
-    // 每一層都用新的 buffer
-    for (let i = 0; i < this.getLayerSize(); i++) {
-      const layer = this.layers[i];
-      if (!layer) {
-        console.warn(`Layer ${i} does not exist.`, this.layers);
-        continue;
-      }
+   
+      outputLayer.vertices.value = currentVertices;
+      outputLayer.originalVertices.value = [...currentVertices];
+      outputLayer.transformParams = { left, top, width, height, canvasWidth, canvasHeight };
 
-      layer.vertices.value = currentVertices;
-      layer.originalVertices.value = [...currentVertices];
-      layer.transformParams = { left, top, width, height, canvasWidth, canvasHeight };
-
-      layer.vbo = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+      outputLayer.vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, outputLayer.vbo);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, null); // 解綁，避免污染全域狀態
 
-      layer.ebo = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
+      outputLayer.ebo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, outputLayer.ebo);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
-      layer.eboLines = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.eboLines);
+      outputLayer.eboLines = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, outputLayer.eboLines);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-    }
+    
   }
 
 

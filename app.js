@@ -1519,7 +1519,7 @@ const app = Vue.createApp({
       let canvasWidth = layer.width;
       // === 初始化图层缓冲区和顶点属性 ===
       for (let i = 0; i < texture.value.length; i++) {
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight);
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight,glsInstance.layers[i]);
 
         // 绑定当前图层的缓冲区
         const layer = glsInstance.layers[i];
@@ -1589,7 +1589,7 @@ const app = Vue.createApp({
       glsInstance.addLayer("ahaha");
       // === 初始化图层缓冲区和顶点属性 ===
       for (let i = 0; i < texture.value.length; i++) {
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight);
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight,glsInstance.layers[i]);
 
         // 绑定当前图层的缓冲区
         const layer = glsInstance.layers[i];
@@ -1665,7 +1665,7 @@ const app = Vue.createApp({
       for (let i = 0; i < texture.value.length; i++)
       // for (let i = 0; i < 1; i++) 
       {
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, texture.value[i].top, texture.value[i].left, canvasWidth, canvasHeight);
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, texture.value[i].top, texture.value[i].left, canvasWidth, canvasHeight,glsInstance.layers[i]);
 
         // 绑定当前图层的缓冲区
         const layer = glsInstance.layers[i];
