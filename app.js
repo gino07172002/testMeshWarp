@@ -1,4 +1,4 @@
-const { createApp, onMounted, ref, reactive } = Vue;
+const { createApp, onMounted, ref, reactive, computed } = Vue;
 export const selectedBone = ref(-1);
 export const boneIdToIndexMap = reactive({});
 export const boneTree = reactive({});
@@ -19,7 +19,6 @@ import {
   colorProgram,
   skeletonProgram,
 
-  indices,
   linesIndices
 } from './useWebGL.js';
 
@@ -261,7 +260,7 @@ const layerToTexture = (gl, layer) => {
     gl.bindTexture(gl.TEXTURE_2D, null);
     let coords = { top: layer.top, left: layer.left, bottom: layer.bottom, right: layer.right };
     // 解析 Promise，返回紋理 all coordinate needed
-    console.log(" top : ",layer.top," , left: ",layer.left);
+    console.log(" top : ", layer.top, " , left: ", layer.left);
     resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height, top: layer.top, left: layer.left, image: imageData });
   });
 };
@@ -347,8 +346,7 @@ const app = Vue.createApp({
     };
   },
   async mounted() {
-    this.addLayer();
-    this.addLayer();
+
     console.log("somehow mount here ... ");
     document.addEventListener('click', this.closeAllDropdowns);
   },
@@ -564,12 +562,12 @@ const app = Vue.createApp({
               opacity: layer.opacity || 1.0,
               blendMode: layer.blendMode || 'normal'
             };
-              console.log("let see new psd layer: ",layer.top," , ",layer.left);
+            console.log("let see new psd layer: ", layer.top, " , ", layer.left);
 
 
             layersForTexture.push(layerForTexture);
           }
-        
+
 
           console.log(" then renew canvas... ");
 
@@ -688,6 +686,7 @@ const app = Vue.createApp({
     const mousePressed = ref(); // e event of mouse down , ex: 0:left, 2:right
     const refreshKey = ref(0);
     const expandedNodes = reactive([]);
+    const showLayers = ref(glsInstance.layers);
 
     let currentJobName = null;
     const timeline = reactive(new Timeline({
@@ -698,6 +697,9 @@ const app = Vue.createApp({
     const forceUpdate = () => {
       refreshKey.value++; // 每次加 1 → 會觸發 template 重新渲染
     };
+    function syncLayers() {
+      showLayers.value = glsInstance.layers;
+    }
     function toggleNode(nodeId) {
       const idx = expandedNodes.indexOf(nodeId);
       if (idx >= 0) {
@@ -916,8 +918,16 @@ const app = Vue.createApp({
 
       gl.useProgram(program);
 
+
+      let layerIndices = [0, 1, 2, 3, 4];
+      if (layerIndices.length == 0)
+        layerIndices = [0];
       //console.log(" layer count : ",layerCount);
-      for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
+      // for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
+
+      for (const layerIndex of layerIndices) {
+        if (layerIndex >= textures.length)
+          continue;
         const tex = textures[layerIndex];
         const layer = renderLayer[layerIndex];
 
@@ -951,14 +961,15 @@ const app = Vue.createApp({
 
         // === 計算轉換矩陣 ===
         const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
-        
-        const glLeft = (left / canvasWidth) * 2 - 1;
-        const glRight = ((left + width) / canvasWidth) * 2 - 1;
-        const glTop = 1 - (top / canvasHeight) * 2;
-        const glBottom = 1 - ((top + height) / canvasHeight) * 2;
-       // console.log(" what's my top :",top," left: ",left);
+        //console.log("what's my top left : ", top, " , ", left);
+        // const glLeft = (left / canvasWidth) * 2 - 1;
+        const glLeft = left;  // -1
+        const glRight = left + (width / canvasWidth) * 2; //1
+        const glTop = top;   // 1
+        const glBottom = top - (height / canvasHeight) * 2; //-1
+        // console.log(" what's my top :",top," left: ",left);
 
-      //  console.log(" checking width : ",width," canvas widith : ",canvasWidth);
+        //  console.log(" checking width : ",width," canvas widith : ",canvasWidth);
         const sx = (glRight - glLeft) / 2;
         const sy = (glTop - glBottom) / 2;
         const tx = glLeft + sx;
@@ -968,7 +979,7 @@ const app = Vue.createApp({
           sx, 0, 0, 0,
           0, sy, 0, 0,
           0, 0, 1, 0,
-          tx,ty, 0, 1
+          tx, ty, 0, 1
         ]);
 
         const transformLocation = gl.getUniformLocation(program, 'uTransform');
@@ -989,7 +1000,8 @@ const app = Vue.createApp({
         gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
 
         // === 繪製圖層 ===
-        gl.drawElements(gl.TRIANGLES, indices.value.length, gl.UNSIGNED_SHORT, 0);
+        gl.drawElements(gl.TRIANGLES, layer.indices.length, gl.UNSIGNED_SHORT, 0);
+        // gl.drawElements(gl.TRIANGLES, layer.indices.length, gl.UNSIGNED_SHORT, 0);
       }
 
       // === 在所有圖層之後渲染格線/骨架 ===
@@ -1519,7 +1531,7 @@ const app = Vue.createApp({
       let canvasWidth = layer.width;
       // === 初始化图层缓冲区和顶点属性 ===
       for (let i = 0; i < texture.value.length; i++) {
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight,glsInstance.layers[i]);
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight, glsInstance.layers[i]);
 
         // 绑定当前图层的缓冲区
         const layer = glsInstance.layers[i];
@@ -1565,6 +1577,7 @@ const app = Vue.createApp({
       // 加载纹理
       let result = await loadTexture(gl.value, './png4.png');
       texture.value = [];
+      glsInstance.clearAllLayer();
 
       let layer = {
         imageData: result.data,
@@ -1589,7 +1602,7 @@ const app = Vue.createApp({
       glsInstance.addLayer("ahaha");
       // === 初始化图层缓冲区和顶点属性 ===
       for (let i = 0; i < texture.value.length; i++) {
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight,glsInstance.layers[i]);
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight, glsInstance.layers[i]);
 
         // 绑定当前图层的缓冲区
         const layer = glsInstance.layers[i];
@@ -1630,17 +1643,21 @@ const app = Vue.createApp({
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "png2");
     }
 
-    const psdImage = async (layerIndices = []) => {
+    const psdImage = async () => {
       if (!gl.value) return;
+      glsInstance.clearAllLayer();
+      //let layerIndices = [0, 1, 2, 3];
+      //if (layerIndices.length == 0)
+      //layerIndices = [0];
 
       texture.value = [];
-      // 現在您可以使用這個陣列來建立紋理
+
       let index = 0;
+
       for (const layerData of layersForTexture) {
-        console.log(" layer data image scale info : ", layerData.width, " , ", layerData.height, " , layerData.top : ", layerData.top, " , ", layerData.left);
+        // console.log(" layer data image scale info : ", layerData.width, " , ", layerData.height, " , layerData.top : ", layerData.top, " , ", layerData.left);
         texture.value.push(await layerToTexture(gl.value, layerData));
-        glsInstance.addLayer("psd" + index);
-        index += 1;
+        glsInstance.addLayer("psd" + index); index += 1;
       }
 
       // 或者如果您想要單獨處理每個圖層：
@@ -1649,6 +1666,7 @@ const app = Vue.createApp({
       //   texture.value.push(layerTexture);
       //   console.log(`Layer ${i} texture created:`, layerTexture);
       // }
+
 
       console.log("checking anything in all layers ", allLayers);
       // 确定要处理的图层
@@ -1659,13 +1677,13 @@ const app = Vue.createApp({
         */
       let canvasHeight = texture.value[0].height;
       let canvasWidth = texture.value[0].width;
-
-
-      console.log(" image expected size : ", texture.value[0].height, " , ", texture.value[0].width);
+      syncLayers();
+      console.log(" glsInstance.layers size: ", glsInstance.layers.length);
       for (let i = 0; i < texture.value.length; i++)
+      // for (const i of layerIndices)
       // for (let i = 0; i < 1; i++) 
       {
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, texture.value[i].top, texture.value[i].left, canvasWidth, canvasHeight,glsInstance.layers[i]);
+        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, texture.value[i].top, texture.value[i].left, canvasWidth, canvasHeight, glsInstance.layers[i]);
 
         // 绑定当前图层的缓冲区
         const layer = glsInstance.layers[i];
@@ -1737,7 +1755,8 @@ const app = Vue.createApp({
       lastSelectedBone,
       psdImage,
       secondImage,
-      firstImage
+      firstImage,
+      showLayers
     };
   }
 });
