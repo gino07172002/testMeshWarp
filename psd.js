@@ -163,66 +163,13 @@ function readPSD(file, callback) {
   reader.readAsArrayBuffer(file);
 }
 
-// 繪製選中的圖層
-function drawSelectedLayers() {
-  console.log(" hi what's this ? ");
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-
-  canvas.width = width;
-  canvas.height = height;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const checkboxes = document.querySelectorAll('.layer-checkbox');
-  checkboxes.forEach((checkbox, index) => {
-    if (checkbox.checked) {
-      const layer = allLayers[index];
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = layer.width;
-      tempCanvas.height = layer.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      const tempImageData = tempCtx.createImageData(layer.width, layer.height);
-      tempImageData.data.set(layer.imageData);
-      tempCtx.putImageData(tempImageData, 0, 0);
-
-      const opacity = layer.opacity / 255;
-      ctx.globalAlpha = opacity;
-      ctx.drawImage(tempCanvas, layer.x, layer.y);
-      ctx.globalAlpha = 1.0;
-    }
-  });
-}
-
-
-
 // 修复后的 processPSDFile 函数
 function processPSDFile(file) {
     return new Promise((resolve) => {
         console.log("Processing PSD file...");
         if (file) {
             readPSD(file, function () {
-                const layerContainer = document.getElementById('layerContainer');
-                layerContainer.innerHTML = '';
-                
-                allLayers.forEach((layer, index) => {
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
-                    checkbox.className = 'layer-checkbox';
-                    checkbox.id = `layer-${index}`;
-                    checkbox.checked = true;
-                    checkbox.addEventListener('change', drawSelectedLayers);
-
-                    const label = document.createElement('label');
-                    label.htmlFor = `layer-${index}`;
-                    label.textContent = `圖層 ${index}`;
-
-                    layerContainer.appendChild(checkbox);
-                    layerContainer.appendChild(label);
-                    layerContainer.appendChild(document.createElement('br'));
-                });
-                
                 console.log("All layers loaded:", allLayers.length);
-                drawSelectedLayers();
                 resolve();
             });
         } else {
@@ -250,6 +197,5 @@ function psdHello() {
 export {
   psdHello,
   processPSDFile,
-  allLayers,
-  drawSelectedLayers
+  allLayers
 };

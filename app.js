@@ -1,4 +1,4 @@
-const { createApp, onMounted, ref, reactive, computed } = Vue;
+const { createApp, onMounted, ref, reactive, compute, watch } = Vue;
 export const selectedBone = ref(-1);
 export const boneIdToIndexMap = reactive({});
 export const boneTree = reactive({});
@@ -25,8 +25,7 @@ import {
 import {
   psdHello,
   processPSDFile,
-  allLayers,
-  drawSelectedLayers
+  allLayers
 
 } from './psd.js';
 
@@ -687,6 +686,9 @@ const app = Vue.createApp({
     const refreshKey = ref(0);
     const expandedNodes = reactive([]);
     const showLayers = ref(glsInstance.layers);
+    const selectedLayers = ref([]);
+    const chosenLayers = ref([])   // 控制選擇(多選)
+
 
     let currentJobName = null;
     const timeline = reactive(new Timeline({
@@ -919,7 +921,8 @@ const app = Vue.createApp({
       gl.useProgram(program);
 
 
-      let layerIndices = [0, 1, 2, 3, 4];
+     // let layerIndices = [0, 1, 2, 3, 4];
+      let layerIndices = selectedLayers.value;
       if (layerIndices.length == 0)
         layerIndices = [0];
       //console.log(" layer count : ",layerCount);
@@ -1678,6 +1681,7 @@ const app = Vue.createApp({
       let canvasHeight = texture.value[0].height;
       let canvasWidth = texture.value[0].width;
       syncLayers();
+      selectedLayers.value=[];
       console.log(" glsInstance.layers size: ", glsInstance.layers.length);
       for (let i = 0; i < texture.value.length; i++)
       // for (const i of layerIndices)
@@ -1706,6 +1710,7 @@ const app = Vue.createApp({
         const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
         gl.value.enableVertexAttribArray(colorPosAttrib);
         gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
+        selectedLayers.value.push(i);
       }
 
       // 为第0层设置线条缓冲区
@@ -1723,6 +1728,13 @@ const app = Vue.createApp({
       // 启动渲染循环
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "psd");
     };
+    const toggleLayerSelection = (index) => {
+  if (chosenLayers.value.includes(index)) {
+    chosenLayers.value = chosenLayers.value.filter(i => i !== index)
+  } else {
+    chosenLayers.value.push(index)
+  }
+}
 
 
 
@@ -1740,7 +1752,9 @@ const app = Vue.createApp({
         console.error("Initialization error:", error);
       }
     });
-
+    watch(selectedLayers, (newVal) => {
+      console.log("勾選的圖層:", JSON.stringify(newVal)); // 這裡可以 emit 或呼叫父組件的方法
+    });
     return {
       selectTool,
       activeTool,
@@ -1756,7 +1770,10 @@ const app = Vue.createApp({
       psdImage,
       secondImage,
       firstImage,
-      showLayers
+      showLayers,
+      selectedLayers,
+      chosenLayers,
+      toggleLayerSelection
     };
   }
 });
