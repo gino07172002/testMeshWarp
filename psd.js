@@ -1,4 +1,4 @@
-let allLayers = [];
+
 let width, height;
 
 // 解碼圖層通道數據（原始數據或RLE壓縮）
@@ -52,38 +52,39 @@ function readPSD(file, callback) {
   reader.onload = function (e) {
     const buffer = e.target.result;
     const view = new DataView(buffer);
-
     const signature = String.fromCharCode(...new Uint8Array(buffer.slice(0, 4)));
     if (signature !== '8BPS') {
       alert('不是PSD文件');
       return;
     }
-
     const numChannels = view.getUint16(12);
-    height = view.getUint32(14);
-    width = view.getUint32(18);
+    const height = view.getUint32(14);  // PSD檔案總高度
+    const width = view.getUint32(18);   // PSD檔案總寬度
     const depth = view.getUint16(22);
     const colorMode = view.getUint16(24);
-
     let offset = 26;
-
     const colorDataLen = view.getUint32(offset);
     offset += 4 + colorDataLen;
-
     const imageResLen = view.getUint32(offset);
     offset += 4 + imageResLen;
-
     const layerMaskLen = view.getUint32(offset);
     offset += 4;
     const layerEnd = offset + layerMaskLen;
 
+    // 建立 PSD 資訊物件
+    const psdInfo = {
+      width: width,
+      height: height,
+      numChannels: numChannels,
+      depth: depth,
+      colorMode: colorMode
+    };
+
     if (layerMaskLen > 0) {
       const layerInfoLen = view.getUint32(offset);
       offset += 4;
-
       const numLayers = view.getInt16(offset);
       offset += 2;
-
       const layers = [];
       for (let i = 0; i < Math.abs(numLayers); i++) {
         const top = view.getInt32(offset);
@@ -92,7 +93,6 @@ function readPSD(file, callback) {
         const right = view.getInt32(offset + 12);
         const chCount = view.getUint16(offset + 16);
         offset += 18;
-
         const channels = [];
         for (let j = 0; j < chCount; j++) {
           const id = view.getInt16(offset);
@@ -100,24 +100,19 @@ function readPSD(file, callback) {
           channels.push({ id, length });
           offset += 6;
         }
-
         const blendSig = String.fromCharCode(...new Uint8Array(buffer.slice(offset, offset + 4)));
         const blendKey = String.fromCharCode(...new Uint8Array(buffer.slice(offset + 4, offset + 8)));
         const opacity = new Uint8Array(buffer.slice(offset + 8, offset + 9))[0];
         offset += 12;
-
         const extraLen = view.getUint32(offset);
         offset += 4 + extraLen;
-
         layers.push({ top, left, bottom, right, channels, opacity });
       }
-
       for (let i = 0; i < layers.length; i++) {
         const layer = layers[i];
         const w = layer.right - layer.left;
         const h = layer.bottom - layer.top;
         if (w <= 0 || h <= 0) continue;
-
         const channelData = {};
         for (let j = 0; j < layer.channels.length; j++) {
           const ch = layer.channels[j];
@@ -127,7 +122,6 @@ function readPSD(file, callback) {
           channelData[ch.id] = decodeResult.data;
           offset = decodeResult.offset;
         }
-
         const imageData = new Uint8ClampedArray(w * h * 4);
         for (let p = 0; p < w * h; p++) {
           const r = channelData[0] ? channelData[0][p] : 0;    // 紅
@@ -139,96 +133,44 @@ function readPSD(file, callback) {
           imageData[p * 4 + 2] = b;
           imageData[p * 4 + 3] = a;
         }
-
         layers[i].width = w;
         layers[i].height = h;
         layers[i].x = layer.left;
         layers[i].y = layer.top;
         layers[i].imageData = imageData;
         layers[i].opacity = layer.opacity;
-
-
-        layers[i].left = 2 * ( layers[i].left / width) - 1;
-        layers[i].right = 2 * ( layers[i].right / width) - 1;
-        layers[i].top = 1 - 2 * ( layers[i].top / height);
-        layers[i].bottom = 1 - 2 * ( layers[i].bottom / height);
+        layers[i].left = 2 * (layers[i].left / width) - 1;
+        layers[i].right = 2 * (layers[i].right / width) - 1;
+        layers[i].top = 1 - 2 * (layers[i].top / height);
+        layers[i].bottom = 1 - 2 * (layers[i].bottom / height);
       }
 
-      allLayers = layers;
+      psdInfo.layers = layers;
+    } else {
+      psdInfo.layers = [];
     }
 
     offset = layerEnd;
-    callback();
+
+    // 將 PSD 資訊傳遞給回調函數
+    callback(psdInfo);
   };
   reader.readAsArrayBuffer(file);
 }
 
-// 繪製選中的圖層
-function drawSelectedLayers() {
-  console.log(" hi what's this ? ");
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-
-  canvas.width = width;
-  canvas.height = height;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const checkboxes = document.querySelectorAll('.layer-checkbox');
-  checkboxes.forEach((checkbox, index) => {
-    if (checkbox.checked) {
-      const layer = allLayers[index];
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = layer.width;
-      tempCanvas.height = layer.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      const tempImageData = tempCtx.createImageData(layer.width, layer.height);
-      tempImageData.data.set(layer.imageData);
-      tempCtx.putImageData(tempImageData, 0, 0);
-
-      const opacity = layer.opacity / 255;
-      ctx.globalAlpha = opacity;
-      ctx.drawImage(tempCanvas, layer.x, layer.y);
-      ctx.globalAlpha = 1.0;
-    }
-  });
-}
-
-
-
 // 修复后的 processPSDFile 函数
 function processPSDFile(file) {
-    return new Promise((resolve) => {
-        console.log("Processing PSD file...");
-        if (file) {
-            readPSD(file, function () {
-                const layerContainer = document.getElementById('layerContainer');
-                layerContainer.innerHTML = '';
-                
-                allLayers.forEach((layer, index) => {
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
-                    checkbox.className = 'layer-checkbox';
-                    checkbox.id = `layer-${index}`;
-                    checkbox.checked = true;
-                    checkbox.addEventListener('change', drawSelectedLayers);
-
-                    const label = document.createElement('label');
-                    label.htmlFor = `layer-${index}`;
-                    label.textContent = `圖層 ${index}`;
-
-                    layerContainer.appendChild(checkbox);
-                    layerContainer.appendChild(label);
-                    layerContainer.appendChild(document.createElement('br'));
-                });
-                
-                console.log("All layers loaded:", allLayers.length);
-                drawSelectedLayers();
-                resolve();
-            });
-        } else {
-            resolve();
-        }
+  return new Promise((resolve, reject) => {
+    readPSD(file, function(psdInfo) {
+      try {
+        // 在這裡可以進行額外的處理
+        console.log('PSD 處理完成:', psdInfo);
+        resolve(psdInfo);
+      } catch (error) {
+        reject(error);
+      }
     });
+  });
 }
 
 // 如果你想保留原來的事件監聽器，可以這樣使用新函數：
@@ -249,7 +191,5 @@ function psdHello() {
 
 export {
   psdHello,
-  processPSDFile,
-  allLayers,
-  drawSelectedLayers
+  processPSDFile
 };

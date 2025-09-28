@@ -1313,6 +1313,17 @@ export class Layer {
     this.vertices = [];
     this.visible = true;
     this.locked = false;
+
+    //vertex group: use to control vertex's influence on bones
+   // this.vertexGroup = null; // can be set to a VertexGroup instance
+
+    //an example of vertex group influence map
+   
+    this.vertexGroup = [
+    {name: "group1", vertex: {name: "v1", weight: 0.5}},
+    {name: "group2", vertex: {name: "v2", weight: 0.3}},
+    {name: "group3", vertex: {name: "v3", weight: 0.8}}
+];
   }
 
   addVertex(vertex) {

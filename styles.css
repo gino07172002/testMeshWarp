@@ -691,3 +691,43 @@ body {
     padding: 0;
     cursor: pointer;
 }
+
+.vertex-group-list {
+  border: 1px solid #ccc;
+  padding: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.vertex-group-item {
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.vertex-group-item.selected {
+  background-color: #cce5ff;
+}
+
+.vertex-group-item input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.vertex-btn-group {
+  display: flex;
+  gap: 8px;            /* 按鈕間距 */
+  margin-top: 10px;
+}
+
+.vertex-btn-group button {
+  font-size: 12px;     /* 字體大小 */
+  padding: 6px 12px;   /* 內邊距，讓按鈕不會太擠 */
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f5f5f5;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.vertex-btn-group button:hover {
+  background-color: #e0e0e0; /* 滑過時有反應 */
+}

@@ -268,7 +268,11 @@ export function useImageLayer() {
   const vbo = ref(null); // 頂點緩衝區
   const ebo = ref(null); // 元素緩衝區（三角形）
   const eboLines = ref(null); // 元素緩衝區（線條）
-
+  const vertexGroup = ref([
+      { name: "group1", vertex: { name: "v1", weight: 0.5 } },
+      { name: "group2", vertex: { name: "v2", weight: 0.3 } },
+      { name: "group3", vertex: { name: "v3", weight: 0.8 } }
+    ]);
   function loadImage(url) {
     image.value = url;
     console.log(`Image loaded: ${url}`);
@@ -285,7 +289,8 @@ export function useImageLayer() {
     vertices,
     originalVertices,
     indices,
-    linesIndices
+    linesIndices,
+    vertexGroup
   };
 }
 
@@ -319,13 +324,14 @@ class gls {
 
     this.layers.push(newLayer);
     this.layerMap[layerName] = newLayer;
-
+    
     console.log(`Layer added: ${layerName}`);
+       console.log(" layer parameter key name : ", Object.keys(newLayer));
+
     return newLayer;
   };
-  clearAllLayer()
-  {
-    this.layers=[];
+  clearAllLayer() {
+    this.layers = [];
   }
 
   getLayer(layerName) {
@@ -480,13 +486,26 @@ class gls {
 
 
   }
- 
-  createLayerBuffers(gl, image, width, height, top, left, canvasWidth, canvasHeight,outputLayer) {
+
+  createLayerBuffers(gl, image, width, height, top, left, canvasWidth, canvasHeight, outputLayer) {
     console.log("checking inside create buffer : width:", width, " height:", height,
       " top:", top, " left:", left, " canvasWidth:", canvasWidth, " canvasHeight:", canvasHeight);
 
     const rows = 10, cols = 10;
 
+    // === 計算座標轉換參數 ===
+    // 參考您的渲染算法
+    const glLeft = left;
+    const glRight = left + (width / canvasWidth) * 2;
+    const glTop = top;
+    const glBottom = top - (height / canvasHeight) * 2;
+
+    const sx = (glRight - glLeft) / 2;
+    const sy = (glTop - glBottom) / 2;
+    const tx = glLeft + sx;
+    const ty = glBottom + sy;
+
+    // 網格在標準化座標系統中的步長
     const xStep = 2 / (cols - 1);
     const yStep = 2 / (rows - 1);
 
@@ -509,7 +528,7 @@ class gls {
       const cellH = 1 / (rows - 1);
 
       const result = isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height);
-
+      //  const result = false; // for test
       transparencyCache.set(key, result);
       return result;
     };
@@ -559,11 +578,20 @@ class gls {
         if (usedVertices.has(originalIndex)) {
           vertexMapping.set(originalIndex, newIndex++);
 
-          const glX = -1 + x * xStep;
-          const glY = 1 - y * yStep;
+          // === 應用座標轉換到網格頂點 ===
+          // 先計算標準化座標 (-1 到 1)
+          const standardX = -1 + x * xStep;
+          const standardY = 1 - y * yStep;
 
-          const texX = x / (cols - 1);
-          const texY = y / (rows - 1);
+          // 應用變換矩陣到網格位置
+          const glX = standardX * sx + tx;
+          const glY = standardY * sy + ty;
+          // const glX = standardX; // 保持 -1 ~ 1
+          //const glY = standardY;
+
+          // 紋理座標使用原始標準化座標 (底圖保持原樣，避免二次變換)
+          const texX = (standardX + 1) / 2;  // 將 -1~1 轉換為 0~1
+          const texY = (1 - standardY) / 2;  // 將 -1~1 轉換為 0~1，並翻轉Y軸
 
           currentVertices.push(glX, glY, texX, texY);
         }
@@ -615,28 +643,28 @@ class gls {
     transparentCells.value = transparentSet;
     gridCells.value = gridCellsTemp;
 
-   
-      outputLayer.vertices.value = currentVertices;
-      outputLayer.originalVertices.value = [...currentVertices];
-      outputLayer.transformParams = { left, top, width, height, canvasWidth, canvasHeight };
+    outputLayer.vertices.value = [...currentVertices];
+    outputLayer.originalVertices.value = [...currentVertices];
+    //  outputLayer.transformParams = { left, top, width, height, canvasWidth, canvasHeight };
+    outputLayer.transformParams = { left: -1, top: 1, width: canvasWidth, height: canvasHeight, canvasWidth, canvasHeight };
 
-      outputLayer.vbo = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, outputLayer.vbo);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
-      gl.bindBuffer(gl.ARRAY_BUFFER, null); // 解綁，避免污染全域狀態
+    outputLayer.vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, outputLayer.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentVertices), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null); // 解綁，避免污染全域狀態
 
-      outputLayer.ebo = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, outputLayer.ebo);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    outputLayer.ebo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, outputLayer.ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentIndices), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
-      outputLayer.eboLines = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, outputLayer.eboLines);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-      
-      outputLayer.indices=currentIndices;
-    
+    outputLayer.eboLines = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, outputLayer.eboLines);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(currentLinesIndices), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+    outputLayer.indices = currentIndices;
+    outputLayer.linesIndices = currentLinesIndices;
   }
 
 

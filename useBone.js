@@ -23,6 +23,7 @@ var mousemove_y = null;
 //mesh bone
 const lastSelectedBone = ref();
 const lastSelectedBonePart = ref(); // 'head', 'tail', or 'middle'
+const selectedVertices = ref([]);
 const mouseHoveringBone = ref();
 const controlStatus = ref('none');  // status of current mouse behavior: 'create', 'edit' 'none'
 
@@ -365,9 +366,9 @@ export default class Bones {
         if (bone.isConnected && bone.children.length > 0) {
           // When connected, moving tail also moves children's heads
 
-            console.log("setting tail ");
+          console.log("setting tail ");
           bone.setGlobalTail(xNDC, yNDC);
-          
+
           bone.children.forEach(child => {
             child.setGlobalHead(xNDC, yNDC);
           });
@@ -402,56 +403,56 @@ export default class Bones {
           });
         }
       } else if (lastSelectedBonePart.value === 'middle') {
-       
-                if (mousedown_x !== null && mousedown_y !== null) {
-                  const offsetX = lastSelectedBone.value.offsetX;
-                  const offsetY = lastSelectedBone.value.offsetY;
-        
-                  // Store original positions of the bone
-                  const originalHead = bone.getGlobalHead();
-                  const originalTail = bone.getGlobalTail();
-        
-                  // Store positions of connected children before moving
-                  const connectedChildrenPositions = bone.children
-                    .filter(child => child.isConnected)
-                    .map(child => ({
-                      bone: child,
-                      tail: child.getGlobalTail()
-                    }));
-        
-                  // Move the bone
-                  bone.setGlobalHead(xNDC - offsetX, yNDC - offsetY);
-                  const deltaX = bone.getGlobalHead().x - originalHead.x;
-                  const deltaY = bone.getGlobalHead().y - originalHead.y;
-                  bone.setGlobalTail(originalTail.x + deltaX, originalTail.y + deltaY);
-        
-                  // Update parent's tail if connected
-                  if (bone.isConnected && bone.parent) {
-                    bone.parent.setGlobalTail(bone.getGlobalHead().x, bone.getGlobalHead().y);
-                  }
-        
-                  // Update connected children
-                  connectedChildrenPositions.forEach(({ bone: childBone, tail }) => {
-                    // Set child's head to parent's tail
-                    const parentTail = bone.getGlobalTail();
-                    childBone.setGlobalHead(parentTail.x, parentTail.y);
-                    // Adjust child's tail based on original offset
-                    const childLength = Math.sqrt(
-                      Math.pow(tail.x - childBone.getGlobalHead().x, 2) +
-                      Math.pow(tail.y - childBone.getGlobalHead().y, 2) 
-                    );
-                    const angle = childBone.globalRotation;
-                    const newTailX = childBone.getGlobalHead().x + childLength * Math.cos(angle);
-                    const newTailY = childBone.getGlobalHead().y + childLength * Math.sin(angle);
-                    childBone.setGlobalTail(newTailX, newTailY);
-                    childBone._markDirty();
-                    
-        
-                    // Restore child's tail to original position
-                   // childBone.poseGlobalTail(tail.x, tail.y);
-                  });
-                  
-                }
+
+        if (mousedown_x !== null && mousedown_y !== null) {
+          const offsetX = lastSelectedBone.value.offsetX;
+          const offsetY = lastSelectedBone.value.offsetY;
+
+          // Store original positions of the bone
+          const originalHead = bone.getGlobalHead();
+          const originalTail = bone.getGlobalTail();
+
+          // Store positions of connected children before moving
+          const connectedChildrenPositions = bone.children
+            .filter(child => child.isConnected)
+            .map(child => ({
+              bone: child,
+              tail: child.getGlobalTail()
+            }));
+
+          // Move the bone
+          bone.setGlobalHead(xNDC - offsetX, yNDC - offsetY);
+          const deltaX = bone.getGlobalHead().x - originalHead.x;
+          const deltaY = bone.getGlobalHead().y - originalHead.y;
+          bone.setGlobalTail(originalTail.x + deltaX, originalTail.y + deltaY);
+
+          // Update parent's tail if connected
+          if (bone.isConnected && bone.parent) {
+            bone.parent.setGlobalTail(bone.getGlobalHead().x, bone.getGlobalHead().y);
+          }
+
+          // Update connected children
+          connectedChildrenPositions.forEach(({ bone: childBone, tail }) => {
+            // Set child's head to parent's tail
+            const parentTail = bone.getGlobalTail();
+            childBone.setGlobalHead(parentTail.x, parentTail.y);
+            // Adjust child's tail based on original offset
+            const childLength = Math.sqrt(
+              Math.pow(tail.x - childBone.getGlobalHead().x, 2) +
+              Math.pow(tail.y - childBone.getGlobalHead().y, 2)
+            );
+            const angle = childBone.globalRotation;
+            const newTailX = childBone.getGlobalHead().x + childLength * Math.cos(angle);
+            const newTailY = childBone.getGlobalHead().y + childLength * Math.sin(angle);
+            childBone.setGlobalTail(newTailX, newTailY);
+            childBone._markDirty();
+
+
+            // Restore child's tail to original position
+            // childBone.poseGlobalTail(tail.x, tail.y);
+          });
+
+        }
       }
     }
   }
@@ -603,7 +604,7 @@ export default class Bones {
       }
     }
   }
-  findBoneById( boneId) {
+  findBoneById(boneId) {
     for (const skeleton of skeletons) {
       for (const root of skeleton.rootBones) {
         const found = this.searchBoneRecursive(root, boneId);
@@ -628,6 +629,67 @@ export default class Bones {
     }
     return null;
   }
+  handleSelectPointsMouseDown(xNDC, yNDC) {
+    mousedown_x = xNDC;
+    mousedown_y = yNDC;
+    mousemove_x = xNDC;
+    mousemove_y = yNDC;
+    console.log(" select points mouse down at : ", xNDC, ' , ', yNDC);
+  }
+  handleSelectPointsMouseMove(xNDC, yNDC) {
+
+    mousemove_x = xNDC;
+    mousemove_y = yNDC;
+  }
+  handleSelectPointsMouseUp(xNDC, yNDC, layerIndex, isShiftPressed = false, isCtrlPressed = false) {
+  console.log(" handleSelectPointsMouseUp at : ", xNDC, ' , ', yNDC);
+
+  // 框選範圍
+  const minX = Math.min(mousedown_x, xNDC);
+  const maxX = Math.max(mousedown_x, xNDC);
+  const minY = Math.min(mousedown_y, yNDC);
+  const maxY = Math.max(mousedown_y, yNDC);
+
+  const vertices = this.glsInstance.layers[layerIndex].vertices.value;
+  console.log(" vertices length: ", vertices.length);
+
+  // 找出框到的點
+  const newlySelected = [];
+  for (let i = 0; i < vertices.length; i += 4) {
+    const vx = vertices[i];     // x
+    const vy = vertices[i + 1]; // y
+
+    if (vx >= minX && vx <= maxX && vy >= minY && vy <= maxY) {
+      newlySelected.push(i / 4); // push vertex index
+    }
+  }
+
+  if (isCtrlPressed) {
+    // Ctrl → 從選取中移除
+    selectedVertices.value = selectedVertices.value.filter(idx => !newlySelected.includes(idx));
+  } else if (isShiftPressed) {
+    // Shift → 加入新的選取 (避免重複)
+    const set = new Set(selectedVertices.value);
+    for (let idx of newlySelected) set.add(idx);
+    selectedVertices.value = Array.from(set);
+  } else {
+    // 沒有修飾鍵 → 重新選取
+    selectedVertices.value = newlySelected;
+  }
+
+  console.log(" selected vertices: ", selectedVertices.value);
+
+  // 清掉滑鼠狀態
+  mousedown_x = null;
+  mousedown_y = null;
+  mousemove_x = null;
+  mousemove_y = null;
+
+  console.log(" select points mouse up at : ", xNDC, ' , ', yNDC);
+}
+
+
+
   handleMeshBoneEditMouseDown(xNDC, yNDC) {
     const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC);
 
@@ -705,4 +767,5 @@ export {
   meshSkeleton,
   skeletons,
   lastSelectedBone,
+  selectedVertices
 };

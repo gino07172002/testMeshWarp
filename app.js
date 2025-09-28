@@ -1,4 +1,4 @@
-const { createApp, onMounted, ref, reactive, computed } = Vue;
+const { createApp, onMounted, ref, reactive, computed, watch } = Vue;
 export const selectedBone = ref(-1);
 export const boneIdToIndexMap = reactive({});
 export const boneTree = reactive({});
@@ -9,7 +9,8 @@ import {
   boneChildren,
   meshSkeleton,
   skeletons,
-  lastSelectedBone
+  lastSelectedBone,
+  selectedVertices
 } from './useBone.js';
 
 import {
@@ -24,9 +25,7 @@ import {
 
 import {
   psdHello,
-  processPSDFile,
-  allLayers,
-  drawSelectedLayers
+  processPSDFile
 
 } from './psd.js';
 
@@ -90,6 +89,8 @@ const shaders = {
 };
 // 準備多圖層資料結構陣列
 let layersForTexture = [];
+let wholeImageWidth = 0;
+let wholeImageHeight = 0;
 // Coordinate conversion utility function
 const convertToNDC = (e, canvas, container) => {
   const rect = canvas.getBoundingClientRect();
@@ -138,84 +139,7 @@ const changeImage = async (newUrl) => {
 };
 
 const changeImage2 = async (layerIndices = null) => {
-  if (!gl.value) return;
-
-  // 刪除舊紋理釋放資源
-  if (texture.value) {
-    if (Array.isArray(texture.value.tex)) {
-      texture.value.forEach(tex => gl.value.deleteTexture(tex));
-    } else {
-      gl.value.deleteTexture(texture.value.tex);
-    }
-    texture.value = null;
-  }
-
-  try {
-
-
-    //console.log(" test all layer ", JSON.stringify(allLayers));
-    // 確定要渲染的圖層：如果未傳入 layerIndices，則渲染所有圖層
-
-    const layersToRender = layerIndices ? layerIndices.map(index => allLayers[index]) : allLayers;
-
-
-    // 為每個圖層創建紋理，並存儲為數組
-    texture.value = await Promise.all(layersToRender.map(layer => layerToTexture(gl.value, layer)));
-
-    console.log(" texture layers length : ", texture.value.length);
-
-    console.log(" =================================== start adding layers ");
-    for (let i = 0; i < texture.value.length; i++) {
-      console.log(" hi loading gl value : ", i);
-      glsInstance.createLayerBuffers(texture.value[i]);
-
-      // 绑定当前图层的缓冲区
-      const layer = glsInstance.layers[i];
-      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
-      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
-
-      // === 设置顶点属性（只需一次）===
-      // 1. 纹理程序的属性
-      gl.value.useProgram(program.value);
-      const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
-      const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
-      gl.value.enableVertexAttribArray(posAttrib);
-      gl.value.enableVertexAttribArray(texAttrib);
-      gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
-      gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
-
-      // 2. 颜色程序的属性
-      gl.value.useProgram(colorProgram.value);
-      const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
-      gl.value.enableVertexAttribArray(colorPosAttrib);
-      gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
-    }
-
-    // 为第0层设置线条缓冲区
-    if (glsInstance.getLayerSize() > 0) {
-      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, glsInstance.layers[0].eboLines);
-      gl.value.bufferData(gl.value.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices.value), gl.value.STATIC_DRAW);
-    }
-
-    // 解绑所有缓冲区
-    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
-    gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
-
-    console.log("WebGL initialization complete");
-
-    // 启动渲染循环
-    render2(gl.value, program.value, colorProgram.value, skeletonProgram.value);
-
-
-    //console.log(" end adding layers =================================== ");
-    // console.log(" hi texture : ", texture.value);
-
-    // 根據新圖片尺寸重新建立頂點緩衝（假設所有圖層共享相同網格）
-    // glsInstance.createBuffers2(gl.value);
-
-  } catch (error) {
-    console.error("更換圖片失敗:", error);
-  }
+  console.log(" in changeImage2 ... ");
 };
 
 
@@ -401,35 +325,6 @@ const app = Vue.createApp({
     forceUpdate() {
       this.refreshKey++;
     },
-    addLayer() {
-      this.layerCounter++;
-      const newLayer = {
-        id: this.layerCounter,
-        name: `圖層 ${this.layerCounter}`
-      };
-      this.layers.push(newLayer);
-      this.status = `新增圖層: ${newLayer.name}`;
-    },
-    selectLayer(id) {
-      this.selectedLayerId = id;
-      const layer = this.layers.find(l => l.id === id);
-      if (layer) {
-        this.status = `選擇圖層: ${layer.name} , id = ${id}`;
-      }
-    },
-    deleteLayer() {
-      if (this.selectedLayerId) {
-        const layerIndex = this.layers.findIndex(l => l.id === this.selectedLayerId);
-        if (layerIndex !== -1) {
-          const layerName = this.layers[layerIndex].name;
-          this.layers.splice(layerIndex, 1);
-          this.status = `刪除圖層: ${layerName}`;
-          this.selectedLayerId = this.layers.length > 0 ? this.layers[0].id : null;
-        }
-      } else {
-        this.status = '沒有選擇圖層';
-      }
-    },
     selectBone(bone) {
       this.selectedBone = bone;
       this.selectedKeyframe = null;
@@ -507,12 +402,13 @@ const app = Vue.createApp({
         const file = event.target.files[0];
         if (file) {
           layersForTexture = [];
-          await processPSDFile(file);
-          this.psdLayers = allLayers;
-          console.log("Loaded PSD layers:", JSON.stringify(this.psdLayers[0].width));
+          const psdInfo = await processPSDFile(file);
+          this.psdLayers = psdInfo.layers;
 
-          let imageWidth = this.psdLayers[0].width;
-          let imageHeight = this.psdLayers[0].height;
+          let imageWidth = psdInfo.width;
+          let imageHeight = psdInfo.height;
+          wholeImageHeight = imageHeight;
+          wholeImageWidth = imageWidth;
           const glContext = gl.value; // WebGL context from useWebGL.js
 
 
@@ -682,12 +578,19 @@ const app = Vue.createApp({
     const activeTool = ref('grab-point');
     const skeletonIndices = ref([]);
     const isShiftPressed = ref(false);
+    const isCtrlPressed = ref(false);
     const instance = Vue.getCurrentInstance();
     const mousePressed = ref(); // e event of mouse down , ex: 0:left, 2:right
     const refreshKey = ref(0);
     const expandedNodes = reactive([]);
     const showLayers = ref(glsInstance.layers);
-
+    const selectedLayers = ref([]);
+    const chosenLayers = ref([])   // 控制選擇(多選)
+    const currentChosedLayer = ref(0); // 控制選擇(單選) 
+    const multiSelectVertexs = ref([]); // 控制多選頂點
+    let multiDragMode = false;
+    const selectedValues = ref([]);
+    const selectedGroups = ref([]); // 控制選擇的頂點群組
     let currentJobName = null;
     const timeline = reactive(new Timeline({
       onUpdate: () => instance.proxy.$forceUpdate(),
@@ -752,11 +655,17 @@ const app = Vue.createApp({
       if (e.key === 'Shift') {
         isShiftPressed.value = true;
       }
+      if (e.key === 'Control') {
+        isCtrlPressed.value = true;
+      }
     };
 
     const handleKeyUp = (e) => {
       if (e.key === 'Shift') {
         isShiftPressed.value = false;
+      }
+      if (e.key === 'Control') {
+        isCtrlPressed.value = false;
       }
     };
 
@@ -766,6 +675,9 @@ const app = Vue.createApp({
       let localSelectedVertex = -1;
       let startPosX = 0;
       let startPosY = 0;
+      let useMultiSelect = true;
+      let dragStartX = 0, dragStartY = 0; // 記錄滑鼠起始點
+
 
       const handleMouseDown = (e) => {
         mousePressed.value = e.button;
@@ -775,24 +687,62 @@ const app = Vue.createApp({
 
         if (e.button === 0 || e.button === 2) {
           if (activeTool.value === 'grab-point') {
-            /*
-            let minDist = Infinity;
-            localSelectedVertex = -1;
-            for (let i = 0; i < vertices.value.length; i += 4) {
-              const dx = vertices.value[i] - xNDC;
-              const dy = vertices.value[i + 1] - yNDC;
-              const dist = dx * dx + dy * dy;
-              if (dist < minDist) {
-                minDist = dist;
-                localSelectedVertex = i / 4;
+
+            if (!useMultiSelect) {
+              // ===== 單點選取模式 =====
+              let minDist = Infinity;
+              localSelectedVertex = -1;
+
+              const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
+              for (let i = 0; i < vertices.length; i += 4) {
+                const dx = vertices[i] - xNDC;
+                const dy = vertices[i + 1] - yNDC;
+                const dist = dx * dx + dy * dy;
+                if (dist < minDist) {
+                  minDist = dist;
+                  localSelectedVertex = i / 4;
+                }
+              }
+
+              if (minDist < 0.02) {
+                isDragging = true;
+                selectedVertex.value = localSelectedVertex; // 單點記錄
+              }
+
+            } else {
+              // ===== 多點群組模式 =====
+              // 檢查點擊是否落在 selectedVertices 裡的某一個頂點
+              let hitVertex = -1;
+              const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
+
+              for (let idx of selectedVertices.value) {
+                const vx = vertices[idx * 4];
+                const vy = vertices[idx * 4 + 1];
+                const dx = vx - xNDC;
+                const dy = vy - yNDC;
+                const dist = dx * dx + dy * dy;
+                if (dist < 0.02) {
+                  hitVertex = idx;
+                  break;
+                }
+              }
+              console.log(" hitVertex : ", hitVertex);
+
+              if (hitVertex !== -1) {
+                isDragging = true;
+                dragStartX = xNDC;
+                dragStartY = yNDC;
               }
             }
-            if (minDist < 0.02) {
-              isDragging = true;
-              selectedVertex.value = localSelectedVertex;
-            }
-              */
-          } else if (activeTool.value === 'bone-create') {
+
+
+          } else if (activeTool.value === 'select-points') {
+            bonesInstance.handleSelectPointsMouseDown(xNDC, yNDC, e.button === 0, isShiftPressed.value);
+            isDragging = true;
+
+          }
+
+          else if (activeTool.value === 'bone-create') {
             if (e.button === 2) {
               console.log(" right button down edit bone...  ");
               bonesInstance.handleMeshBoneEditMouseDown(xNDC, yNDC);
@@ -822,15 +772,45 @@ const app = Vue.createApp({
           return;
         }
 
-        if (activeTool.value === 'grab-point' && localSelectedVertex !== -1) {
-          /*
-          const index = localSelectedVertex * 4;
-          vertices.value[index] = xNDC;
-          vertices.value[index + 1] = yNDC;
-          //    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.value);
-          gl.bufferSubData(gl.ARRAY_BUFFER, index * 4, new Float32Array([xNDC, yNDC]));
-          */
-        } else if (activeTool.value === 'bone-create') {
+        if (activeTool.value === 'grab-point' && isDragging) {
+
+          const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
+
+          if (!useMultiSelect && localSelectedVertex !== -1) {
+            // ===== 單點移動 =====
+            const index = localSelectedVertex * 4;
+            vertices[index] = xNDC;
+            vertices[index + 1] = yNDC;
+
+          } else if (useMultiSelect && selectedVertices.value.length > 0) {
+            console.log(" in multi select move ... ");
+            // ===== 群組移動 =====
+            const dx = xNDC - dragStartX;
+            const dy = yNDC - dragStartY;
+
+            for (let idx of selectedVertices.value) {
+              const index = idx * 4;
+              vertices[index] += dx;
+              vertices[index + 1] += dy;
+            }
+
+            dragStartX = xNDC;
+            dragStartY = yNDC;
+          }
+
+          // 更新 VBO
+          gl.bindBuffer(gl.ARRAY_BUFFER, glsInstance.layers[currentChosedLayer.value].vbo);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+          forceUpdate();
+
+
+        } else if (activeTool.value === 'select-points') {
+          if (isDragging)
+            bonesInstance.handleSelectPointsMouseMove(xNDC, yNDC, isShiftPressed.value);
+
+        }
+
+        else if (activeTool.value === 'bone-create') {
 
           // console.log(" mouse move event : ", e.buttons);  // in mouse move e.buttons: 1:left, 2:right, 3:left+right
           if (e.buttons === 2) {  //edit selected bone
@@ -851,8 +831,9 @@ const app = Vue.createApp({
       };
 
       const handleMouseUp = (e) => {
+        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
+
         if (activeTool.value === 'bone-create' && isDragging) {
-          const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
 
           if (e.button === 2) { //edit selected bone
             bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
@@ -863,7 +844,16 @@ const app = Vue.createApp({
 
 
           //bonesInstance.assignVerticesToBones();
-        } else if (activeTool.value === 'bone-animate' && isDragging) {
+        }
+        else if (activeTool.value === 'select-points') {
+          if (isDragging) {
+            bonesInstance.handleSelectPointsMouseUp(xNDC, yNDC, currentChosedLayer.value, isShiftPressed.value, isCtrlPressed.value);
+            isDragging = false;
+          }
+        }
+
+
+        else if (activeTool.value === 'bone-animate' && isDragging) {
           // bonesInstance.handleBoneAnimateMouseUp();
         }
         isDragging = false;
@@ -919,7 +909,10 @@ const app = Vue.createApp({
       gl.useProgram(program);
 
 
-      let layerIndices = [0, 1, 2, 3, 4];
+      // let layerIndices = [0, 1, 2, 3, 4];
+      let layerIndices = selectedLayers.value;
+      layerIndices.sort((a, b) => a - b); // 數字由小到大排序
+
       if (layerIndices.length == 0)
         layerIndices = [0];
       //console.log(" layer count : ",layerCount);
@@ -975,6 +968,7 @@ const app = Vue.createApp({
         const tx = glLeft + sx;
         const ty = glBottom + sy;
 
+
         const transformMatrix = new Float32Array([
           sx, 0, 0, 0,
           0, sy, 0, 0,
@@ -1005,8 +999,13 @@ const app = Vue.createApp({
       }
 
       // === 在所有圖層之後渲染格線/骨架 ===
-      renderGridOnly(gl, colorProgram, skeletonProgram);
+      renderGridOnly(gl, colorProgram, selectedVertices.value);
 
+
+      // === 渲染骨架 ===
+      if (typeof renderMeshSkeleton === 'function' && meshSkeleton) {
+        renderMeshSkeleton(gl, skeletonProgram, meshSkeleton);
+      }
       // 下一幀
       requestAnimationFrame(() =>
         render2(gl, program, colorProgram, skeletonProgram, renderLayer, jobName)
@@ -1044,10 +1043,15 @@ const app = Vue.createApp({
     }
 
     // 辅助函数：只渲染网格
-    function renderGridOnly(gl, colorProgram, skeletonProgram) {
+    function renderGridOnly(gl, colorProgram, selectedVertices = []) {
       if (glsInstance.getLayerSize() === 0) return;
+      //console.log(" draw selectde vertices : ",selectedVertices);
 
-      const baseLayer = glsInstance.layers[0];
+      let layerIndex = currentChosedLayer.value;
+      if (layerIndex >= glsInstance.getLayerSize())
+        layerIndex = 0;
+
+      const baseLayer = glsInstance.layers[layerIndex];
       if (!baseLayer || !baseLayer.vbo) return;
 
       // === 渲染网格线 ===
@@ -1061,25 +1065,32 @@ const app = Vue.createApp({
       }
 
       // 渲染网格线
-      if (baseLayer.eboLines && linesIndices.value && linesIndices.value.length > 0) {
+      if (baseLayer.eboLines && baseLayer.linesIndices && baseLayer.linesIndices.length > 0) {
         gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 0.3);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, baseLayer.eboLines);
-        gl.drawElements(gl.LINES, linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
+        gl.drawElements(gl.LINES, baseLayer.linesIndices.length, gl.UNSIGNED_SHORT, 0);
       }
 
       // 渲染顶点
       if (baseLayer.vertices.value && baseLayer.vertices.value.length > 0) {
-        gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
         const pointSizeLocation = gl.getUniformLocation(colorProgram, 'uPointSize');
         if (pointSizeLocation !== null) {
+          // 所有點先畫小紅點
           gl.uniform1f(pointSizeLocation, 3.0);
         }
+        gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 0, 0, 1);
         gl.drawArrays(gl.POINTS, 0, baseLayer.vertices.value.length / 4);
-      }
 
-      // === 渲染骨架 ===
-      if (typeof renderMeshSkeleton === 'function' && meshSkeleton) {
-        renderMeshSkeleton(gl, skeletonProgram, meshSkeleton);
+        // 再畫選取的點 (大綠點)
+        if (selectedVertices && selectedVertices.length > 0) {
+          if (pointSizeLocation !== null) {
+            gl.uniform1f(pointSizeLocation, 6.0);
+          }
+          gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 0, 1, 0, 1);
+          for (let idx of selectedVertices) {
+            gl.drawArrays(gl.POINTS, idx, 1);
+          }
+        }
       }
     }
 
@@ -1602,6 +1613,7 @@ const app = Vue.createApp({
       glsInstance.addLayer("ahaha");
       // === 初始化图层缓冲区和顶点属性 ===
       for (let i = 0; i < texture.value.length; i++) {
+
         glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight, glsInstance.layers[i]);
 
         // 绑定当前图层的缓冲区
@@ -1646,13 +1658,14 @@ const app = Vue.createApp({
     const psdImage = async () => {
       if (!gl.value) return;
       glsInstance.clearAllLayer();
-      //let layerIndices = [0, 1, 2, 3];
-      //if (layerIndices.length == 0)
-      //layerIndices = [0];
 
       texture.value = [];
 
       let index = 0;
+
+
+      let canvasHeight = wholeImageWidth;
+      let canvasWidth = wholeImageHeight;
 
       for (const layerData of layersForTexture) {
         // console.log(" layer data image scale info : ", layerData.width, " , ", layerData.height, " , layerData.top : ", layerData.top, " , ", layerData.left);
@@ -1660,29 +1673,13 @@ const app = Vue.createApp({
         glsInstance.addLayer("psd" + index); index += 1;
       }
 
-      // 或者如果您想要單獨處理每個圖層：
-      // for (let i = 0; i < layersForTexture.length; i++) {
-      //   const layerTexture = await layerToTexture(gl.value, layersForTexture[i]);
-      //   texture.value.push(layerTexture);
-      //   console.log(`Layer ${i} texture created:`, layerTexture);
-      // }
-
-
-      console.log("checking anything in all layers ", allLayers);
       // 确定要处理的图层
-      /*
-      const psdLayers = layerIndices.length > 0
-        ? layerIndices.map(index => allLayers[index])
-        : allLayers;
-        */
-      let canvasHeight = texture.value[0].height;
-      let canvasWidth = texture.value[0].width;
+
       syncLayers();
+      selectedLayers.value = [];
       console.log(" glsInstance.layers size: ", glsInstance.layers.length);
-      for (let i = 0; i < texture.value.length; i++)
-      // for (const i of layerIndices)
-      // for (let i = 0; i < 1; i++) 
-      {
+      for (let i = 0; i < texture.value.length; i++) {
+
         glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, texture.value[i].top, texture.value[i].left, canvasWidth, canvasHeight, glsInstance.layers[i]);
 
         // 绑定当前图层的缓冲区
@@ -1706,12 +1703,7 @@ const app = Vue.createApp({
         const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
         gl.value.enableVertexAttribArray(colorPosAttrib);
         gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
-      }
-
-      // 为第0层设置线条缓冲区
-      if (glsInstance.getLayerSize() > 0) {
-        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, glsInstance.layers[0].eboLines);
-        gl.value.bufferData(gl.value.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices.value), gl.value.STATIC_DRAW);
+        selectedLayers.value.push(i);
       }
 
       // 解绑所有缓冲区
@@ -1723,12 +1715,127 @@ const app = Vue.createApp({
       // 启动渲染循环
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "psd");
     };
+    const toggleLayerSelection = (index) => {
+      if (chosenLayers.value.includes(index)) {
+        chosenLayers.value = chosenLayers.value.filter(i => i !== index)
+      } else {
+        chosenLayers.value.push(index)
+      }
+
+      // set last input index as currentChosedLayer
+      currentChosedLayer.value = index;
+
+      //checking vertex group info
+      console.log(" vertex group info : ", glsInstance.layers[index]?.vertexGroup.value);
+      //check layer's parameter key name
+      console.log(" layer parameter key name : ", Object.keys(glsInstance.layers[index] || {}));
+
+    }
+
+    const onVertexGroupChange = (event) => {
+
+      selectedGroups.value = Array.from(event.target.selectedOptions).map(opt => opt.value);
 
 
+      console.log(selectedValues.value); // 例如 ["a", "c"]
+    };
+    const vertexGroupInfo = computed(() => {
+      return glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value
+    })
 
     const drawAgain = () => {
       drawGlCanvas();
     };
+
+    const editingGroup = ref(null);   // 目前正在編輯的 group 名稱
+    const editName = ref("");         // 暫存輸入的名字
+
+    // 切換選中 / 取消選中
+    const toggleSelect = (name) => {
+
+
+      //temporary only one selection
+      if (selectedGroups.value.includes(name)) {
+        selectedGroups.value = [];
+      } else {
+        selectedGroups.value = [name];
+      }
+      /*
+      if (selectedGroups.value.includes(name)) {
+        selectedGroups.value = selectedGroups.value.filter(n => n !== name);
+      } else {
+        selectedGroups.value.push(name);
+
+      }
+        */
+    };
+
+    // 開始編輯
+    const startEdit = (name) => {
+      editingGroup.value = name;
+      editName.value = name; // 預設是舊名字
+    };
+
+    // 確認編輯
+    const confirmEdit = (group) => {
+      if (editName.value.trim() !== "") {
+        group.name = editName.value.trim();
+      }
+      editingGroup.value = null;
+      editName.value = "";
+    };
+
+    const onAdd = () => {
+      console.log(" on add vertex group info!  ");
+      glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value.push(
+        { name: "group" + (glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value.length + 1), vertex: { name: "v" + (glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value.length + 1), weight: 0.0 } });
+
+    };
+    const onRemove = () => {
+      console.log("on remove vertex group info!");
+
+
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+
+      // 只留下沒有被選中的 group
+      layer.vertexGroup.value = layer.vertexGroup.value.filter(
+        g => !selectedGroups.value.includes(g.name)
+      );
+
+      // 清空已刪掉的選擇，避免選到不存在的 group
+      selectedGroups.value = [];
+    };
+    const onAssign = () => {
+      //put current selectedVertices to currentChosedLayer's selected vertex group
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+      const selectedGroupName = selectedGroups.value[0]; // 目前只允許選一個 group
+      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
+      if (!group) return;
+      group.vertex = selectedVertices.value.map(idx => ({ name: "v" + idx, weight: 1.0 }) );
+      console.log("Assigned vertices to group:", group);
+   
+
+      // now checking what's inside vertex group
+      console.log("Updated vertex group info:", layer.vertexGroup.value);
+
+     };
+
+     const onSelect = () => {
+      //this function would get assigned vertices then set selectedVertices by vertexGroup's info
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+      const selectedGroupName = selectedGroups.value[0];
+      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
+      if (!group) return;
+      selectedVertices.value = group.vertex.map(v => parseInt(v.name.substring(1))); // 從 "v1" 取出數字部分並轉為整數
+      console.log("Selected vertices from group:", selectedVertices.value);
+
+
+     }
+
+
     onMounted(async () => {
 
       window.addEventListener('keydown', handleKeyDown);
@@ -1739,6 +1846,9 @@ const app = Vue.createApp({
       } catch (error) {
         console.error("Initialization error:", error);
       }
+    });
+    watch(selectedLayers, (newVal) => {
+      console.log("勾選的圖層:", JSON.stringify(newVal)); // 這裡可以 emit 或呼叫父組件的方法
     });
 
     return {
@@ -1756,7 +1866,23 @@ const app = Vue.createApp({
       psdImage,
       secondImage,
       firstImage,
-      showLayers
+      showLayers,
+      selectedLayers,
+      chosenLayers,
+      toggleLayerSelection,
+      currentChosedLayer,
+      vertexGroupInfo,
+      onVertexGroupChange,
+      onAdd,
+      onRemove,
+      selectedGroups,
+      editingGroup,
+      editName,
+      toggleSelect,
+      startEdit,
+      confirmEdit,
+      onAssign,
+      onSelect
     };
   }
 });

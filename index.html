@@ -43,6 +43,8 @@
         <div class="toolbar">
           <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')"
             @contextmenu.prevent>grab-point</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'select-points' }"
+            @click="selectTool('select-points')" @contextmenu.prevent>select-points</button>
           <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }" @click="selectTool('bone-create')"
             @contextmenu.prevent>bone-create</button>
           <button class="tool-btn" :class="{ active: activeTool === 'bone-animate' }"
@@ -82,25 +84,70 @@
               </div>
             </div>
           </div>
+
           <div class="panel-section layers-section" style="height:200px; flex: 0 0 200px;">
             <div class="panel-title">圖層</div>
             <div class="layers-content">
               <div class="layers-container">
                 <div id="layerContainer"></div>
-                <canvas id="canvas"></canvas>
+                <span>{{ showLayers?.length }}</span>
+
+                <div v-for="(layer, index) in showLayers" :key="index" class="layer-item">
+                  <!-- 勾選控制顯示/隱藏 -->
+                  <input type="checkbox" :value="index" v-model="selectedLayers" />
+
+                  <!-- 點擊名稱選擇圖層 -->
+                  <span class="layer-name" :class="{ active: chosenLayers.includes(index) }"
+                    @click="toggleLayerSelection(index)">
+                    圖層 {{ layer.name }}
+                  </span>
+                </div>
+
+
               </div>
             </div>
           </div>
+
 
           <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
             <div class="panel-title">屬性</div>
             <div class="layers-content">
               <div class="layers-container">
-                <span> {{lastSelectedBone?.name}}</span><br>
-                <span> {{ showLayers?.length}}</span>
+                <span> select bone: {{ lastSelectedBone?.name }}</span><br>
+                <span> chose layer: {{ currentChosedLayer }}</span><br>
+
+                <!-- Multi-select for vertex groups -->
+                <label for="vertex-group-select">Vertex Groups:</label>
+                <div class="vertex-group-list">
+                  <div v-for="group in vertexGroupInfo" :key="group.name" class="vertex-group-item"
+                    :class="{ selected: selectedGroups.includes(group.name) }" @click="toggleSelect(group.name)"
+                    @dblclick="startEdit(group.name)">
+
+                    <!-- 如果正在編輯這個 group，就顯示 input -->
+                    <input v-if="editingGroup === group.name" v-model="editName" @keyup.enter="confirmEdit(group)"
+                      @blur="confirmEdit(group)" autofocus />
+
+                    <!-- 否則顯示文字 -->
+                    <span v-else>
+                      {{ group.name }} ({{ group.vertex.name }}: {{ group.vertex.weight }})
+                    </span>
+                  </div>
+                </div>
+
+                <!-- 四個按鈕：橫向排列 -->
+                <div class="vertex-btn-group">
+                  <button @click="onAdd">+</button>
+                  <button @click="onRemove">-</button>
+                </div>
+                <div class="vertex-btn-group">
+                  <button @click="onAssign">Assign</button>
+                  <button @click="onSelect">Select</button>
+                </div>
               </div>
             </div>
           </div>
+
+
 
 
         </div>
