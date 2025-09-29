@@ -129,7 +129,7 @@
 
                     <!-- 否則顯示文字 -->
                     <span v-else>
-                      {{ group.name }} ({{ group.vertex.name }}: {{ group.vertex.weight }})
+                      {{ group.name }} 
                     </span>
                   </div>
                 </div>
@@ -142,6 +142,11 @@
                 <div class="vertex-btn-group">
                   <button @click="onAssign">Assign</button>
                   <button @click="onSelect">Select</button>
+                </div>
+                <div class="vertex-btn-group">
+                  <span> set weight</span>
+                  <input type="number" v-model.number="weightValue" step="0.1" min="0" max="1" />
+                  <button @click="setWeight">Set</button>
                 </div>
               </div>
             </div>

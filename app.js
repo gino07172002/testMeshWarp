@@ -19,7 +19,7 @@ import {
   program,
   colorProgram,
   skeletonProgram,
-
+  weightPaintProgram,
   linesIndices
 } from './useWebGL.js';
 
@@ -85,7 +85,21 @@ const shaders = {
         void main() {
           gl_FragColor = uColor;
         }
-      `
+      `,
+  weightPaintVertex: `
+    attribute vec2 aPosition;
+    uniform mat4 uTransform;
+    void main() {
+      gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
+    }
+  `,
+  weightPaintFragment: `
+    precision mediump float;
+    uniform vec4 uColor;
+    void main() {
+      gl_FragColor = uColor;
+    }
+  `
 };
 // 準備多圖層資料結構陣列
 let layersForTexture = [];
@@ -592,6 +606,8 @@ const app = Vue.createApp({
     const selectedValues = ref([]);
     const selectedGroups = ref([]); // 控制選擇的頂點群組
     let currentJobName = null;
+    const isWeightPaintMode = ref(true);
+
     const timeline = reactive(new Timeline({
       onUpdate: () => instance.proxy.$forceUpdate(),
       vueInstance: instance,
@@ -999,8 +1015,15 @@ const app = Vue.createApp({
       }
 
       // === 在所有圖層之後渲染格線/骨架 ===
-      renderGridOnly(gl, colorProgram, selectedVertices.value);
-
+      if (isWeightPaintMode && selectedGroups.value.length > 0) {
+        // Weight Paint Mode
+        renderGridOnly(gl, colorProgram, selectedVertices.value); // 先畫網格和小點
+        renderWeightPaint(gl, weightPaintProgram.value, selectedGroups.value[0]); // 再疊加權重視覺化
+      } else {
+        // 正常模式
+        // const selectedVertices = getSelectedVertexIndices(); // 你的選取邏輯
+        renderGridOnly(gl, colorProgram, selectedVertices.value);
+      }
 
       // === 渲染骨架 ===
       if (typeof renderMeshSkeleton === 'function' && meshSkeleton) {
@@ -1012,35 +1035,131 @@ const app = Vue.createApp({
       );
     };
 
-    // 辅助函数：更新图层顶点
-    function updateLayerVertices(gl, layer, layerIndex) {
-      if (!layer.vertices.value || !layer.originalVertices.value) {
-        console.warn(`Layer ${layerIndex} missing vertex data`);
-        return;
+    function renderWeightPaint(gl, program, selectedGroupName) {
+      if (!program || glsInstance.getLayerSize() === 0) return;
+
+      const layerIndex = currentChosedLayer.value;
+      const layer = glsInstance.layers[layerIndex];
+
+      if (!layer || !layer.vertexGroup || !layer.vertices.value) return;
+
+      // 找到選中的 vertex group
+      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
+      if (!group || !group.vertices || group.vertices.length === 0) return;
+
+      // 準備繪製三角形來顯示權重
+      gl.useProgram(program);
+      gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
+
+      const positionAttrib = gl.getAttribLocation(program, 'aPosition');
+      if (positionAttrib !== -1) {
+        gl.enableVertexAttribArray(positionAttrib);
+        gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 16, 0);
       }
 
-      const originalVertices = layer.originalVertices.value;
-      const updatedVertices = new Float32Array(originalVertices.length);
+      // 設定變換矩陣(與主渲染使用相同的變換)
+      const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
+      const glLeft = left;
+      const glRight = left + (width / canvasWidth) * 2;
+      const glTop = top;
+      const glBottom = top - (height / canvasHeight) * 2;
 
-      for (let j = 0; j < originalVertices.length; j += 4) {
-        const x = originalVertices[j];
-        const y = originalVertices[j + 1];
-        const u = originalVertices[j + 2];
-        const v = originalVertices[j + 3];
+      const sx = (glRight - glLeft) / 2;
+      const sy = (glTop - glBottom) / 2;
+      const tx = glLeft + sx;
+      const ty = glBottom + sy;
 
-        // 暂时禁用动画，先确保基础渲染正常
-        const wave = 0; // Math.sin(x * 10 + time + layerIndex * Math.PI / 4) * 0.05;
+      const transformMatrix = new Float32Array([
+        sx, 0, 0, 0,
+        0, sy, 0, 0,
+        0, 0, 1, 0,
+        tx, ty, 0, 1
+      ]);
 
-        updatedVertices[j] = x;
-        updatedVertices[j + 1] = y + wave;
-        updatedVertices[j + 2] = u;
-        updatedVertices[j + 3] = v;
+      const transformLocation = gl.getUniformLocation(program, 'uTransform');
+      if (transformLocation) {
+        gl.uniformMatrix4fv(transformLocation, false, transformMatrix);
       }
 
-      // 更新VBO
-      gl.bufferData(gl.ARRAY_BUFFER, updatedVertices, gl.DYNAMIC_DRAW);
-      layer.vertices.value = updatedVertices;
+      // 為每個三角形設定顏色並繪製
+      const colorLocation = gl.getUniformLocation(program, 'uColor');
+
+      // 建立 vertex id 到 weight 的映射
+      const weightMap = new Map();
+      group.vertices.forEach(v => {
+        weightMap.set(v.id, v.weight);
+      });
+
+      // 遍歷所有三角形
+      const indices = layer.indices;
+      for (let i = 0; i < indices.length; i += 3) {
+        const idx0 = indices[i];
+        const idx1 = indices[i + 1];
+        const idx2 = indices[i + 2];
+
+        // 檢查三個頂點是否在 vertex group 中
+        const hasIdx0 = weightMap.has(idx0);
+        const hasIdx1 = weightMap.has(idx1);
+        const hasIdx2 = weightMap.has(idx2);
+
+        // 如果三個頂點都不在 group 中,跳過這個三角形
+        if (!hasIdx0 || !hasIdx1 || !hasIdx2) {
+          continue;
+        }
+
+        // 獲取三個頂點的權重(不在 group 中的視為 0)
+        const w0 = hasIdx0 ? weightMap.get(idx0) : 0;
+        const w1 = hasIdx1 ? weightMap.get(idx1) : 0;
+        const w2 = hasIdx2 ? weightMap.get(idx2) : 0;
+
+        // 計算平均權重(只計算在 group 中的頂點)
+        const count = (hasIdx0 ? 1 : 0) + (hasIdx1 ? 1 : 0) + (hasIdx2 ? 1 : 0);
+        const avgWeight = (w0 + w1 + w2) / count;
+
+        // 權重轉顏色 (Blender 風格: 藍->綠->黃->紅)
+        const color = weightToColor(avgWeight);
+
+        // 設定半透明顏色
+        gl.uniform4f(colorLocation, color.r, color.g, color.b, 0.5);
+
+        // 繪製這個三角形
+        gl.drawElements(gl.TRIANGLES, 3, gl.UNSIGNED_SHORT, i * 2);
+      }
     }
+    function weightToColor(weight) {
+      // weight: 0.0 (藍) -> 0.5 (綠/黃) -> 1.0 (紅)
+      let r, g, b;
+
+      if (weight < 0.25) {
+        // 藍 -> 青
+        const t = weight / 0.25;
+        r = 0;
+        g = t;
+        b = 1;
+      } else if (weight < 0.5) {
+        // 青 -> 綠
+        const t = (weight - 0.25) / 0.25;
+        r = 0;
+        g = 1;
+        b = 1 - t;
+      } else if (weight < 0.75) {
+        // 綠 -> 黃
+        const t = (weight - 0.5) / 0.25;
+        r = t;
+        g = 1;
+        b = 0;
+      } else {
+        // 黃 -> 紅
+        const t = (weight - 0.75) / 0.25;
+        r = 1;
+        g = 1 - t;
+        b = 0;
+      }
+
+      return { r, g, b };
+    }
+
 
     // 辅助函数：只渲染网格
     function renderGridOnly(gl, colorProgram, selectedVertices = []) {
@@ -1519,7 +1638,7 @@ const app = Vue.createApp({
       program.value = glsInstance.createProgram(gl.value, shaders.vertex, shaders.fragment);
       colorProgram.value = glsInstance.createProgram(gl.value, shaders.colorVertex, shaders.colorFragment);
       skeletonProgram.value = glsInstance.createProgram(gl.value, shaders.skeletonVertex, shaders.skeletonFragment);
-
+      weightPaintProgram.value = glsInstance.createProgram(gl.value, shaders.weightPaintVertex, shaders.weightPaintFragment);
 
       firstImage();
     };
@@ -1760,6 +1879,15 @@ const app = Vue.createApp({
       } else {
         selectedGroups.value = [name];
       }
+
+      //show selected vertices info
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+      const selectedGroupName = selectedGroups.value[0];
+      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
+      if (!group) return;
+      console.log("Selected vertices from group:", JSON.stringify(group));
+
       /*
       if (selectedGroups.value.includes(name)) {
         selectedGroups.value = selectedGroups.value.filter(n => n !== name);
@@ -1784,56 +1912,90 @@ const app = Vue.createApp({
       editingGroup.value = null;
       editName.value = "";
     };
-
     const onAdd = () => {
-      console.log(" on add vertex group info!  ");
-      glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value.push(
-        { name: "group" + (glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value.length + 1), vertex: { name: "v" + (glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value.length + 1), weight: 0.0 } });
+      console.log("on add vertex group info!");
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
 
+      layer.vertexGroup.value.push({
+        name: "group" + (layer.vertexGroup.value.length + 1),
+        vertices: [] // 預設空陣列
+      });
     };
     const onRemove = () => {
       console.log("on remove vertex group info!");
-
-
       const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer || !layer.vertexGroup) return;
-
-      // 只留下沒有被選中的 group
-      layer.vertexGroup.value = layer.vertexGroup.value.filter(
-        g => !selectedGroups.value.includes(g.name)
-      );
-
-      // 清空已刪掉的選擇，避免選到不存在的 group
+      if (!layer || !layer.vertexGroup)
+        return; // 只留下沒有被選中的 group 
+      layer.vertexGroup.value = layer.vertexGroup.value.filter(g => !selectedGroups.value.includes(g.name)); // 清空已刪掉的選擇，避免選到不存在的 group 
       selectedGroups.value = [];
     };
     const onAssign = () => {
-      //put current selectedVertices to currentChosedLayer's selected vertex group
       const layer = glsInstance.layers[currentChosedLayer.value];
       if (!layer || !layer.vertexGroup) return;
-      const selectedGroupName = selectedGroups.value[0]; // 目前只允許選一個 group
-      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
-      if (!group) return;
-      group.vertex = selectedVertices.value.map(idx => ({ name: "v" + idx, weight: 1.0 }) );
-      console.log("Assigned vertices to group:", group);
-   
 
-      // now checking what's inside vertex group
-      console.log("Updated vertex group info:", layer.vertexGroup.value);
-
-     };
-
-     const onSelect = () => {
-      //this function would get assigned vertices then set selectedVertices by vertexGroup's info
-      const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer || !layer.vertexGroup) return;
       const selectedGroupName = selectedGroups.value[0];
       const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
       if (!group) return;
-      selectedVertices.value = group.vertex.map(v => parseInt(v.name.substring(1))); // 從 "v1" 取出數字部分並轉為整數
+
+      group.vertices = selectedVertices.value.map(idx => ({
+        id: idx,       // 直接用數字 index
+        weight: 0.0
+      }));
+
+      console.log("Assigned vertices to group:", group);
+      console.log("Updated vertex group info:", layer.vertexGroup.value);
+    };
+
+    const onSelect = () => {
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+
+      const selectedGroupName = selectedGroups.value[0];
+      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
+      if (!group) return;
+
+      selectedVertices.value = group.vertices.map(v => v.id);
+
       console.log("Selected vertices from group:", selectedVertices.value);
+    };
+    const weightValue = ref(0.0);
 
 
-     }
+
+    const setWeight = () => {
+      const weight = parseFloat(weightValue.value);
+      if (isNaN(weight) || weight < 0 || weight > 1) {
+        alert("請輸入介於 0.0 到 1.0 之間的數值");
+        return;
+      }
+      console.log("Setting weight to selected vertices:", weight);
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+
+      const selectedGroupName = selectedGroups.value[0];
+      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
+      if (!group) return;
+
+      // 加上這個檢查！
+      // 確認 group.vertices 存在並且是一個陣列
+      if (!group.vertices || !Array.isArray(group.vertices)) {
+        console.error("錯誤：選中的 group 沒有 vertices 陣列可供操作。", group);
+        return; // 提早結束函式，避免崩潰
+      }
+
+      console.log("checking selected vertices : ", JSON.stringify(group));
+
+      // 現在可以安全地執行 forEach 了
+      group.vertices.forEach(v => {
+        console.log("Setting weight for vertex", v.id, "to", weight);
+        v.weight = weight;
+      });
+
+      console.log("Set weight to selected vertices in group:", group);
+      console.log("Updated vertex group info:", layer.vertexGroup.value);
+    };
+
 
 
     onMounted(async () => {
@@ -1882,7 +2044,9 @@ const app = Vue.createApp({
       startEdit,
       confirmEdit,
       onAssign,
-      onSelect
+      onSelect,
+      setWeight,
+      weightValue
     };
   }
 });

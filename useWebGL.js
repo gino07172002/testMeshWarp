@@ -19,7 +19,7 @@ const texture = ref(null);               // 紋理
 const program = ref(null);               // 主著色器程序
 const colorProgram = ref(null);          // 顏色著色器程序
 const skeletonProgram = ref(null);       // 骨骼著色器程序
-
+const weightPaintProgram = ref(null);
 
 // Mesh-related reactive variables
 const vertices = ref([]);                // 當前頂點數據
@@ -269,10 +269,10 @@ export function useImageLayer() {
   const ebo = ref(null); // 元素緩衝區（三角形）
   const eboLines = ref(null); // 元素緩衝區（線條）
   const vertexGroup = ref([
-      { name: "group1", vertex: { name: "v1", weight: 0.5 } },
-      { name: "group2", vertex: { name: "v2", weight: 0.3 } },
-      { name: "group3", vertex: { name: "v3", weight: 0.8 } }
-    ]);
+    { name: "group1" },
+    { name: "group2" },
+    { name: "group3" }
+  ]);
   function loadImage(url) {
     image.value = url;
     console.log(`Image loaded: ${url}`);
@@ -324,9 +324,9 @@ class gls {
 
     this.layers.push(newLayer);
     this.layerMap[layerName] = newLayer;
-    
+
     console.log(`Layer added: ${layerName}`);
-       console.log(" layer parameter key name : ", Object.keys(newLayer));
+    console.log(" layer parameter key name : ", Object.keys(newLayer));
 
     return newLayer;
   };
@@ -784,6 +784,7 @@ export {
   program,
   colorProgram,
   skeletonProgram,
+  weightPaintProgram,
 
   vertices,
   originalVertices,
