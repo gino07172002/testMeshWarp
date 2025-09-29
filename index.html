@@ -49,6 +49,8 @@
             @contextmenu.prevent>bone-create</button>
           <button class="tool-btn" :class="{ active: activeTool === 'bone-animate' }"
             @click="selectTool('bone-animate')" @contextmenu.prevent>bone-animate</button>
+            <button class="tool-btn" :class="{ active: activeTool === 'bind-bones' }"
+            @click="bindingBoneWeight" @contextmenu.prevent>bind bones</button>
           <button class="tool-btn" :class="{ active: activeTool === 'bone-clear' }" @click="selectTool('bone-clear')"
             @contextmenu.prevent>bone-clear</button>
           <button class="tool-btn" :class="{ active: activeTool === 'bone-save' }" @click="selectTool('bone-save')"

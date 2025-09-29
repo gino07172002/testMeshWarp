@@ -20,6 +20,7 @@ const program = ref(null);               // 主著色器程序
 const colorProgram = ref(null);          // 顏色著色器程序
 const skeletonProgram = ref(null);       // 骨骼著色器程序
 const weightPaintProgram = ref(null);
+const skinnedProgram = ref(null);
 
 // Mesh-related reactive variables
 const vertices = ref([]);                // 當前頂點數據
@@ -785,6 +786,7 @@ export {
   colorProgram,
   skeletonProgram,
   weightPaintProgram,
+  skinnedProgram,
 
   vertices,
   originalVertices,

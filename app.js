@@ -20,6 +20,7 @@ import {
   colorProgram,
   skeletonProgram,
   weightPaintProgram,
+  skinnedProgram,
   linesIndices
 } from './useWebGL.js';
 
@@ -99,7 +100,58 @@ const shaders = {
     void main() {
       gl_FragColor = uColor;
     }
-  `
+  `,
+  skinnedVertex: `
+ attribute vec2 aPosition;
+  attribute vec2 aTexCoord;
+
+  // Bone Skinning
+  attribute vec4 aBoneIndices;   // 每個頂點最多 4 骨骼
+  attribute vec4 aBoneWeights;
+
+  uniform mat4 uTransform;
+  uniform sampler2D uBoneTexture; // 骨骼矩陣 texture
+  uniform float uBoneTextureSize; // 骨骼數量 / texture 寬度 (每骨骼 4 row)
+
+  varying vec2 vTexCoord;
+
+  // 從骨骼 texture 讀 4x4 矩陣
+  mat4 getBoneMatrix(float index) {
+      float y = (index * 4.0 + 0.5) / uBoneTextureSize;
+      mat4 m;
+      m[0] = texture2D(uBoneTexture, vec2(0.5 / 4.0, y));
+      m[1] = texture2D(uBoneTexture, vec2(1.5 / 4.0, y));
+      m[2] = texture2D(uBoneTexture, vec2(2.5 / 4.0, y));
+      m[3] = texture2D(uBoneTexture, vec2(3.5 / 4.0, y));
+      return m;
+  }
+
+  void main() {
+      vec4 pos = vec4(aPosition, 0.0, 1.0);
+      vec4 skinned = vec4(0.0);
+
+      for(int i = 0; i < 4; i++) {
+          float bIndex = aBoneIndices[i];
+          float w = aBoneWeights[i];
+          mat4 boneMat = getBoneMatrix(bIndex);
+          skinned += boneMat * pos * w;
+      }
+
+      gl_Position = uTransform * skinned;
+      vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
+  }
+  `,
+  skinnedFragment: `
+  precision mediump float;
+  varying vec2 vTexCoord;
+  uniform sampler2D uTexture;
+  uniform float uOpacity;
+
+  void main() {
+      vec4 color = texture2D(uTexture, vTexCoord);
+      gl_FragColor = vec4(color.rgb, color.a * uOpacity);
+  }
+    `
 };
 // 準備多圖層資料結構陣列
 let layersForTexture = [];
@@ -1639,7 +1691,7 @@ const app = Vue.createApp({
       colorProgram.value = glsInstance.createProgram(gl.value, shaders.colorVertex, shaders.colorFragment);
       skeletonProgram.value = glsInstance.createProgram(gl.value, shaders.skeletonVertex, shaders.skeletonFragment);
       weightPaintProgram.value = glsInstance.createProgram(gl.value, shaders.weightPaintVertex, shaders.weightPaintFragment);
-
+      skinnedProgram.value = glsInstance.createProgram(gl.value, shaders.skinnedVertex, shaders.skinnedFragment);
       firstImage();
     };
 
@@ -1858,6 +1910,176 @@ const app = Vue.createApp({
 
       console.log(selectedValues.value); // 例如 ["a", "c"]
     };
+    function printBoneHierarchy(bones, indent = 0) {
+      for (const bone of bones) {
+        //  console.log(`${' '.repeat(indent)}- ${bone.name}`);
+        //display global head and tail
+        const globalTransform = bone.getGlobalTransform();
+        //  console.log(`${' '.repeat(indent + 2)}  Head: (${globalTransform.head.x.toFixed(2)}, ${globalTransform.head.y.toFixed(2)})`);
+        //  console.log(`${' '.repeat(indent + 2)}  Tail: (${globalTransform.tail.x.toFixed(2)}, ${globalTransform.tail.y.toFixed(2)})`);
+        // 遞迴列印子骨骼
+
+        if (bone.children && bone.children.length > 0) {
+          printBoneHierarchy(bone.children, indent + 2); // 遞迴
+        }
+      }
+    }
+    const bindingBoneWeight = () => {
+      console.log(" Binding bone weight ... ");
+
+      if (skeletons.length === 0) {
+        console.warn("No skeletons available for binding.");
+        return;
+      }
+
+      printBoneHierarchy(skeletons[0].bones);
+
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer) {
+        console.error("Invalid layer index for binding bone weight.");
+        return;
+      }
+
+      // 取得所有頂點
+      const vertices = layer.vertices.value;
+      const vertexCount = vertices.length / 4;
+
+      // 收集所有骨骼(包含子骨骼)
+      const allBones = [];
+      function collectBones(bones) {
+        for (const bone of bones) {
+          allBones.push(bone);
+          if (bone.children && bone.children.length > 0) {
+            collectBones(bone.children);
+          }
+        }
+      }
+      collectBones(skeletons[0].bones);
+
+      console.log(`Found ${allBones.length} bones and ${vertexCount} vertices`);
+
+      // 清空舊的 vertex group
+      layer.vertexGroup.value = [];
+
+      // 使用 Map 來管理 vertex groups，key 為骨骼名稱
+      const vertexGroupMap = new Map();
+
+      // 計算點到線段的最短距離
+      function distanceToSegment(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lengthSquared = dx * dx + dy * dy;
+
+        // 如果骨骼長度為0(head和tail在同一位置)
+        if (lengthSquared === 0) {
+          const distX = px - x1;
+          const distY = py - y1;
+          return Math.sqrt(distX * distX + distY * distY);
+        }
+
+        // 計算投影點在線段上的參數 t (0-1之間)
+        let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+        t = Math.max(0, Math.min(1, t)); // 限制在線段範圍內
+
+        // 計算最近點
+        const closestX = x1 + t * dx;
+        const closestY = y1 + t * dy;
+
+        // 計算距離
+        const distX = px - closestX;
+        const distY = py - closestY;
+        return Math.sqrt(distX * distX + distY * distY);
+      }
+
+      // 為每個頂點計算權重
+      for (let i = 0; i < vertexCount; i++) {
+        const vx = vertices[i * 4];
+        const vy = vertices[i * 4 + 1];
+
+        console.log(`Processing vertex ${i}: (${vx.toFixed(2)}, ${vy.toFixed(2)})`);
+
+        // 計算此頂點到所有骨骼的距離
+        const distances = [];
+        for (let j = 0; j < allBones.length; j++) {
+          const bone = allBones[j];
+          const globalTransform = bone.getGlobalTransform();
+
+          const dist = distanceToSegment(
+            vx, vy,
+            globalTransform.head.x, globalTransform.head.y,
+            globalTransform.tail.x, globalTransform.tail.y
+          );
+
+          distances.push({
+            boneIndex: j,
+            boneName: bone.name,
+            distance: dist
+          });
+        }
+
+        // 根據距離計算權重(使用反距離加權)
+        const epsilon = 0.0001; // 避免除以零
+        const maxInfluenceBones = 4; // 最多影響的骨骼數量(類似Blender)
+
+        // 按距離排序,選擇最近的幾個骨骼
+        distances.sort((a, b) => a.distance - b.distance);
+        const influencingBones = distances.slice(0, maxInfluenceBones);
+
+        // 計算權重(距離越近權重越大)
+        let totalWeight = 0;
+        const weights = influencingBones.map(item => {
+          // 使用平方反比來增強距離差異的影響
+          const weight = 1.0 / (item.distance * item.distance + epsilon);
+          totalWeight += weight;
+          return { ...item, weight };
+        });
+
+        // 正規化權重,使總和為1
+        if (totalWeight > 0) {
+          weights.forEach(item => {
+            item.weight /= totalWeight;
+          });
+        }
+
+        // 將權重添加到對應的 vertex group (按骨骼名稱整合)
+        weights.forEach(item => {
+          if (item.weight > 0.001) { // 過濾掉非常小的權重
+            const boneName = item.boneName;
+
+            // 如果該骨骼名稱的 vertex group 不存在，創建它
+            if (!vertexGroupMap.has(boneName)) {
+              vertexGroupMap.set(boneName, {
+                name: boneName,
+                vertices: []
+              });
+            }
+
+            // 將頂點權重添加到對應的 vertex group
+            const group = vertexGroupMap.get(boneName);
+
+            // 檢查該頂點是否已經在這個 group 中
+            const existingVertex = group.vertices.find(v => v.id === i);
+            if (existingVertex) {
+              // 如果已存在，累加權重（理論上不應該發生，但為了安全起見）
+              existingVertex.weight += item.weight;
+            } else {
+              // 添加新的頂點權重
+              group.vertices.push({
+                id: i,
+                weight: item.weight
+              });
+            }
+          }
+        });
+      }
+
+      // 將 Map 轉換為陣列並賦值給 layer
+      layer.vertexGroup.value = Array.from(vertexGroupMap.values());
+
+      // 輸出綁定結果
+      console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
+    };
+
     const vertexGroupInfo = computed(() => {
       return glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value
     })
@@ -1969,7 +2191,6 @@ const app = Vue.createApp({
         alert("請輸入介於 0.0 到 1.0 之間的數值");
         return;
       }
-      console.log("Setting weight to selected vertices:", weight);
       const layer = glsInstance.layers[currentChosedLayer.value];
       if (!layer || !layer.vertexGroup) return;
 
@@ -1984,18 +2205,112 @@ const app = Vue.createApp({
         return; // 提早結束函式，避免崩潰
       }
 
-      console.log("checking selected vertices : ", JSON.stringify(group));
-
       // 現在可以安全地執行 forEach 了
       group.vertices.forEach(v => {
-        console.log("Setting weight for vertex", v.id, "to", weight);
         v.weight = weight;
       });
 
-      console.log("Set weight to selected vertices in group:", group);
-      console.log("Updated vertex group info:", layer.vertexGroup.value);
+      console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
     };
 
+
+    //animate vertex function (not yet done )
+    const tryAnimatedVertex = () => {
+      const uTransformMatrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; // 你的投影/模型矩陣
+      drawSkinnedMesh(gl, skinnedProgram, glsInstance.layers[currentChosedLayer.value], skeletons[0], uTransformMatrix);
+    }
+    function drawSkinnedMesh(gl, program, layer, skeleton, uTransformMatrix) {
+      const vertices = layer.vertices.value; // 原始頂點 x,y
+      const texCoords = layer.texCoords.value; // uv
+      const vertexCount = vertices.length / 2;
+
+      // -----------------------------
+      // 1️⃣ 準備 Bone Skinning 資料
+      // -----------------------------
+      const aBoneIndices = new Float32Array(vertexCount * 4);
+      const aBoneWeights = new Float32Array(vertexCount * 4);
+
+      for (let i = 0; i < vertexCount; i++) {
+        const groups = layer.vertexGroup.value
+          .map(g => g.vertices.find(v => v.id === i))
+          .filter(v => v)
+          .slice(0, 4); // 最多 4 骨骼
+
+        for (let j = 0; j < 4; j++) {
+          if (groups[j]) {
+            const bIndex = skeleton.bones.findIndex(b => b.name === layer.vertexGroup.value[j].name);
+            aBoneIndices[i * 4 + j] = bIndex;
+            aBoneWeights[i * 4 + j] = groups[j].weight;
+          } else {
+            aBoneIndices[i * 4 + j] = 0;
+            aBoneWeights[i * 4 + j] = 0;
+          }
+        }
+      }
+
+      // -----------------------------
+      // 2️⃣ 更新骨骼矩陣到 Bone Texture
+      // -----------------------------
+      const boneCount = skeleton.bones.length;
+      const boneTextureData = new Float32Array(boneCount * 4 * 4);
+      for (let i = 0; i < boneCount; i++) {
+        const m = skeleton.bones[i].getWorldMatrix(); // 16 element flat array
+        for (let row = 0; row < 4; row++) {
+          for (let col = 0; col < 4; col++) {
+            boneTextureData[i * 16 + row * 4 + col] = m[row * 4 + col];
+          }
+        }
+      }
+
+      const boneTexture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, boneTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 4, boneCount, 0, gl.RGBA, gl.FLOAT, boneTextureData);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+      // -----------------------------
+      // 3️⃣ 綁定 shader attribute & uniform
+      // -----------------------------
+      gl.useProgram(program);
+
+      const aPositionLoc = gl.getAttribLocation(program, "aPosition");
+      const aTexCoordLoc = gl.getAttribLocation(program, "aTexCoord");
+      const aBoneIndicesLoc = gl.getAttribLocation(program, "aBoneIndices");
+      const aBoneWeightsLoc = gl.getAttribLocation(program, "aBoneWeights");
+      const uTransformLoc = gl.getUniformLocation(program, "uTransform");
+      const uBoneTextureLoc = gl.getUniformLocation(program, "uBoneTexture");
+      const uBoneTextureSizeLoc = gl.getUniformLocation(program, "uBoneTextureSize");
+
+      // 顯示矩陣
+      gl.uniformMatrix4fv(uTransformLoc, false, uTransformMatrix);
+
+      // Bone Texture
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, boneTexture);
+      gl.uniform1i(uBoneTextureLoc, 0);
+      gl.uniform1f(uBoneTextureSizeLoc, boneCount * 4.0);
+
+      // -----------------------------
+      // 4️⃣ 綁定頂點 buffer
+      // -----------------------------
+      function bindArrayBuffer(data, loc, size) {
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+      }
+
+      bindArrayBuffer(vertices, aPositionLoc, 2);
+      bindArrayBuffer(texCoords, aTexCoordLoc, 2);
+      bindArrayBuffer(aBoneIndices, aBoneIndicesLoc, 4);
+      bindArrayBuffer(aBoneWeights, aBoneWeightsLoc, 4);
+
+      // -----------------------------
+      // 5️⃣ draw call
+      // -----------------------------
+      gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
+    }
 
 
     onMounted(async () => {
@@ -2046,7 +2361,8 @@ const app = Vue.createApp({
       onAssign,
       onSelect,
       setWeight,
-      weightValue
+      weightValue,
+      bindingBoneWeight
     };
   }
 });
