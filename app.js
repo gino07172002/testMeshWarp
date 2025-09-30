@@ -4,9 +4,7 @@ export const boneIdToIndexMap = reactive({});
 export const boneTree = reactive({});
 import {
   //initBone,
-  skeletonVertices,
   boneParents,
-  boneChildren,
   meshSkeleton,
   skeletons,
   lastSelectedBone,
@@ -21,7 +19,7 @@ import {
   skeletonProgram,
   weightPaintProgram,
   skinnedProgram,
-  linesIndices
+
 } from './useWebGL.js';
 
 import {
@@ -701,7 +699,7 @@ const app = Vue.createApp({
         // bonesInstance.restoreSkeletonVerticesFromLast();
       }
       else if (tool === 'bone-create') {
-        glsInstance.resetMeshToOriginal();
+       // glsInstance.resetMeshToOriginal();
         // bonesInstance.resetSkeletonToOriginal();
       }
       else if (tool === 'bone-clear') {
@@ -892,6 +890,8 @@ const app = Vue.createApp({
 
         } else if (activeTool.value === 'bone-animate') {
           bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
+          bonesInstance.updatePoseMesh(gl);
+          forceUpdate();
           // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
           //   startPosX = xNDC;
           //    startPosY = yNDC;
@@ -927,6 +927,7 @@ const app = Vue.createApp({
         isDragging = false;
         selectedVertex.value = -1;
         mousePressed.value = null;
+
         forceUpdate();
       };
 
@@ -972,7 +973,6 @@ const app = Vue.createApp({
       }
 
       const textures = texture.value;
-      const layerCount = textures.length;
 
       gl.useProgram(program);
 
@@ -983,8 +983,6 @@ const app = Vue.createApp({
 
       if (layerIndices.length == 0)
         layerIndices = [0];
-      //console.log(" layer count : ",layerCount);
-      // for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
 
       for (const layerIndex of layerIndices) {
         if (layerIndex >= textures.length)
@@ -1355,47 +1353,6 @@ const app = Vue.createApp({
     }
 
 
-    // 提取的骨架渲染函數
-    const renderSkeleton = (gl, skeletonProgram) => {
-      if (skeletonVertices.value.length === 0) return;
-
-      // 保存當前WebGL狀態
-      const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM);
-      const prevArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
-      const prevElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
-      const prevBlend = gl.getParameter(gl.BLEND);
-
-      gl.useProgram(skeletonProgram);
-      const { skeletonVbo, skeletonEbo, skeletonVerticesArray, skeletonIndicesArray } =
-        glsInstance.createSkeletonBuffers(gl);
-
-      const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
-      gl.enableVertexAttribArray(skeletonPosAttrib);
-      gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
-      gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
-
-      // 渲染所有骨架線條
-      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 0, 1);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
-      gl.drawElements(gl.LINES, skeletonIndicesArray.length, gl.UNSIGNED_SHORT, 0);
-
-      // 渲染選中的骨架
-      renderSelectedBone(gl, skeletonProgram, skeletonIndicesArray);
-
-      // 渲染骨架點
-      renderSkeletonPoints(gl, skeletonProgram, skeletonVerticesArray);
-
-      // 恢復WebGL狀態
-      gl.useProgram(prevProgram);
-      gl.bindBuffer(gl.ARRAY_BUFFER, prevArrayBuffer);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, prevElementBuffer);
-
-      if (prevBlend) {
-        gl.enable(gl.BLEND);
-      } else {
-        gl.disable(gl.BLEND);
-      }
-    };
 
     const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton) => {
       // 保存當前WebGL狀態
@@ -1737,11 +1694,6 @@ const app = Vue.createApp({
         gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
       }
 
-      // 为第0层设置线条缓冲区
-      if (glsInstance.getLayerSize() > 0) {
-        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, glsInstance.layers[0].eboLines);
-        gl.value.bufferData(gl.value.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices.value), gl.value.STATIC_DRAW);
-      }
 
       // 解绑所有缓冲区
       gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
@@ -1810,11 +1762,7 @@ const app = Vue.createApp({
         gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
       }
 
-      // 为第0层设置线条缓冲区
-      if (glsInstance.getLayerSize() > 0) {
-        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, glsInstance.layers[0].eboLines);
-        gl.value.bufferData(gl.value.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices.value), gl.value.STATIC_DRAW);
-      }
+    
 
       // 解绑所有缓冲区
       gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);

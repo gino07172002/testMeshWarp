@@ -9,12 +9,10 @@ console.log("網格骨骼系統創建完成");
 // 📦 全域狀態
 const skeletonVertices = ref([]);
 const skeletonVerticesLast = ref([]);
-const allBones = ref([]);
+
 const originalSkeletonVertices = ref([]);
 const boneParents = ref([]);
 const boneChildren = ref([]);
-const vertexInfluences = ref([]);
-const vertexInfluences2 = ref([]);
 var mousedown_x = null;
 var mousedown_y = null;
 var mousemove_x = null;
@@ -39,7 +37,6 @@ const minBoneLength = 0.1;
 
 // 📦 外部依賴（由 app.js 呼叫 initBone 設定）
 let gl, program, texture, vbo, ebo, indices;
-let resetMeshToOriginal, updateMeshForSkeletonPose;
 
 // 📷 匯出圖片（可選）
 function downloadImage() {
@@ -135,14 +132,7 @@ export default class Bones {
   saveBones() {
     console.log(" show timeline first :", JSON.stringify(this.vueInstance.proxy.timeline.keyframes));
     const boneData = {
-      skeletonVertices: skeletonVertices.value,
-      originalSkeletonVertices: originalSkeletonVertices.value,
-      boneParents: boneParents.value,
-      boneChildren: boneChildren.value,
-      vertexInfluences: vertexInfluences.value.map(inf =>
-        inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
-      ),
-      keyframes: this.vueInstance.proxy.timeline.keyframes
+     
     };
     localStorage.setItem('boneData', JSON.stringify(boneData));
   }
@@ -151,173 +141,10 @@ export default class Bones {
   readBones() {
     const boneDataStr = localStorage.getItem('boneData');
     if (boneDataStr) {
-      const boneData = JSON.parse(boneDataStr);
-      skeletonVertices.value = boneData.skeletonVertices;
-      originalSkeletonVertices.value = boneData.originalSkeletonVertices;
-      boneParents.value = boneData.boneParents;
-      boneChildren.value = boneData.boneChildren;
-      vertexInfluences.value = boneData.vertexInfluences.map(inf =>
-        inf.map(({ boneIndex, weight }) => ({ boneIndex, weight }))
-      );
-      this.vueInstance.proxy.timeline.keyframes = boneData.keyframes;
-
-      console.log("  checking load  keyframe :", JSON.stringify(boneData.keyframes));
-
-      glsInstance.updateMeshForSkeletonPose?.();
+      
     }
   }
 
-  // 🧹 清除骨架
-  /*
-  clearBones() {
-    skeletonVertices.value = [];
-    originalSkeletonVertices.value = [];
-    boneParents.value = [];
-    boneChildren.value = [];
-    vertexInfluences.value = [];
-    lineIndex = 0;
-    isEditingExistingBone.value = false;
-    selectedBoneForEditing.value = -1;
-    editingBoneEnd.value = null;
-    resetMeshToOriginal?.();
-  }
-
-  resetSkeletonToOriginal() {
-    if (originalSkeletonVertices.value.length > 0) {
-      skeletonVertices.value = [...originalSkeletonVertices.value];
-    }
-  }
-
-  resetPoseToOriginal() {
-    if (meshSkeleton) {
-      // Reset all bones to their original positions and rotations
-      meshSkeleton.bones.forEach(bone => {
-
-        bone.resetPose();
-        bone._markDirty();
-      });
-
-      // Update the entire skeleton
-      meshSkeleton.update();
-
-
-    }
-  }
-
-  restoreSkeletonVerticesFromLast() {
-    if (skeletonVerticesLast.value.length > 0) {
-      skeletonVertices.value = [...skeletonVerticesLast.value];
-      console.log("skeleton vertices length : ", skeletonVertices.value.length);
-      this.glsInstance.updateMeshForSkeletonPose();
-    }
-  }
-
-  applyTransformToChildren(parentIndex, deltaX, deltaY, rotationAngle, pivotX, pivotY) {
-    if (boneChildren.value[parentIndex]) {
-      boneChildren.value[parentIndex].forEach(childIndex => {
-        const childHeadX = skeletonVertices.value[childIndex * 4];
-        const childHeadY = skeletonVertices.value[childIndex * 4 + 1];
-        const childTailX = skeletonVertices.value[childIndex * 4 + 2];
-        const childTailY = skeletonVertices.value[childIndex * 4 + 3];
-
-        skeletonVertices.value[childIndex * 4] += deltaX;
-        skeletonVertices.value[childIndex * 4 + 1] += deltaY;
-        skeletonVertices.value[childIndex * 4 + 2] += deltaX;
-        skeletonVertices.value[childIndex * 4 + 3] += deltaY;
-
-        if (rotationAngle !== 0) {
-          const rotatedHead = this.rotatePoint(pivotX, pivotY, childHeadX, childHeadY, rotationAngle);
-          const rotatedTail = this.rotatePoint(pivotX, pivotY, childTailX, childTailY, rotationAngle);
-          skeletonVertices.value[childIndex * 4] = rotatedHead.x;
-          skeletonVertices.value[childIndex * 4 + 1] = rotatedHead.y;
-          skeletonVertices.value[childIndex * 4 + 2] = rotatedTail.x;
-          skeletonVertices.value[childIndex * 4 + 3] = rotatedTail.y;
-        }
-
-        this.applyTransformToChildren(childIndex, deltaX, deltaY, rotationAngle, pivotX, pivotY);
-      });
-    }
-  }
-
- 
-
-  
-
-  rotatePoint(cx, cy, x, y, angle) {
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    const dx = x - cx;
-    const dy = y - cy;
-    const rx = dx * cos - dy * sin;
-    const ry = dx * sin + dy * cos;
-    return { x: rx + cx, y: ry + cy };
-  }
-
-  assignVerticesToBones() {
-    const vertices = skeletonVertices.value;
-    allBones.value = [];
-
-    for (let i = 0; i < vertices.length; i += 4) {
-      if (i + 3 >= vertices.length) break;
-      const bone = {
-        head: { x: vertices[i], y: vertices[i + 1] },
-        tail: { x: vertices[i + 2], y: vertices[i + 3] }
-      };
-      allBones.value.push(bone);
-    }
-    //console.log(" hi all bones:", JSON.stringify(allBones.value));
-  }
-
-  detectExistingBoneClick(xNDC, yNDC) {
-    for (let i = 0; i < skeletonVertices.value.length; i += 4) {
-      const headX = skeletonVertices.value[i];
-      const headY = skeletonVertices.value[i + 1];
-      const tailX = skeletonVertices.value[i + 2];
-      const tailY = skeletonVertices.value[i + 3];
-
-      const distToHead = this.calculateDistance(xNDC, yNDC, headX, headY);
-      const distToTail = this.calculateDistance(xNDC, yNDC, tailX, tailY);
-
-      if (distToHead < 0.1) {
-        return { boneIndex: i / 4, end: 'head' };
-      } else if (distToTail < 0.1) {
-        return { boneIndex: i / 4, end: 'tail' };
-      }
-    }
-    return null;
-  }
-
-  // 完成骨骼創建並檢查有效性
-  finalizeBoneCreation(newBoneIndex) {
-    const headX = skeletonVertices.value[newBoneIndex * 4];
-    const headY = skeletonVertices.value[newBoneIndex * 4 + 1];
-    const tailX = skeletonVertices.value[newBoneIndex * 4 + 2];
-    const tailY = skeletonVertices.value[newBoneIndex * 4 + 3];
-    const distance = Math.sqrt((tailX - headX) ** 2 + (tailY - headY) ** 2);
-
-    if (distance < minBoneLength) {
-      this.parentBoneIndex = boneParents.value[this.parentBoneIndex];
-      skeletonVertices.value.splice(newBoneIndex * 4, 4);
-      boneParents.value.pop();
-      this.selectedBone.value = { index: -1 };
-    } else {
-      const parentIndex = boneParents.value[newBoneIndex];
-      if (parentIndex !== -1) {
-        if (!boneChildren.value[parentIndex]) boneChildren.value[parentIndex] = [];
-        boneChildren.value[parentIndex].push(newBoneIndex);
-      }
-      lineIndex++;
-      const newBoneStart = newBoneIndex * 4;
-      originalSkeletonVertices.value.push(
-        skeletonVertices.value[newBoneStart],
-        skeletonVertices.value[newBoneStart + 1],
-        skeletonVertices.value[newBoneStart + 2],
-        skeletonVertices.value[newBoneStart + 3]
-      );
-      this.glsInstance.computeVertexInfluences();
-    }
-  }
-  */
   calculateDistance(x1, y1, x2, y2) {
     return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
   }
@@ -495,71 +322,7 @@ export default class Bones {
     mousemove_y = null;
 
   }
-  /*
-    // 提取檢測骨骼點擊的邏輯
-    detectBoneClick(xNDC, yNDC) {
-      let minDistToSegment = Infinity;
-      let selectedBoneIndex = -1;
-      let boneEnd = null;
-  
-      for (let i = 0; i < skeletonVertices.value.length; i += 4) {
-        const headX = skeletonVertices.value[i];
-        const headY = skeletonVertices.value[i + 1];
-        const tailX = skeletonVertices.value[i + 2];
-        const tailY = skeletonVertices.value[i + 3];
-  
-        let dx = headX - xNDC;
-        let dy = headY - yNDC;
-        let dist = dx * dx + dy * dy;
-        if (dist < 0.001) {
-          selectedBoneIndex = i / 4;
-          boneEnd = 'head';
-          break;
-        }
-  
-        dx = tailX - xNDC;
-        dy = tailY - yNDC;
-        dist = dx * dx + dy * dy;
-        if (dist < 0.001) {
-          selectedBoneIndex = i / 4;
-          boneEnd = 'tail';
-          break;
-        }
-  
-        const distToSegment = this.glsInstance.distanceFromPointToSegment(xNDC, yNDC, headX, headY, tailX, tailY);
-        if (distToSegment < 0.1 && distToSegment < minDistToSegment) {
-          minDistToSegment = distToSegment;
-          selectedBoneIndex = i / 4;
-          boneEnd = 'middle';
-        }
-      }
-  
-      return { selectedBoneIndex, boneEnd };
-    }
-  
-    // 提取平移骨骼的邏輯
-    translateBone(boneIndex, deltaX, deltaY) {
-      skeletonVertices.value[boneIndex * 4] += deltaX;
-      skeletonVertices.value[boneIndex * 4 + 1] += deltaY;
-      skeletonVertices.value[boneIndex * 4 + 2] += deltaX;
-      skeletonVertices.value[boneIndex * 4 + 3] += deltaY;
-      this.applyTransformToChildren(boneIndex, deltaX, deltaY, 0, 0, 0);
-    }
-  
-    // 提取旋轉骨骼的邏輯
-    rotateBone(boneIndex, rotationAngle, pivotX, pivotY) {
-      const tailX = skeletonVertices.value[boneIndex * 4 + 2];
-      const tailY = skeletonVertices.value[boneIndex * 4 + 3];
-      const rotatedTail = this.rotatePoint(pivotX, pivotY, tailX, tailY, rotationAngle);
-      skeletonVertices.value[boneIndex * 4 + 2] = rotatedTail.x;
-      skeletonVertices.value[boneIndex * 4 + 3] = rotatedTail.y;
-      this.applyTransformToChildren(boneIndex, 0, 0, rotationAngle, pivotX, pivotY);
-    }
-  
-  
-    // a function to getting a cloest bone as hover bone:
-  
-  */
+ 
   GetCloestBoneAsHoverBone(xNDC, yNDC, isCreatMode = true) {
     const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC, isCreatMode);
 
@@ -700,20 +463,6 @@ export default class Bones {
 
     return getBone;
   }
-  handleBoneAnimateMouseDown(xNDC, yNDC) {
-    const { selectedBoneIndex, boneEnd } = this.detectBoneClick(xNDC, yNDC, false);
-    if (selectedBoneIndex >= 0) {
-      this.selectedBone.value = { index: selectedBoneIndex };
-      boneEndBeingDragged.value = boneEnd;
-      if (originalSkeletonVertices.value.length === 0) {
-        originalSkeletonVertices.value = [...skeletonVertices.value];
-      }
-    } else {
-      this.selectedBone.value = { index: -1 };
-      boneEndBeingDragged.value = null;
-    }
-  }
-
   handleMeshBoneAnimateMouseMove(xNDC, yNDC) {
     const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC, false);
 
@@ -722,31 +471,93 @@ export default class Bones {
     return getBone;
   }
 
-  // 修改後的 handleBoneAnimateMouseMove
-  handleBoneAnimateMouseMove(prevX, prevY, currX, currY, buttons) {
-    if (this.selectedBone.value.index >= 0 && (boneEndBeingDragged.value === 'middle' || boneEndBeingDragged.value === 'tail')) {
-      const boneIndex = this.selectedBone.value.index;
-      if (buttons === 2) { // Right mouse button for translation
-        const deltaX = currX - prevX;
-        const deltaY = currY - prevY;
-        this.translateBone(boneIndex, deltaX, deltaY);
-      } else if (buttons === 1) { // Left mouse button for rotation
-        const headX = skeletonVertices.value[boneIndex * 4];
-        const headY = skeletonVertices.value[boneIndex * 4 + 1];
-        const prevAngle = Math.atan2(prevY - headY, prevX - headX);
-        const currentAngle = Math.atan2(currY - headY, currX - headX);
-        const rotationAngle = currentAngle - prevAngle;
-        this.rotateBone(boneIndex, rotationAngle, headX, headY);
+
+  updatePoseMesh(gl)
+  {
+    console.log(" update pose mesh ... ");
+    //consider bone's pose and vertex group's weight to update mesh vertices
+
+    //1.get all layers
+    const layers = this.glsInstance.layers;
+    //2.get all bones
+    const bones = meshSkeleton.bones;
+    //3. get all vertices and caculate total weight of bone for each vertex from vertex group
+    //layer has vertex group which has bone index and weight
+    for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
+      const layer = layers[layerIndex];
+      const vertices = layer.vertices.value;
+      const vertexGroups = layer.vertexGroup.value; // array of {boneIndex, weight} for each vertex
+      if (!vertexGroups || vertexGroups.length === 0) continue;
+      const newVertices = new Float32Array(vertices.length);
+
+      for (let i = 0; i < vertices.length; i += 4) {
+        const vx = vertices[i];     // x
+        const vy = vertices[i + 1]; // y
+        const vz = vertices[i + 2]; // z
+        const vw = vertices[i + 3]; // w
+        const vertexIndex = i / 4;
+        const groups = vertexGroups[vertexIndex]; // array of {boneIndex, weight}
+        if (!groups || groups.length === 0) {
+          newVertices[i] = vx;
+          newVertices[i + 1] = vy;
+          newVertices[i + 2] = vz;
+          newVertices[i + 3] = vw;
+          continue;
+        }
+        let newX = 0;
+        let newY = 0;
+        let totalWeight = 0;
+        for (let j = 0; j < groups.length; j++) {
+          const { boneIndex, weight } = groups[j];
+          const bone = bones.find(b => b.id === boneIndex);
+          if (bone) {
+
+            const head = bone.getGlobalHead();
+            const tail = bone.getGlobalTail();
+            const angle = bone.globalRotation;
+            const length = bone.length; 
+            // calculate the new position of the vertex based on bone's head, tail, angle and length
+            const projectedLength = ((vx - head.x) * Math.cos(angle) + (vy - head.y) * Math.sin(angle));
+            const clampedLength = Math.max(0, Math.min(length, projectedLength));
+            const boneX = head.x + clampedLength * Math.cos(angle);
+            const boneY = head.y + clampedLength * Math.sin(angle);
+            newX += boneX * weight;
+            newY += boneY * weight;
+            totalWeight += weight;
+          }
+        }
+        if (totalWeight > 0) {
+          //newX /= totalWeight;
+          //newY /= totalWeight;
+          newX = 1;
+          newY =1;
+          newVertices[i] = newX;
+
+          newVertices[i + 1] = newY;
+          newVertices[i + 2] = vz;
+          newVertices[i + 3] = vw;
+        }
+        else {
+          newVertices[i] = vx;
+          newVertices[i + 1] = vy;
+          newVertices[i + 2] = vz;
+          newVertices[i + 3] = vw;
+        }
       }
-      skeletonVerticesLast.value = [...skeletonVertices.value];
-      this.glsInstance.updateMeshForSkeletonPose();
+      //layer.poseVertices.value = newVertices;
+      layer.vertices.value = newVertices;
+
+      //bind to webgl buffer
+      console.log(" update layer ", layerIndex, " with new vertices: ", newVertices[0]);
+      gl.bindBuffer(gl.ARRAY_BUFFER, glsInstance.layers[layerIndex].vbo);
+       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(newVertices), gl.STATIC_DRAW);
+
     }
+
+
+    
   }
 
-  // handleBoneAnimateMouseUp 保持不變
-  handleBoneAnimateMouseUp() {
-    boneEndBeingDragged.value = null;
-  }
 }
 
 // ✅ 匯出
@@ -756,8 +567,6 @@ export {
   originalSkeletonVertices,
   boneParents,
   boneChildren,
-  vertexInfluences,
-  vertexInfluences2,
   isEditingExistingBone,
   selectedBoneForEditing,
   editingBoneEnd,
