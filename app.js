@@ -699,7 +699,7 @@ const app = Vue.createApp({
         // bonesInstance.restoreSkeletonVerticesFromLast();
       }
       else if (tool === 'bone-create') {
-       // glsInstance.resetMeshToOriginal();
+        // glsInstance.resetMeshToOriginal();
         // bonesInstance.resetSkeletonToOriginal();
       }
       else if (tool === 'bone-clear') {
@@ -840,35 +840,11 @@ const app = Vue.createApp({
 
         if (activeTool.value === 'grab-point' && isDragging) {
 
-          const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
-
-          if (!useMultiSelect && localSelectedVertex !== -1) {
-            // ===== 單點移動 =====
-            const index = localSelectedVertex * 4;
-            vertices[index] = xNDC;
-            vertices[index + 1] = yNDC;
-
-          } else if (useMultiSelect && selectedVertices.value.length > 0) {
-            console.log(" in multi select move ... ");
-            // ===== 群組移動 =====
-            const dx = xNDC - dragStartX;
-            const dy = yNDC - dragStartY;
-
-            for (let idx of selectedVertices.value) {
-              const index = idx * 4;
-              vertices[index] += dx;
-              vertices[index + 1] += dy;
-            }
-
-            dragStartX = xNDC;
-            dragStartY = yNDC;
-          }
-
-          // 更新 VBO
-          gl.bindBuffer(gl.ARRAY_BUFFER, glsInstance.layers[currentChosedLayer.value].vbo);
-          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+          bonesInstance.moveSelectedVertex(currentChosedLayer,useMultiSelect,localSelectedVertex,gl, xNDC, yNDC, dragStartX, dragStartY);
+          dragStartX = xNDC;
+          dragStartY = yNDC;
+          
           forceUpdate();
-
 
         } else if (activeTool.value === 'select-points') {
           if (isDragging)
@@ -1762,7 +1738,7 @@ const app = Vue.createApp({
         gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
       }
 
-    
+
 
       // 解绑所有缓冲区
       gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);

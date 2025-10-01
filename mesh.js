@@ -468,7 +468,7 @@ export class Bone {
     const dx = x - head.x;
     const dy = y - head.y;
     this.poseLength = Math.sqrt(dx * dx + dy * dy); 
-    this.globalRotation = Math.atan2(dy, dx);
+    //this.globalRotation = Math.atan2(dy, dx);
 
     if (this.parent) {
       const parentTransform = this.parent.getGlobalPoseTransform();
@@ -513,11 +513,11 @@ export class Bone {
 
     if (this.parent) {
       const parentTransform = this.parent.getGlobalTransform();
-      this.localRotation = Math.atan2(dy, dx) - parentTransform.rotation;
-      this.globalRotation = Math.atan2(dy, dx);
+     // this.localRotation = Math.atan2(dy, dx) - parentTransform.rotation;
+     // this.globalRotation = Math.atan2(dy, dx);
     } else {
-      this.localRotation = Math.atan2(dy, dx);
-      this.globalRotation = this.localRotation;
+      //this.localRotation = Math.atan2(dy, dx);
+    //  this.globalRotation = this.localRotation;
     }
 
     // 標記需要更新
@@ -533,7 +533,7 @@ export class Bone {
       const tailDx = tail.x - newHead.x;
       const tailDy = tail.y - newHead.y;
       childBone.length = Math.sqrt(tailDx * tailDx + tailDy * tailDy);
-      childBone.globalRotation = Math.atan2(tailDy, tailDx);
+      //childBone.globalRotation = Math.atan2(tailDy, tailDx);
 
       // 更新本地旋轉角度
       if (childBone.parent) {

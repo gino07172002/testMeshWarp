@@ -132,7 +132,7 @@ export default class Bones {
   saveBones() {
     console.log(" show timeline first :", JSON.stringify(this.vueInstance.proxy.timeline.keyframes));
     const boneData = {
-     
+
     };
     localStorage.setItem('boneData', JSON.stringify(boneData));
   }
@@ -141,7 +141,7 @@ export default class Bones {
   readBones() {
     const boneDataStr = localStorage.getItem('boneData');
     if (boneDataStr) {
-      
+
     }
   }
 
@@ -322,7 +322,7 @@ export default class Bones {
     mousemove_y = null;
 
   }
- 
+
   GetCloestBoneAsHoverBone(xNDC, yNDC, isCreatMode = true) {
     const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC, isCreatMode);
 
@@ -405,51 +405,51 @@ export default class Bones {
     mousemove_y = yNDC;
   }
   handleSelectPointsMouseUp(xNDC, yNDC, layerIndex, isShiftPressed = false, isCtrlPressed = false) {
-  console.log(" handleSelectPointsMouseUp at : ", xNDC, ' , ', yNDC);
+    console.log(" handleSelectPointsMouseUp at : ", xNDC, ' , ', yNDC);
 
-  // 框選範圍
-  const minX = Math.min(mousedown_x, xNDC);
-  const maxX = Math.max(mousedown_x, xNDC);
-  const minY = Math.min(mousedown_y, yNDC);
-  const maxY = Math.max(mousedown_y, yNDC);
+    // 框選範圍
+    const minX = Math.min(mousedown_x, xNDC);
+    const maxX = Math.max(mousedown_x, xNDC);
+    const minY = Math.min(mousedown_y, yNDC);
+    const maxY = Math.max(mousedown_y, yNDC);
 
-  const vertices = this.glsInstance.layers[layerIndex].vertices.value;
-  console.log(" vertices length: ", vertices.length);
+    const vertices = this.glsInstance.layers[layerIndex].vertices.value;
+    console.log(" vertices length: ", vertices.length);
 
-  // 找出框到的點
-  const newlySelected = [];
-  for (let i = 0; i < vertices.length; i += 4) {
-    const vx = vertices[i];     // x
-    const vy = vertices[i + 1]; // y
+    // 找出框到的點
+    const newlySelected = [];
+    for (let i = 0; i < vertices.length; i += 4) {
+      const vx = vertices[i];     // x
+      const vy = vertices[i + 1]; // y
 
-    if (vx >= minX && vx <= maxX && vy >= minY && vy <= maxY) {
-      newlySelected.push(i / 4); // push vertex index
+      if (vx >= minX && vx <= maxX && vy >= minY && vy <= maxY) {
+        newlySelected.push(i / 4); // push vertex index
+      }
     }
+
+    if (isCtrlPressed) {
+      // Ctrl → 從選取中移除
+      selectedVertices.value = selectedVertices.value.filter(idx => !newlySelected.includes(idx));
+    } else if (isShiftPressed) {
+      // Shift → 加入新的選取 (避免重複)
+      const set = new Set(selectedVertices.value);
+      for (let idx of newlySelected) set.add(idx);
+      selectedVertices.value = Array.from(set);
+    } else {
+      // 沒有修飾鍵 → 重新選取
+      selectedVertices.value = newlySelected;
+    }
+
+    console.log(" selected vertices: ", selectedVertices.value);
+
+    // 清掉滑鼠狀態
+    mousedown_x = null;
+    mousedown_y = null;
+    mousemove_x = null;
+    mousemove_y = null;
+
+    console.log(" select points mouse up at : ", xNDC, ' , ', yNDC);
   }
-
-  if (isCtrlPressed) {
-    // Ctrl → 從選取中移除
-    selectedVertices.value = selectedVertices.value.filter(idx => !newlySelected.includes(idx));
-  } else if (isShiftPressed) {
-    // Shift → 加入新的選取 (避免重複)
-    const set = new Set(selectedVertices.value);
-    for (let idx of newlySelected) set.add(idx);
-    selectedVertices.value = Array.from(set);
-  } else {
-    // 沒有修飾鍵 → 重新選取
-    selectedVertices.value = newlySelected;
-  }
-
-  console.log(" selected vertices: ", selectedVertices.value);
-
-  // 清掉滑鼠狀態
-  mousedown_x = null;
-  mousedown_y = null;
-  mousemove_x = null;
-  mousemove_y = null;
-
-  console.log(" select points mouse up at : ", xNDC, ' , ', yNDC);
-}
 
 
 
@@ -472,9 +472,39 @@ export default class Bones {
   }
 
 
-  updatePoseMesh(gl)
-  {
+  moveSelectedVertex(currentChosedLayer, useMultiSelect, localSelectedVertex, gl, xNDC, yNDC, dragStartX, dragStartY) {
+    const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
+
+    if (!useMultiSelect && localSelectedVertex !== -1) {
+      // ===== 單點移動 =====
+      const index = localSelectedVertex * 4;
+      vertices[index] = xNDC;
+      vertices[index + 1] = yNDC;
+
+    } else if (useMultiSelect && selectedVertices.value.length > 0) {
+      console.log(" in multi select move ... ");
+      // ===== 群組移動 =====
+      const dx = xNDC - dragStartX;
+      const dy = yNDC - dragStartY;
+
+      for (let idx of selectedVertices.value) {
+        const index = idx * 4;
+        vertices[index] += dx;
+        vertices[index + 1] += dy;
+      }
+
+
+    }
+
+    // 更新 VBO
+    gl.bindBuffer(gl.ARRAY_BUFFER, glsInstance.layers[currentChosedLayer.value].vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+
+
+  }
+  updatePoseMesh(gl) {
     console.log(" update pose mesh ... ");
+    /*
     //consider bone's pose and vertex group's weight to update mesh vertices
 
     //1.get all layers
@@ -497,6 +527,7 @@ export default class Bones {
         const vw = vertices[i + 3]; // w
         const vertexIndex = i / 4;
         const groups = vertexGroups[vertexIndex]; // array of {boneIndex, weight}
+
         if (!groups || groups.length === 0) {
           newVertices[i] = vx;
           newVertices[i + 1] = vy;
@@ -504,6 +535,8 @@ export default class Bones {
           newVertices[i + 3] = vw;
           continue;
         }
+        console.log(" vertex ", vertexIndex, " groups: ", groups);
+
         let newX = 0;
         let newY = 0;
         let totalWeight = 0;
@@ -515,7 +548,7 @@ export default class Bones {
             const head = bone.getGlobalHead();
             const tail = bone.getGlobalTail();
             const angle = bone.globalRotation;
-            const length = bone.length; 
+            const length = bone.length;
             // calculate the new position of the vertex based on bone's head, tail, angle and length
             const projectedLength = ((vx - head.x) * Math.cos(angle) + (vy - head.y) * Math.sin(angle));
             const clampedLength = Math.max(0, Math.min(length, projectedLength));
@@ -527,10 +560,10 @@ export default class Bones {
           }
         }
         if (totalWeight > 0) {
-          //newX /= totalWeight;
-          //newY /= totalWeight;
+          newX /= totalWeight;
+          newY /= totalWeight;
           newX = 1;
-          newY =1;
+          newY = 1;
           newVertices[i] = newX;
 
           newVertices[i + 1] = newY;
@@ -549,13 +582,93 @@ export default class Bones {
 
       //bind to webgl buffer
       console.log(" update layer ", layerIndex, " with new vertices: ", newVertices[0]);
-      gl.bindBuffer(gl.ARRAY_BUFFER, glsInstance.layers[layerIndex].vbo);
-       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(newVertices), gl.STATIC_DRAW);
+      // gl.bindBuffer(gl.ARRAY_BUFFER, glsInstance.layers[layerIndex].vbo);
+      //  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(newVertices), gl.STATIC_DRAW);
+*/
 
+    //simple test : just move all vertices  with root bone's head position
+  const layers = this.glsInstance.layers;
+const rootBones = meshSkeleton.rootBones;
+if (rootBones.length === 0) return;
+
+const rootBone = rootBones[0];
+const poseTransform = rootBone.getGlobalPoseTransform();
+
+const head = poseTransform.head;              
+const originalHead = rootBone.getGlobalHead(); 
+
+// 計算旋轉差值
+const rotationDelta = poseTransform.rotation - rootBone.globalRotation;
+const cosR = Math.cos(rotationDelta);
+const sinR = Math.sin(rotationDelta);
+
+// 計算縮放比例 (只影響骨骼軸向正方向)
+const scale = rootBone.length > 1e-6
+  ? poseTransform.length / rootBone.length
+  : 1.0;
+
+// 原始骨骼方向 (用 globalRotation)
+const dirX = Math.cos(rootBone.globalRotation);
+const dirY = Math.sin(rootBone.globalRotation);
+
+console.log("root bone head:", head, "rotationDelta:", rotationDelta, "scale:", scale);
+
+for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
+  const layer = layers[layerIndex];
+  const vertices = layer.vertices.value;
+  if (!vertices || vertices.length === 0) continue;
+
+  const newVertices = new Float32Array(vertices.length);
+
+  for (let i = 0; i < vertices.length; i += 4) {
+    const vx = vertices[i];     
+    const vy = vertices[i + 1]; 
+    const vz = vertices[i + 2]; 
+    const vw = vertices[i + 3]; 
+
+    // step1: local (以原始 head 為中心)
+    const lx = vx - originalHead.x;
+    const ly = vy - originalHead.y;
+
+    // step2: 投影到骨骼軸向
+    const along = lx * dirX + ly * dirY;
+
+    // step3: 法線方向 (垂直於骨骼)
+    const perpX = lx - along * dirX;
+    const perpY = ly - along * dirY;
+
+    let sx, sy;
+
+    if (along >= 0) {
+      // head → tail 方向，做縮放
+      const scaledAlong = along * scale;
+      sx = scaledAlong * dirX + perpX;
+      sy = scaledAlong * dirY + perpY;
+    } else {
+      // head → 反方向，不縮放
+      sx = along * dirX + perpX;
+      sy = along * dirY + perpY;
     }
 
+    // step4: 再做旋轉差值 (poseRotation - globalRotation)
+    const rx = sx * cosR - sy * sinR;
+    const ry = sx * sinR + sy * cosR;
 
-    
+    // step5: 移回 pose head
+    newVertices[i]     = rx + head.x;
+    newVertices[i + 1] = ry + head.y;
+    newVertices[i + 2] = vz;
+    newVertices[i + 3] = vw;
+  }
+
+  layer.poseVertices.value = newVertices;
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, newVertices, gl.STATIC_DRAW);
+}
+
+
+
   }
 
 }
