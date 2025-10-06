@@ -50,13 +50,12 @@
           <button class="tool-btn" :class="{ active: activeTool === 'bone-animate' }"
             @click="selectTool('bone-animate')" @contextmenu.prevent>bone-animate</button>
             <button class="tool-btn" :class="{ active: activeTool === 'bind-bones' }"
-            @click="bindingBoneWeight" @contextmenu.prevent>bind bones</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-clear' }" @click="selectTool('bone-clear')"
-            @contextmenu.prevent>bone-clear</button>
+            @click="bindingBoneWeight(1.0)" @contextmenu.prevent>auto bind bones</button>
+         
           <button class="tool-btn" :class="{ active: activeTool === 'bone-save' }" @click="selectTool('bone-save')"
             @contextmenu.prevent>bone-save</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-read' }" @click="selectTool('bone-read')"
-            @contextmenu.prevent>bone-read</button>
+          <button class="tool-btn" :class="{ active: activeTool === 'bone-load' }" @click="selectTool('bone-load')"
+            @contextmenu.prevent>bone-load</button>
           <button class="tool-btn" :class="{ active: activeTool === 'reset-pose' }" @click="resetPose()"
             @contextmenu.prevent>reset pose</button>
         </div>

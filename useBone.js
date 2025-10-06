@@ -1,4 +1,4 @@
-const { ref, reactive } = Vue;
+const { ref, reactive, toRaw } = Vue;
 import glsInstance from './useWebGL.js';
 import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick } from './mesh.js';
 
@@ -108,7 +108,7 @@ export default class Bones {
     //this.calculateAngle = this.calculateAngle.bind(this);
     //this.rotatePoint = this.rotatePoint.bind(this);
     // this.checkKeyframe = this.checkKeyframe.bind(this);
-    this.readBones = this.readBones.bind(this);
+    this.loadBones = this.loadBones.bind(this);
     this.saveBones = this.saveBones.bind(this);
     // this.clearBones = this.clearBones.bind(this);
     //this.detectBoneClick = this.detectBoneClick.bind(this);
@@ -129,21 +129,192 @@ export default class Bones {
   }
 
   // 💾 儲存骨架
-  saveBones() {
-    console.log(" show timeline first :", JSON.stringify(this.vueInstance.proxy.timeline.keyframes));
-    const boneData = {
+  // 💾 儲存骨架
+  serializeBone(bone) {
+    if (!bone) return null;
+    const children = Array.isArray(bone.children) ? bone.children : [];
 
+    return {
+      id: bone.id,
+      name: bone.name,
+      length: bone.length,
+      isConnected: bone.isConnected,
+      localHead: bone.localHead,
+      localRotation: bone.localRotation,
+      globalHead: bone.globalHead,
+      globalRotation: bone.globalRotation,
+      poseHead: bone.poseHead,
+      poseRotation: bone.poseRotation,
+      poseLength: bone.poseLength,
+      children: children
+        .map(child => this.serializeBone(child))
+        .filter(c => c !== null)
     };
-    localStorage.setItem('boneData', JSON.stringify(boneData));
   }
 
-  // 📥 載入骨架
-  readBones() {
-    const boneDataStr = localStorage.getItem('boneData');
-    if (boneDataStr) {
+  // 🔁 兩階段反序列化
+  deserializeBone(data, parent = null) {
+    // === 第一階段：建立骨頭 ===
+    const bone = new MeshBone(
+      data.name,
+      data.globalHead.x,
+      data.globalHead.y,
+      data.length,
+      data.globalRotation,
+      parent, // 直接設定 parent
+      data.isConnected
+    );
+    bone.id = data.id;
+    bone.globalHead = data.globalHead;
+    bone.globalRotation = data.globalRotation;
+    bone.poseHead = data.poseHead;
+    bone.poseRotation = data.poseRotation;
+    bone.poseLength = data.poseLength;
 
+    // === 第二階段：遞迴建立子骨頭 ===
+    bone.children = Array.isArray(data.children)
+      ? data.children.map(childData => this.deserializeBone(childData, bone))
+      : [];
+
+    return bone;
+  }
+
+  // 💾 儲存所有骨架
+  saveBones() {
+    try {
+      if (!meshSkeleton?.bones || meshSkeleton.bones.length === 0) {
+        console.warn('⚠️ No bones found in meshSkeleton.');
+        return;
+      }
+
+      // 只序列化 root bones
+      const serializedBones = meshSkeleton.bones
+        .filter(bone => !bone.parent)
+        .map(bone => this.serializeBone(bone));
+
+      const deepCopy = (obj) => {
+        if (obj === undefined || obj === null) return obj;
+        try {
+          return JSON.parse(JSON.stringify(toRaw(obj)));
+        } catch (e) {
+          console.warn("deepCopy failed on:", obj, e);
+          return null;
+        }
+      };
+
+      const rawLayers = toRaw(glsInstance.layers);
+
+      /*
+      rawLayers.forEach(layer => {
+        console.log('layer test 1',toRaw(layer.name));
+        console.log('layer test 2',toRaw(layer.name.value));
+        console.log(`Layer: ${layer.name}`);
+         console.log(`Layer omg: ${layer.name.value}`);
+        console.log('Vertex Group:', toRaw(layer.vertexGroup.value));
+        const vertexGroupStr = JSON.stringify(toRaw(layer.vertexGroup.value));
+        console.log('Vertex Group Stringified:', vertexGroupStr);
+      });
+      
+     
+      console.log("checking law value");
+      */
+
+
+      const vertexGroupObjects = rawLayers.map(layer => ({
+        name: layer.name.value,
+        vertexGroup: toRaw(layer.vertexGroup.value)
+      })
+      );
+      console.log(" vertex group objects: ", JSON.stringify(vertexGroupObjects));
+
+      const allSaveData = {
+        skeletons: serializedBones,
+        selectedBoneId: this.selectedBone?.id || null,
+        skeletonIndices: this.skeletonIndices,
+        layers: vertexGroupObjects
+      };
+
+       console.log("checking all save data: ", JSON.stringify(allSaveData));
+      localStorage.setItem('allSaveData', JSON.stringify(allSaveData));
+      console.log('✅ Bones saved successfully');
+    } catch (err) {
+      console.error('❌ Error saving bones:', err);
     }
   }
+
+  // 🔁 載入所有骨架
+  loadBones() {
+    try {
+      const saved = localStorage.getItem('allSaveData');
+      if (!saved) {
+        console.warn('⚠️ No saved bones found in localStorage.');
+        return;
+      }
+
+      const parsed = JSON.parse(saved);
+
+      // 🦴 反序列化所有 root bones
+      const restoredRootBones = parsed.skeletons.map(data =>
+        this.deserializeBone(data, null)
+      );
+
+      // ✅ 一次展開所有 bones
+      const allBones = restoredRootBones.flatMap(root => this.flattenBones(root));
+
+      // ✅ 重設 meshSkeleton 的 bones
+      meshSkeleton.bones.splice(0, meshSkeleton.bones.length, ...allBones);
+      meshSkeleton.updateRootBones();
+
+      // ✅ 重設 skeletons 陣列
+      skeletons.splice(0, skeletons.length, meshSkeleton);
+
+      // ✅ 還原選中與索引
+      this.selectedBone = this.findBoneByIdInSkeletons(allBones, parsed.selectedBoneId);
+      this.skeletonIndices = parsed.skeletonIndices;
+      console.log('glsInstance:', glsInstance);
+      console.log('glsInstance.layers:', glsInstance.layers);
+      console.log('glsInstance.layers.value:', glsInstance.layers?.value);
+      console.log('parsed:', parsed);
+      console.log(" hello vertex group objects: ", parsed.layers);
+      glsInstance.layers.forEach((layer, i) => {
+       layer.vertexGroup.value = parsed.layers[i]?.vertexGroup
+      })
+
+
+     // console.log("hi layer vertex group: ", JSON.stringify(this.glsInstance.layers));
+      console.log('✅ Bones loaded successfully');
+    } catch (err) {
+      console.error('❌ Error loading bones:', err);
+    }
+  }
+
+  // ✅ 展開骨架樹（不重複）
+  flattenBones(bone) {
+    return [bone, ...(bone.children?.flatMap(child => this.flattenBones(child)) || [])];
+  }
+
+
+  // 🧭 遞迴搜尋 bone（跨多個 skeleton）
+  findBoneById(bone, id) {
+    if (!bone || !id) return null;
+    if (bone.id === id) return bone;
+    for (const child of bone.children) {
+      const found = this.findBoneById(child, id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  // 🔍 在整個 skeletons 陣列裡找某個 bone
+  findBoneByIdInSkeletons(skeletons, id) {
+    if (!id) return null;
+    for (const root of skeletons) {
+      const found = this.findBoneById(root, id);
+      if (found) return found;
+    }
+    return null;
+  }
+
 
   calculateDistance(x1, y1, x2, y2) {
     return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
@@ -587,85 +758,128 @@ export default class Bones {
 */
 
     //simple test : just move all vertices  with root bone's head position
-  const layers = this.glsInstance.layers;
-const rootBones = meshSkeleton.rootBones;
-if (rootBones.length === 0) return;
+    const layers = this.glsInstance.layers;
+    if (!meshSkeleton || meshSkeleton.rootBones.length === 0) return;
 
-const rootBone = rootBones[0];
-const poseTransform = rootBone.getGlobalPoseTransform();
-
-const head = poseTransform.head;              
-const originalHead = rootBone.getGlobalHead(); 
-
-// 計算旋轉差值
-const rotationDelta = poseTransform.rotation - rootBone.globalRotation;
-const cosR = Math.cos(rotationDelta);
-const sinR = Math.sin(rotationDelta);
-
-// 計算縮放比例 (只影響骨骼軸向正方向)
-const scale = rootBone.length > 1e-6
-  ? poseTransform.length / rootBone.length
-  : 1.0;
-
-// 原始骨骼方向 (用 globalRotation)
-const dirX = Math.cos(rootBone.globalRotation);
-const dirY = Math.sin(rootBone.globalRotation);
-
-console.log("root bone head:", head, "rotationDelta:", rotationDelta, "scale:", scale);
-
-for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
-  const layer = layers[layerIndex];
-  const vertices = layer.vertices.value;
-  if (!vertices || vertices.length === 0) continue;
-
-  const newVertices = new Float32Array(vertices.length);
-
-  for (let i = 0; i < vertices.length; i += 4) {
-    const vx = vertices[i];     
-    const vy = vertices[i + 1]; 
-    const vz = vertices[i + 2]; 
-    const vw = vertices[i + 3]; 
-
-    // step1: local (以原始 head 為中心)
-    const lx = vx - originalHead.x;
-    const ly = vy - originalHead.y;
-
-    // step2: 投影到骨骼軸向
-    const along = lx * dirX + ly * dirY;
-
-    // step3: 法線方向 (垂直於骨骼)
-    const perpX = lx - along * dirX;
-    const perpY = ly - along * dirY;
-
-    let sx, sy;
-
-    if (along >= 0) {
-      // head → tail 方向，做縮放
-      const scaledAlong = along * scale;
-      sx = scaledAlong * dirX + perpX;
-      sy = scaledAlong * dirY + perpY;
-    } else {
-      // head → 反方向，不縮放
-      sx = along * dirX + perpX;
-      sy = along * dirY + perpY;
+    // === 預先建立一個骨頭名稱對應表 ===
+    const boneMap = {};
+    function collectBones(bone) {
+      boneMap[bone.name] = bone;
+      if (bone.children) {
+        for (const child of bone.children) {
+          collectBones(child);
+        }
+      }
+    }
+    for (const rootBone of meshSkeleton.rootBones) {
+      collectBones(rootBone);
     }
 
-    // step4: 再做旋轉差值 (poseRotation - globalRotation)
-    const rx = sx * cosR - sy * sinR;
-    const ry = sx * sinR + sy * cosR;
+    // 處理單一 bone 對 vertex 的影響
+    function deformVertexByBone(vx, vy, vz, vw, bone, weight) {
+      const poseTransform = bone.getGlobalPoseTransform();
+      const head = poseTransform.head;
+      const originalHead = bone.getGlobalHead();
 
-    // step5: 移回 pose head
-    newVertices[i]     = rx + head.x;
-    newVertices[i + 1] = ry + head.y;
-    newVertices[i + 2] = vz;
-    newVertices[i + 3] = vw;
-  }
+      // 旋轉差值
+      const rotationDelta = poseTransform.rotation - bone.globalRotation;
+      const cosR = Math.cos(rotationDelta);
+      const sinR = Math.sin(rotationDelta);
 
-  layer.poseVertices.value = newVertices;
+      // 軸向縮放比例
+      const scale = bone.length > 1e-6
+        ? poseTransform.length / bone.length
+        : 1.0;
 
-  gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
-  gl.bufferData(gl.ARRAY_BUFFER, newVertices, gl.STATIC_DRAW);
-}
+      // 骨骼方向
+      const dirX = Math.cos(bone.globalRotation);
+      const dirY = Math.sin(bone.globalRotation);
+
+      // === 開始變形 ===
+      const lx = vx - originalHead.x;
+      const ly = vy - originalHead.y;
+
+      const along = lx * dirX + ly * dirY;
+      const perpX = lx - along * dirX;
+      const perpY = ly - along * dirY;
+
+      const sx = along * scale * dirX + perpX;
+      const sy = along * scale * dirY + perpY;
+
+      const rx = sx * cosR - sy * sinR;
+      const ry = sx * sinR + sy * cosR;
+
+      const px = rx + head.x;
+      const py = ry + head.y;
+
+      return {
+        x: px * weight,
+        y: py * weight,
+        z: vz * weight,
+        w: vw * weight
+      };
+    }
+
+    for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
+      const layer = layers[layerIndex];
+      const vertices = layer.vertices.value;
+      if (!vertices || vertices.length === 0) continue;
+
+      const vertexGroups = layer.vertexGroup.value; // [{name, vertices:[{id, weight},...]}]
+      const newVertices = new Float32Array(vertices.length);
+
+      // === 修正:先複製原始頂點數據 ===
+      newVertices.set(vertices);
+
+      // 如果沒有 vertex group 或為空,直接使用原始頂點
+      if (!vertexGroups || vertexGroups.length === 0) {
+        layer.poseVertices.value = newVertices;
+        gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+        gl.bufferData(gl.ARRAY_BUFFER, newVertices, gl.STATIC_DRAW);
+        continue;
+      }
+
+      // 用於追蹤哪些頂點已經被處理過
+      const processedVertices = new Set();
+
+      // 每個 group (bone) 負責更新有影響的 vertex
+      for (const group of vertexGroups) {
+        const bone = boneMap[group.name];
+        if (!bone || !group.vertices || group.vertices.length === 0) continue;
+
+        for (const v of group.vertices) {
+          const idx = v.id * 4; // 一個 vertex 佔4個slot
+
+          // 第一次處理這個頂點時,先清零(準備累加)
+          if (!processedVertices.has(v.id)) {
+            newVertices[idx] = 0;
+            newVertices[idx + 1] = 0;
+            newVertices[idx + 2] = 0;
+            newVertices[idx + 3] = 0;
+            processedVertices.add(v.id);
+          }
+
+          const vx = vertices[idx];
+          const vy = vertices[idx + 1];
+          const vz = vertices[idx + 2];
+          const vw = vertices[idx + 3];
+
+          const d = deformVertexByBone(vx, vy, vz, vw, bone, v.weight);
+
+          // 累加 (因為可能多個bone影響同一個vertex)
+          newVertices[idx] += d.x;
+          newVertices[idx + 1] += d.y;
+          newVertices[idx + 2] += d.z;
+          newVertices[idx + 3] += d.w;
+        }
+      }
+
+      layer.poseVertices.value = newVertices;
+      gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, newVertices, gl.STATIC_DRAW);
+    }
+
+
 
 
 

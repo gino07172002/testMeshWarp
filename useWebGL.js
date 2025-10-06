@@ -74,9 +74,9 @@ export function useImageLayer() {
   const indices = ref([]);                 // 三角形索引
   const linesIndices = ref([]);
   const vertexGroup = ref([
-    { name: "group1" },
-    { name: "group2" },
-    { name: "group3" }
+ //   { name: "group1" },
+//    { name: "group2" },
+ //   { name: "group3" }
   ]);
   function loadImage(url) {
     image.value = url;

@@ -85,7 +85,7 @@ export class Bone {
     if (!name || typeof name !== 'string') {
       throw new Error('Bone name must be a non-empty string');
     }
-     this.id = `${name}_${globalBoneId++}`;
+    this.id = `${name}_${globalBoneId++}`;
     this.name = name;
     this.children = []; // Initialize children array
     this.length = Math.max(0, length);
@@ -277,21 +277,21 @@ export class Bone {
       this.poseGlobalRotation = this.poseRotation;
       this.poseGlobalLength = this.poseLength;
     }
-    else  {
+    else {
       const parentPoseTransform = this.parent.getGlobalPoseTransform();
       // caculate this bone's poseGlobalHead from localHead and parent's poseGlobal
       //check poseHead console
-     
+
 
       const local = this._localToGlobal(this.poseHead.x, this.poseHead.y, parentPoseTransform);
       this.poseGlobalHead = { x: local.x, y: local.y };
       this.poseGlobalRotation = parentPoseTransform.rotation + this.poseRotation;
       this.poseGlobalLength = this.poseLength;
 
-     
+
     }
     //update all children too (maybe not needed here, because skeleton update will call this again)
-   // this.children.forEach(child => child.updatePoseGlobalTransform());
+    // this.children.forEach(child => child.updatePoseGlobalTransform());
 
   }
 
@@ -360,9 +360,9 @@ export class Bone {
   resetPose(recursive = true) {
     //console.log(" hi reset pose!");
     // 重置 pose 屬性到原始狀態
-    this.poseHead = { 
-      x: this.localHead.x, 
-      y: this.localHead.y 
+    this.poseHead = {
+      x: this.localHead.x,
+      y: this.localHead.y
     };
     this.poseRotation = this.localRotation;
     this.poseLength = this.length;
@@ -429,7 +429,7 @@ export class Bone {
         bone.setPoseGlobalHead(parentTail.x, parentTail.y);
       } else {
         // 如果不是連接的子骨骼，保持其原始全域位置
-      //  bone.setPoseGlobalHead(headPos.x, headPos.y);
+        //  bone.setPoseGlobalHead(headPos.x, headPos.y);
       }
 
       // 重新設定子骨骼的全域旋轉
@@ -442,7 +442,7 @@ export class Bone {
 
   //seting global head for animation pose use, tail and children's coordinates will move together
   setPoseGlobalHead(x, y) {
- 
+
     this.poseGlobalHead.x = x;
     this.poseGlobalHead.y = y;
 
@@ -456,41 +456,50 @@ export class Bone {
       this.poseHead.x = x;
       this.poseHead.y = y;
     }
-    
+
     this._markDirty();
   }
 
-  
+
 
   setPoseGlobalTail(x, y) {
-    // change global rotation and length based on new tail position
+    // 取得目前骨頭的 head 與原本長度
     const head = this.getGlobalPoseTransform().head;
+    const tail = this.getGlobalPoseTransform().tail;
+    const origLength = this.poseLength; // 保持原本長度
+
+    // 計算新的方向 (由 head 指向新 tail)
     const dx = x - head.x;
     const dy = y - head.y;
-    this.poseLength = Math.sqrt(dx * dx + dy * dy); 
-    //this.globalRotation = Math.atan2(dy, dx);
+    const newGlobalRot = Math.atan2(dy, dx);
 
+    // 更新 rotation，但不要改變長度
     if (this.parent) {
       const parentTransform = this.parent.getGlobalPoseTransform();
-      this.poseRotation = Math.atan2(dy, dx) - parentTransform.rotation;
-      this.poseGlobalRotation = Math.atan2(dy, dx);
+      this.poseRotation = newGlobalRot - parentTransform.rotation;
+      this.poseGlobalRotation = newGlobalRot;
     } else {
-      this.poseRotation = Math.atan2(dy, dx);
-      this.poseGlobalRotation = this.poseRotation;
+      this.poseRotation = newGlobalRot;
+      this.poseGlobalRotation = newGlobalRot;
     }
-    this.poseGlobalHead = { ...head }; // keep head same
-    
+
+    // 保持 head 不動、長度不變
+    this.poseLength = origLength;
+    this.poseGlobalHead = { ...head };
+
     this._markDirty();
 
-    //if children is connected, move them too
+    // 取得更新後的 global tail（用新的 rotation 計算）
+    const newTailX = head.x + Math.cos(this.poseGlobalRotation) * origLength;
+    const newTailY = head.y + Math.sin(this.poseGlobalRotation) * origLength;
+
+    // 讓子骨頭的 head 附著在新的 tail 上
     this.children.forEach(child => {
       if (child.isConnected) {
-        //set child's head to this bone's new tail position
-        child.setPoseGlobalHead(x, y);
+        child.setPoseGlobalHead(newTailX, newTailY);
         child._markDirty();
       }
     });
-
   }
 
   /**
@@ -513,11 +522,11 @@ export class Bone {
 
     if (this.parent) {
       const parentTransform = this.parent.getGlobalTransform();
-     // this.localRotation = Math.atan2(dy, dx) - parentTransform.rotation;
-     // this.globalRotation = Math.atan2(dy, dx);
+      // this.localRotation = Math.atan2(dy, dx) - parentTransform.rotation;
+      // this.globalRotation = Math.atan2(dy, dx);
     } else {
       //this.localRotation = Math.atan2(dy, dx);
-    //  this.globalRotation = this.localRotation;
+      //  this.globalRotation = this.localRotation;
     }
 
     // 標記需要更新
@@ -564,9 +573,9 @@ export class Bone {
     const dx = x - head.x;
     const dy = y - head.y;
     this.length = Math.sqrt(dx * dx + dy * dy);
-    
+
     this.setPoseGlobalTail(x, y); // also update pose tail and related infos
-      
+
 
     if (this.parent) {
       const parentTransform = this.parent.getGlobalTransform();
@@ -595,7 +604,7 @@ export class Bone {
       }
     });
 
-  
+
   }
 
   /**
@@ -780,27 +789,29 @@ export class Bone {
     this.rootBones = []; // 根骨骼列表
     this.autoBoneCounter = 1; // 自動命名計數器
   }
-
+ updateRootBones() {
+    this.rootBones = this.bones.filter(bone => !bone.parent);
+  }
   // 更新所有骨骼的全局變換
   updateGlobalTransforms() {
     // 使用已經存在的根骨骼列表
     const rootBones = this.rootBones.length > 0 ? this.rootBones : this.bones.filter(bone => !bone.parent);
-    
+
     // 遞迴更新每個骨骼的全局變換
     const updateBoneTransform = (bone) => {
       if (bone.parent) {
         // 有父骨骼的情況：計算全局變換
         const parentTransform = bone.parent.getGlobalTransform();
-        
+
         // 計算全局頭部位置
         const globalHead = bone._localToGlobal(
-          bone.localHead.x, 
-          bone.localHead.y, 
+          bone.localHead.x,
+          bone.localHead.y,
           parentTransform
         );
         bone.globalHead.x = globalHead.x;
         bone.globalHead.y = globalHead.y;
-        
+
         // 計算全局旋轉
         bone.globalRotation = parentTransform.rotation + bone.localRotation;
       } else {
@@ -809,13 +820,13 @@ export class Bone {
         bone.globalHead.y = bone.localHead.y;
         bone.globalRotation = bone.localRotation;
       }
-      
+
       // 更新變換緩存
       bone._globalTransformCache = {
         head: { x: bone.globalHead.x, y: bone.globalHead.y },
         rotation: bone.globalRotation
       };
-      
+
       // 遞迴處理所有子骨骼
       bone.children.forEach(child => updateBoneTransform(child));
     };
@@ -856,6 +867,8 @@ export class Bone {
       this.rootBones.push(bone);
     }
 
+    this.updateRootBones(); // 確保根骨骼列表是最新的
+    
     return bone;
   }
 
@@ -1005,7 +1018,7 @@ export class Bone {
   _updateBoneRecursive(bone) {
     // 強制更新骨骼的變換
     bone.getGlobalTransform();
-    
+
     // 遞迴更新所有子骨骼
     bone.children.forEach(child => {
       this._updateBoneRecursive(child);
@@ -1106,12 +1119,11 @@ function distance(x1, y1, x2, y2) {
  *   - type: 'head', 'tail', 或 'body'
  *   - distance: 到點擊點的距離
  */
-export function getClosestBoneAtClick(skeleton, clickX, clickY,isCreatMode=true, headTailRadius = 0.05, maxDistance = 0.05) {
+export function getClosestBoneAtClick(skeleton, clickX, clickY, isCreatMode = true, headTailRadius = 0.05, maxDistance = 0.05) {
   let closestResult = null;
   let minDistance = maxDistance;
 
-  if(isCreatMode==false)
-  {
+  if (isCreatMode == false) {
     //console.log(" getClosestBoneAtClick in animation mode ");
   }
 
@@ -1173,7 +1185,7 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY,isCreatMode=true,
 
       }
     }
- 
+
   });
 
   return closestResult;
@@ -1315,15 +1327,15 @@ export class Layer {
     this.locked = false;
 
     //vertex group: use to control vertex's influence on bones
-   // this.vertexGroup = null; // can be set to a VertexGroup instance
+    // this.vertexGroup = null; // can be set to a VertexGroup instance
 
     //an example of vertex group influence map
-   
+
     this.vertexGroup = [
-    {name: "group1", vertex: {name: "v1", weight: 0.5}},
-    {name: "group2", vertex: {name: "v2", weight: 0.3}},
-    {name: "group3", vertex: {name: "v3", weight: 0.8}}
-];
+      //// {name: "group1", vertex: {name: "v1", weight: 0.5}},
+      // {name: "group2", vertex: {name: "v2", weight: 0.3}},
+      // {name: "group3", vertex: {name: "v3", weight: 0.8}}
+    ];
   }
 
   addVertex(vertex) {

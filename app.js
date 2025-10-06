@@ -657,6 +657,7 @@ const app = Vue.createApp({
     const selectedGroups = ref([]); // 控制選擇的頂點群組
     let currentJobName = null;
     const isWeightPaintMode = ref(true);
+    const layerVersion = ref(0);
 
     const timeline = reactive(new Timeline({
       onUpdate: () => instance.proxy.$forceUpdate(),
@@ -667,6 +668,7 @@ const app = Vue.createApp({
       refreshKey.value++; // 每次加 1 → 會觸發 template 重新渲染
     };
     function syncLayers() {
+      forceUpdate();
       showLayers.value = glsInstance.layers;
     }
     function toggleNode(nodeId) {
@@ -708,9 +710,10 @@ const app = Vue.createApp({
       } else if (tool === 'bone-save') {
         bonesInstance.saveBones();
         // bonesInstance.checkKeyframe();
-      } else if (tool === 'bone-read') {
-        bonesInstance.readBones();
+      } else if (tool === 'bone-load') {
+        bonesInstance.loadBones();
       }
+        
     };
 
     const resetPose = () => {
@@ -840,10 +843,10 @@ const app = Vue.createApp({
 
         if (activeTool.value === 'grab-point' && isDragging) {
 
-          bonesInstance.moveSelectedVertex(currentChosedLayer,useMultiSelect,localSelectedVertex,gl, xNDC, yNDC, dragStartX, dragStartY);
+          bonesInstance.moveSelectedVertex(currentChosedLayer, useMultiSelect, localSelectedVertex, gl, xNDC, yNDC, dragStartX, dragStartY);
           dragStartX = xNDC;
           dragStartY = yNDC;
-          
+
           forceUpdate();
 
         } else if (activeTool.value === 'select-points') {
@@ -1130,7 +1133,8 @@ const app = Vue.createApp({
         const hasIdx2 = weightMap.has(idx2);
 
         // 如果三個頂點都不在 group 中,跳過這個三角形
-        if (!hasIdx0 || !hasIdx1 || !hasIdx2) {
+        // if (!hasIdx0 || !hasIdx1 || !hasIdx2) {
+        if (!hasIdx0 && !hasIdx1 && !hasIdx2) {
           continue;
         }
 
@@ -1629,29 +1633,50 @@ const app = Vue.createApp({
     };
 
     const firstImage = async () => {
+      if (!gl.value) return;
 
-      console.log(" load first image ... ");
+      console.log("load first image...");
+
+      // 清空之前的圖層
+      glsInstance.clearAllLayer();
+      texture.value = [];
+      selectedLayers.value = [];
+
       // 加载纹理
       let result = await loadTexture(gl.value, './png3.png');
-      texture.value = [];
 
       let layer = {
         imageData: result.data,
         width: result.width,
-        height: result.height
+        height: result.height,
+        top: 0,   // 預設居中顯示
+        left: 0
       };
+
       texture.value.push(await layerToTexture(gl.value, layer));
       glsInstance.addLayer("QQ");
+
       let canvasHeight = layer.height;
       let canvasWidth = layer.width;
+
       // === 初始化图层缓冲区和顶点属性 ===
       for (let i = 0; i < texture.value.length; i++) {
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight, glsInstance.layers[i]);
+        glsInstance.createLayerBuffers(
+          gl.value,
+          texture.value[i].image,
+          texture.value[i].width,
+          texture.value[i].height,
+          1,
+          -1,
+          canvasWidth,
+          canvasHeight,
+          glsInstance.layers[i]
+        );
 
         // 绑定当前图层的缓冲区
-        const layer = glsInstance.layers[i];
-        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
-        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
+        const layerObj = glsInstance.layers[i];
+        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layerObj.vbo);
+        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layerObj.ebo);
 
         // === 设置顶点属性（只需一次）===
         // 1. 纹理程序的属性
@@ -1668,18 +1693,22 @@ const app = Vue.createApp({
         const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
         gl.value.enableVertexAttribArray(colorPosAttrib);
         gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
+
+        // 把圖層加到選取清單，讓 render2 能正常跑
+        selectedLayers.value.push(i);
       }
-
-
+      syncLayers();
+      console.log(" sync layers checking size : ", glsInstance.layers.length);
       // 解绑所有缓冲区
       gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
       gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
 
       console.log("WebGL initialization complete");
       currentJobName = "png";
+
       // 启动渲染循环
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "png");
-    }
+    };
 
     const secondImage = async () => {
 
@@ -1848,27 +1877,22 @@ const app = Vue.createApp({
         }
       }
     }
-    const bindingBoneWeight = () => {
+    const bindingBoneWeight = (overlapFactor = 1) => {
       console.log(" Binding bone weight ... ");
-
       if (skeletons.length === 0) {
         console.warn("No skeletons available for binding.");
         return;
       }
-
       printBoneHierarchy(skeletons[0].bones);
-
       const layer = glsInstance.layers[currentChosedLayer.value];
       if (!layer) {
         console.error("Invalid layer index for binding bone weight.");
         return;
       }
-
-      // 取得所有頂點
       const vertices = layer.vertices.value;
       const vertexCount = vertices.length / 4;
 
-      // 收集所有骨骼(包含子骨骼)
+      // 收集所有骨骼
       const allBones = [];
       function collectBones(bones) {
         for (const bone of bones) {
@@ -1879,132 +1903,156 @@ const app = Vue.createApp({
         }
       }
       collectBones(skeletons[0].bones);
-
       console.log(`Found ${allBones.length} bones and ${vertexCount} vertices`);
 
       // 清空舊的 vertex group
       layer.vertexGroup.value = [];
-
-      // 使用 Map 來管理 vertex groups，key 為骨骼名稱
       const vertexGroupMap = new Map();
 
-      // 計算點到線段的最短距離
+      // 計算點到骨頭線段的距離（改進版：考慮骨骼的影響範圍）
       function distanceToSegment(px, py, x1, y1, x2, y2) {
         const dx = x2 - x1;
         const dy = y2 - y1;
         const lengthSquared = dx * dx + dy * dy;
 
-        // 如果骨骼長度為0(head和tail在同一位置)
         if (lengthSquared === 0) {
           const distX = px - x1;
           const distY = py - y1;
           return Math.sqrt(distX * distX + distY * distY);
         }
 
-        // 計算投影點在線段上的參數 t (0-1之間)
         let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
-        t = Math.max(0, Math.min(1, t)); // 限制在線段範圍內
+        t = Math.max(0, Math.min(1, t));
 
-        // 計算最近點
         const closestX = x1 + t * dx;
         const closestY = y1 + t * dy;
-
-        // 計算距離
         const distX = px - closestX;
         const distY = py - closestY;
-        return Math.sqrt(distX * distX + distY * distY);
+
+        return {
+          distance: Math.sqrt(distX * distX + distY * distY),
+          t: t  // 投影參數，0表示在head端，1表示在tail端
+        };
       }
 
-      // 為每個頂點計算權重
+      // 計算骨骼的有效影響半徑（基於骨骼長度）
+      function getBoneInfluenceRadius(bone) {
+        const globalTransform = bone.getGlobalTransform();
+        const dx = globalTransform.tail.x - globalTransform.head.x;
+        const dy = globalTransform.tail.y - globalTransform.head.y;
+        const boneLength = Math.sqrt(dx * dx + dy * dy);
+
+        // 影響半徑 = 骨骼長度的一定比例 * overlapFactor
+        // overlapFactor 越小，影響範圍越小
+        return boneLength * 0.5 * overlapFactor;
+      }
+
+      // === 主迴圈 ===
       for (let i = 0; i < vertexCount; i++) {
         const vx = vertices[i * 4];
         const vy = vertices[i * 4 + 1];
 
-        console.log(`Processing vertex ${i}: (${vx.toFixed(2)}, ${vy.toFixed(2)})`);
+        const candidates = [];
 
-        // 計算此頂點到所有骨骼的距離
-        const distances = [];
         for (let j = 0; j < allBones.length; j++) {
           const bone = allBones[j];
           const globalTransform = bone.getGlobalTransform();
-
-          const dist = distanceToSegment(
+          const result = distanceToSegment(
             vx, vy,
             globalTransform.head.x, globalTransform.head.y,
             globalTransform.tail.x, globalTransform.tail.y
           );
 
-          distances.push({
-            boneIndex: j,
-            boneName: bone.name,
-            distance: dist
-          });
+          const influenceRadius = getBoneInfluenceRadius(bone);
+
+          // 只考慮在影響範圍內的骨骼
+          if (result.distance <= influenceRadius) {
+            // 計算權重：距離越近權重越高
+            // 使用平滑的衰減函數
+            const normalizedDist = result.distance / influenceRadius;
+            const weight = Math.pow(1.0 - normalizedDist, 3); // 立方衰減，更銳利
+
+            candidates.push({
+              boneIndex: j,
+              boneName: bone.name,
+              distance: result.distance,
+              weight: weight,
+              t: result.t
+            });
+          }
         }
 
-        // 根據距離計算權重(使用反距離加權)
-        const epsilon = 0.0001; // 避免除以零
-        const maxInfluenceBones = 4; // 最多影響的骨骼數量(類似Blender)
+        // 如果沒有骨骼在影響範圍內，選擇最近的那個
+        if (candidates.length === 0) {
+          let minDist = Infinity;
+          let closestBone = null;
 
-        // 按距離排序,選擇最近的幾個骨骼
-        distances.sort((a, b) => a.distance - b.distance);
-        const influencingBones = distances.slice(0, maxInfluenceBones);
+          for (let j = 0; j < allBones.length; j++) {
+            const bone = allBones[j];
+            const globalTransform = bone.getGlobalTransform();
+            const result = distanceToSegment(
+              vx, vy,
+              globalTransform.head.x, globalTransform.head.y,
+              globalTransform.tail.x, globalTransform.tail.y
+            );
 
-        // 計算權重(距離越近權重越大)
-        let totalWeight = 0;
-        const weights = influencingBones.map(item => {
-          // 使用平方反比來增強距離差異的影響
-          const weight = 1.0 / (item.distance * item.distance + epsilon);
-          totalWeight += weight;
-          return { ...item, weight };
-        });
+            if (result.distance < minDist) {
+              minDist = result.distance;
+              closestBone = {
+                boneIndex: j,
+                boneName: bone.name,
+                distance: result.distance,
+                weight: 1.0,
+                t: result.t
+              };
+            }
+          }
 
-        // 正規化權重,使總和為1
+          if (closestBone) {
+            candidates.push(closestBone);
+          }
+        }
+
+        // 正規化權重
+        let totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
         if (totalWeight > 0) {
-          weights.forEach(item => {
-            item.weight /= totalWeight;
-          });
+          candidates.forEach(c => c.weight /= totalWeight);
         }
 
-        // 將權重添加到對應的 vertex group (按骨骼名稱整合)
-        weights.forEach(item => {
-          if (item.weight > 0.001) { // 過濾掉非常小的權重
-            const boneName = item.boneName;
+        // 只保留權重較大的骨骼（進一步減少影響的骨骼數量）
+        const threshold = 0.05; // 權重小於5%的忽略
+        const finalBones = candidates.filter(c => c.weight >= threshold);
 
-            // 如果該骨骼名稱的 vertex group 不存在，創建它
-            if (!vertexGroupMap.has(boneName)) {
-              vertexGroupMap.set(boneName, {
-                name: boneName,
-                vertices: []
-              });
-            }
+        // 再次正規化
+        totalWeight = finalBones.reduce((sum, c) => sum + c.weight, 0);
+        if (totalWeight > 0) {
+          finalBones.forEach(c => c.weight /= totalWeight);
+        }
 
-            // 將頂點權重添加到對應的 vertex group
-            const group = vertexGroupMap.get(boneName);
-
-            // 檢查該頂點是否已經在這個 group 中
-            const existingVertex = group.vertices.find(v => v.id === i);
-            if (existingVertex) {
-              // 如果已存在，累加權重（理論上不應該發生，但為了安全起見）
-              existingVertex.weight += item.weight;
-            } else {
-              // 添加新的頂點權重
-              group.vertices.push({
-                id: i,
-                weight: item.weight
-              });
-            }
+        // === 存到 vertex group ===
+        finalBones.forEach(item => {
+          const boneName = item.boneName;
+          if (!vertexGroupMap.has(boneName)) {
+            vertexGroupMap.set(boneName, { name: boneName, vertices: [] });
+          }
+          const group = vertexGroupMap.get(boneName);
+          const existingVertex = group.vertices.find(v => v.id === i);
+          if (existingVertex) {
+            existingVertex.weight += item.weight;
+          } else {
+            group.vertices.push({ id: i, weight: item.weight });
           }
         });
       }
 
-      // 將 Map 轉換為陣列並賦值給 layer
       layer.vertexGroup.value = Array.from(vertexGroupMap.values());
-
-      // 輸出綁定結果
       console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
+      console.log(`Average bones per vertex: ${layer.vertexGroup.value.reduce((sum, g) => sum + g.vertices.length, 0) / vertexCount
+        }`);
     };
-
     const vertexGroupInfo = computed(() => {
+      refreshKey.value; // 強制刷新
+      console.log(" currentChosedLayer value : ", currentChosedLayer.value, ", layer size: ", glsInstance.layers.length);
       return glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value
     })
 
