@@ -296,6 +296,7 @@ export default class Bones {
 
   // 🧭 遞迴搜尋 bone（跨多個 skeleton）
   findBoneById(bone, id) {
+   console.log("bone?", bone, "id?", id, "this?", this);
     if (!bone || !id) return null;
     if (bone.id === id) return bone;
     for (const child of bone.children) {
@@ -553,6 +554,7 @@ export default class Bones {
   }
   searchBoneRecursive(bone, boneId) {
     if (bone.id === boneId) {
+      console.log(" found bone: ", bone.id," bone name ", bone.name);
       return bone;
     }
     if (bone.children) {

@@ -6,12 +6,16 @@ import {
   selectedBoneForEditing
 } from './useBone.js';
 
-import { selectedBone } from './app.js';
 import { boneTree } from './app.js'
 import { boneIdToIndexMap } from './app.js';
 
 
 import glsInstance from './useWebGL.js';
+
+
+
+
+
 
 // Assuming updateMeshForSkeletonPose is available globally or passed via init
 let updateMeshForSkeletonPose;

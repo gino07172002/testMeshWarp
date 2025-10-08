@@ -1,5 +1,5 @@
 const { createApp, onMounted, ref, reactive, computed, watch } = Vue;
-export const selectedBone = ref(-1);
+
 export const boneIdToIndexMap = reactive({});
 export const boneTree = reactive({});
 import {
@@ -28,9 +28,13 @@ import {
 
 } from './psd.js';
 
+import {
+  Timeline2
+} from './timeline2.js';
 import glsInstance from './useWebGL.js';
 import Bones from './useBone.js';
 import Timeline from './timeline.js';
+
 import ImageCanvasManager from './ImageCanvasManager.js';
 
 // Shader sources
@@ -389,30 +393,6 @@ const app = Vue.createApp({
     forceUpdate() {
       this.refreshKey++;
     },
-    selectBone(bone) {
-      this.selectedBone = bone;
-      this.selectedKeyframe = null;
-    },
-    selectKeyframe(boneId, keyframeId) {
-      const bone = this.flattenedBones.find(b => b.id === boneId);
-      if (bone) {
-        this.selectedBone = bone;
-        this.selectedKeyframe = this.timeline.keyframes[boneId]?.find(k => k.id === keyframeId) || null;
-      }
-    },
-    testCountFn() {
-      console.log(" in app testCountFn");
-      this.timeline.testCount++;
-      psdHello();
-
-    },
-    changeImageTest() {
-      changeImage('./png2.png');
-    },
-    changeImageTest2() {
-      changeImage2();
-    }
-    ,
     usePsd() {
       console.log("hello use psd ... ");
       psdHello();
@@ -658,7 +638,7 @@ const app = Vue.createApp({
     let currentJobName = null;
     const isWeightPaintMode = ref(true);
     const layerVersion = ref(0);
-
+    const timeline2 = ref(new Timeline2('main', 2.0))
     const timeline = reactive(new Timeline({
       onUpdate: () => instance.proxy.$forceUpdate(),
       vueInstance: instance,
@@ -681,14 +661,17 @@ const app = Vue.createApp({
     };
 
     function handleNameClick(boneId) {
-      selectedBone.value = boneId; // 或做你原本選骨骼的處理
-      bonesInstance.findBoneById(boneId);
+      // selectedBone.value = boneId; // 或做你原本選骨骼的處理
+      console.log(" click bone id : ", boneId,"bone index? ",boneId.boneIndex);
+      
+      lastSelectedBone.value = bonesInstance.findBoneById(boneId);
+     
+      console.log(" lastSelectedBone : ", lastSelectedBone.value.id);
     };
     const bonesInstance = new Bones({
       onUpdate: () => instance.proxy.$forceUpdate(),
       vueInstance: instance,
       gl: gl.value,
-      selectedBone: selectedBone,
       isShiftPressed: isShiftPressed,
       skeletonIndices: skeletonIndices,
       glsInstance: glsInstance,
@@ -706,14 +689,13 @@ const app = Vue.createApp({
       }
       else if (tool === 'bone-clear') {
         bonesInstance.clearBones();
-        selectedBone.value = {};
       } else if (tool === 'bone-save') {
         bonesInstance.saveBones();
         // bonesInstance.checkKeyframe();
       } else if (tool === 'bone-load') {
         bonesInstance.loadBones();
       }
-        
+
     };
 
     const resetPose = () => {
@@ -1530,53 +1512,6 @@ const app = Vue.createApp({
     };
 
 
-
-    // 渲染選中的骨架
-    const renderSelectedBone = (gl, skeletonProgram, skeletonIndicesArray) => {
-      if (selectedBone.value.index < 0) return;
-
-      const parentIndex = boneParents.value[selectedBone.value.index];
-
-      // 渲染父骨架（藍色）
-      if (parentIndex >= 0) {
-        const parentStart = parentIndex * 2;
-        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 0, 1, 1);
-        gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, parentStart * 2);
-      }
-
-      // 渲染選中骨架（紅色）
-      const selectedStart = selectedBone.value.index * 2;
-      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
-      gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, selectedStart * 2);
-    };
-
-    // 渲染骨架點
-    const renderSkeletonPoints = (gl, skeletonProgram, skeletonVerticesArray) => {
-      const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
-
-      // 渲染頭部點
-      const headVertices = extractVertices(skeletonVerticesArray, 0, 2); // 提取頭部座標
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, headVertices, [1, 1, 0, 1], 7.0);
-
-      // 渲染尾部點
-      const tailVertices = extractVertices(skeletonVerticesArray, 2, 2); // 提取尾部座標
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, tailVertices, [0, 0.5, 1, 1], 7.0);
-
-      // 渲染選中的骨架點
-      if (selectedBone.value.index >= 0) {
-        renderSelectedBonePoints(gl, skeletonProgram, skeletonPosAttrib, skeletonVerticesArray);
-      }
-    };
-
-    // 提取頂點座標的輔助函數
-    const extractVertices = (verticesArray, startOffset, stride) => {
-      const vertices = [];
-      for (let i = startOffset; i < verticesArray.length; i += 4) {
-        vertices.push(verticesArray[i], verticesArray[i + 1]);
-      }
-      return vertices;
-    };
-
     // 渲染點的輔助函數
     const renderPoints = (gl, program, posAttrib, verticesPoints, color, pointSize) => {
       const vbo_temp = gl.createBuffer();
@@ -1591,26 +1526,6 @@ const app = Vue.createApp({
       gl.deleteBuffer(vbo_temp); // 清理臨時緩衝區
     };
 
-    // 渲染選中骨架的點
-    const renderSelectedBonePoints = (gl, skeletonProgram, skeletonPosAttrib, skeletonVerticesArray) => {
-      const selectedIndex = selectedBone.value.index;
-
-      // 選中的頭部點
-      const selectedHeadIndex = selectedIndex * 4;
-      const selectedHeadVertices = [
-        skeletonVerticesArray[selectedHeadIndex],
-        skeletonVerticesArray[selectedHeadIndex + 1]
-      ];
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, selectedHeadVertices, [1, 0.5, 0, 1], 10.0);
-
-      // 選中的尾部點
-      const selectedTailIndex = selectedIndex * 4 + 2;
-      const selectedTailVertices = [
-        skeletonVerticesArray[selectedTailIndex],
-        skeletonVerticesArray[selectedTailIndex + 1]
-      ];
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, selectedTailVertices, [1, 0.5, 0, 1], 10.0);
-    };
 
 
     // render end
@@ -2284,6 +2199,52 @@ const app = Vue.createApp({
       gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
     }
 
+    //timeline series function
+    const timelineDragging = ref(false);
+    const playheadPosition = ref(null);
+
+    const selectTimeline = (event) => {
+      const timelineRect = event.currentTarget.getBoundingClientRect();
+      let offsetX = event.clientX - timelineRect.left;
+      const clampedX = Math.max(0, Math.min(offsetX, timelineRect.width));
+
+      switch (event.type) {
+        case 'mousedown':
+          timelineDragging.value = true;
+          const handleMouseUp = (e) => {
+            timelineDragging.value = false;
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.removeEventListener('mousemove', handleMouseMove);
+          };
+          const handleMouseMove = (e) => {
+            if (timelineDragging.value) {
+              offsetX = e.clientX - timelineRect.left;
+              timeline.playheadPosition = Math.max(0, Math.min(offsetX, timelineRect.width));
+              playheadPosition.value = Math.max(0, Math.min(offsetX, timelineRect.width));
+            }
+          };
+          document.addEventListener('mouseup', handleMouseUp);
+          document.addEventListener('mousemove', handleMouseMove);
+          timeline.playheadPosition = clampedX;
+          playheadPosition.value = clampedX;
+          break;
+        case 'mousemove':
+          if (timelineDragging.value) {
+            timeline.playheadPosition = clampedX;
+            playheadPosition.value = clampedX;
+          }
+          break;
+        case 'mouseup':
+          timelineDragging.value = false;
+          break;
+      }
+    };
+    const addKeyframe = () => {
+      console.log("Add keyframe at position:", timeline.playheadPosition, " select bone index : ", bonesInstance.GetLastSelectedBone?.());
+      timeline2.value.addKeyframe(bonesInstance.GetLastSelectedBone?.(), timeline.playheadPosition);
+    }
+    const removeKeyframe = () => {
+    }
 
     onMounted(async () => {
 
@@ -2303,7 +2264,6 @@ const app = Vue.createApp({
     return {
       selectTool,
       activeTool,
-      selectedBone,
       timeline,
       resetPose,
       drawAgain,
@@ -2334,7 +2294,12 @@ const app = Vue.createApp({
       onSelect,
       setWeight,
       weightValue,
-      bindingBoneWeight
+      bindingBoneWeight,
+      timeline2,
+      selectTimeline,
+      playheadPosition,
+      addKeyframe,
+      removeKeyframe,
     };
   }
 });
@@ -2343,33 +2308,34 @@ const TreeItem = {
   props: ['node', 'expandedNodes', 'selectedBone'],
   template: `
     <div class="tree-item">
-  <div class="tree-item-header" style="display: flex; align-items: center;">
-    <!-- 箭頭按鈕 -->
-    <span v-if="hasChildren"
-          style="cursor: pointer; width: 16px; display: inline-block;"
-          @click.stop="toggleNode(node.id)">
-      {{ isExpanded ? '▼' : '▶' }}
-    </span>
+      <div class="tree-item-header" style="display: flex; align-items: center;">
+        <!-- 箭頭按鈕 -->
+        <span v-if="hasChildren"
+              style="cursor: pointer; width: 16px; display: inline-block;"
+              @click.stop="toggleNode(node.id)">
+          {{ isExpanded ? '▼' : '▶' }}
+        </span>
 
-    <!-- 名稱文字 -->
-    <span style="cursor: pointer;" @click="selectBone(node.id)">
-      {{ node.name }}
-    </span>
-  </div>
+        <!-- 名稱文字 -->
+        <span :style="{ backgroundColor: selectedBone.id === node.id ? 'gray' : 'transparent' }"
+              style="cursor: pointer;" @click="selectBone(node.id)">
+          {{ node.name }}
+        </span>
+      </div>
 
-  <!-- 子節點 -->
-  <div v-if="isExpanded" class="tree-item-children" style="padding-left: 16px;">
-    <tree-item
-      v-for="child in node.children"
-      :key="child.id"
-      :node="child"
-      :expanded-nodes="expandedNodes"
-      :selected-bone="selectedBone"
-      @toggle-node="$emit('toggle-node', $event)"
-      @name-click="$emit('name-click', $event)"
-    />
-  </div>
-</div>
+      <!-- 子節點 -->
+      <div v-if="isExpanded" class="tree-item-children" style="padding-left: 16px;">
+        <tree-item
+          v-for="child in node.children"
+          :key="child.id"
+          :node="child"
+          :expanded-nodes="expandedNodes"
+          :selected-bone="selectedBone"
+          @toggle-node="$emit('toggle-node', $event)"
+          @name-click="$emit('name-click', $event)"
+        />
+      </div>
+    </div>
   `,
   computed: {
     hasChildren() {
@@ -2388,8 +2354,6 @@ const TreeItem = {
     }
   }
 };
-
-
 
 
 app.component('tree-item', TreeItem);
