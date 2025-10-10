@@ -187,15 +187,12 @@
             </div>
             <div id="trackContainer" ref="trackContainer" @mousedown="selectTimeline($event)"
               @mousemove="selectTimeline($event)" class="timeline-container">
-              <div v-for="(frames, boneId) in timeline2.keyframes" :key="'track-' + boneId" class="timeline-track"
-                :style="{ top: 50+ 'px' }">
+
+              <div v-for="(frames, boneId) in timeline2.keyframes" :key="'track-' + boneId" class="timeline-track">
                 <div v-for="(keyframe, index) in frames" :key="'kf-' + boneId + '-' + index" class="keyframe"
-                  @mousedown.stop="selectTimeline($event)"
-                  :style="{ left: (keyframe.time / timeline2.duration * containerWidth) + 'px' }"
-                  :class="{ 'selected': timeline2.selectedKeyframe && timeline2.selectedKeyframe.index === index && timeline2.selectedKeyframe.boneId === boneId, 'dragging': timeline2.isDragging && timeline2.selectedKeyframe && timeline2.selectedKeyframe.index === index }"
-                  :title="'Keyframe ' + index" :data-id="index" :data-bone-id="boneId">
-                </div>
+                  :style="{ left: keyframe.time + 'px' }"></div>
               </div>
+
             </div>
             <div id="timeSelection" class="time-selection"
               :style="{ display: timeline.timeSelection.active ? 'block' : 'none', left: timeline.timeSelection.start + 'px', width: (timeline.timeSelection.end - timeline.timeSelection.start) + 'px' }">

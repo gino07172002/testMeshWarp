@@ -6,7 +6,7 @@ export class Timeline2 {
     this.name = name;
     this.duration = duration; // 秒
     this.frameRate = frameRate;
-    this.keyframes = new Map(); // { bone.id: [ { time, rotation, x, y, length } ] }
+    this.keyframes = {}; // { bone.id: [ { time, rotation, x, y, length } ] }
     this.currentTime = 0;
     this.isPlaying = false;
     this.loop = true;
@@ -18,10 +18,15 @@ export class Timeline2 {
    */
   addKeyframe(bone, time, { rotation = null, x = null, y = null, length = null } = {}) {
     if (!bone || !bone.id) throw new Error("Invalid bone");
-    if (!this.keyframes.has(bone.id)) this.keyframes.set(bone.id, []);
-    const frames = this.keyframes.get(bone.id);
 
-    const frame = { time, rotation, x, y, length };
+    console.log(" test 1");
+    if (!this.keyframes[bone.id]) {
+      this.keyframes[bone.id] = [];
+    }
+
+    console.log(" test 1");
+    const frames = this.keyframes[bone.id];
+    const frame = { time, rotation: bone.poseRotation, x: bone.poseHead.x, y: bone.poseHead.y, length: bone.poseLength };
     frames.push(frame);
     frames.sort((a, b) => a.time - b.time);
   }
@@ -42,9 +47,23 @@ export class Timeline2 {
   }
 
   /** 更新動畫進度 */
-  update(deltaTime, bones) {
-    if (!this.isPlaying) return;
+  update(currentTime, skeletons) {
+    // 防呆：skeletons 應該是陣列
+    if (!Array.isArray(skeletons) || skeletons.length === 0) {
+      console.warn("⚠️ No skeletons to update.");
+      return;
+    }
 
+    // 收集所有 bones
+    const bones = skeletons.flatMap(s => s.bones || []);
+    if (bones.length === 0) {
+      console.warn("⚠️ No bones found in skeletons.");
+      return;
+    }
+    console.log("why current Time zero ? ", currentTime);
+
+    // 更新當前時間
+    /*8
     this.currentTime += deltaTime;
     if (this.currentTime > this.duration) {
       if (this.loop) {
@@ -54,40 +73,54 @@ export class Timeline2 {
         this.isPlaying = false;
       }
     }
+      */
 
-    // 套用插值後結果到骨骼
-    for (const [boneId, frames] of this.keyframes.entries()) {
-      const bone = bones.find(b => b.id === boneId);
-      if (!bone) continue;
+    //let time = currentTime;
 
-      const interpolated = this._interpolate(frames, this.currentTime);
-      if (!interpolated) continue;
+    // 套用插值結果到骨骼
+    if (this.keyframes) {
+      for (const boneId in this.keyframes) {
+        const frames = this.keyframes[boneId];
+        const bone = bones.find(b => b.id === boneId);
 
-      // 套用 pose 值
-      if (interpolated.x !== null) bone.poseHead.x = interpolated.x;
-      if (interpolated.y !== null) bone.poseHead.y = interpolated.y;
-      if (interpolated.rotation !== null) bone.poseRotation = interpolated.rotation;
-      if (interpolated.length !== null) bone.poseLength = interpolated.length;
+        console.log("find bone?", bone, "boneId?", boneId);
+        if (!bone) continue;
 
-      // 更新全域姿勢
-      bone._markDirty?.();
-      if (bone.updateFromParent) bone.updateFromParent(); // 若你的骨架系統有此方法
+        const interpolated = this._interpolate(frames, currentTime);
+
+        console.log("interpolated?", interpolated.x, " , ", interpolated.y, " , ", interpolated.rotation, " , ", interpolated.length);
+
+        if (!interpolated) continue;
+
+
+        if (interpolated.x != null) bone.poseHead.x = interpolated.x;
+        if (interpolated.y != null) bone.poseHead.y = interpolated.y;
+        if (interpolated.rotation != null) bone.poseRotation = interpolated.rotation;
+        if (interpolated.length != null) bone.poseLength = interpolated.length;
+
+        bone._markDirty?.();
+        // bone.updateFromParent?.();
+      }
     }
 
-    // 最後更新所有骨骼的 global transform
+
+
+    // 更新根骨骼的 global transform
     bones.forEach(b => {
-      if (!b.parent) {
-        b.updateWorldTransform?.(); // 根骨更新整棵骨架
-      }
+      if (!b.parent) b.updateWorldTransform?.();
     });
   }
 
-  /** 取得目前時間對應的插值結果 */
+  /** 插值函數不用改 */
   _interpolate(frames, time) {
+
+    console.log(" checking time is between frames: time = ", time, "frames[0]?", frames[0].time, "frames[-1]?", frames[frames.length - 1].time);
+
     if (frames.length === 0) return null;
     if (time <= frames[0].time) return frames[0];
     if (time >= frames[frames.length - 1].time) return frames[frames.length - 1];
 
+    console.log(" hello interpolate?", frames, "time?", time);
     let f1, f2;
     for (let i = 0; i < frames.length - 1; i++) {
       if (time >= frames[i].time && time <= frames[i + 1].time) {

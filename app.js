@@ -662,10 +662,10 @@ const app = Vue.createApp({
 
     function handleNameClick(boneId) {
       // selectedBone.value = boneId; // 或做你原本選骨骼的處理
-      console.log(" click bone id : ", boneId,"bone index? ",boneId.boneIndex);
-      
+      console.log(" click bone id : ", boneId, "bone index? ", boneId.boneIndex);
+
       lastSelectedBone.value = bonesInstance.findBoneById(boneId);
-     
+
       console.log(" lastSelectedBone : ", lastSelectedBone.value.id);
     };
     const bonesInstance = new Bones({
@@ -2208,6 +2208,16 @@ const app = Vue.createApp({
       let offsetX = event.clientX - timelineRect.left;
       const clampedX = Math.max(0, Math.min(offsetX, timelineRect.width));
 
+     const updateTimeline=()=>
+     
+      {
+        timeline2.value.update(playheadPosition.value, skeletons);
+        bonesInstance.updatePoseMesh(gl.value);
+        forceUpdate();
+      }
+     
+      //maybe I should update bone-pose (for animation here)
+
       switch (event.type) {
         case 'mousedown':
           timelineDragging.value = true;
@@ -2215,33 +2225,42 @@ const app = Vue.createApp({
             timelineDragging.value = false;
             document.removeEventListener('mouseup', handleMouseUp);
             document.removeEventListener('mousemove', handleMouseMove);
+            updateTimeline();
           };
           const handleMouseMove = (e) => {
             if (timelineDragging.value) {
               offsetX = e.clientX - timelineRect.left;
               timeline.playheadPosition = Math.max(0, Math.min(offsetX, timelineRect.width));
               playheadPosition.value = Math.max(0, Math.min(offsetX, timelineRect.width));
+
+              updateTimeline();
             }
           };
           document.addEventListener('mouseup', handleMouseUp);
           document.addEventListener('mousemove', handleMouseMove);
           timeline.playheadPosition = clampedX;
           playheadPosition.value = clampedX;
+          updateTimeline();
           break;
         case 'mousemove':
           if (timelineDragging.value) {
             timeline.playheadPosition = clampedX;
             playheadPosition.value = clampedX;
+            updateTimeline();
           }
           break;
         case 'mouseup':
           timelineDragging.value = false;
           break;
       }
+
+      
+
     };
     const addKeyframe = () => {
-      console.log("Add keyframe at position:", timeline.playheadPosition, " select bone index : ", bonesInstance.GetLastSelectedBone?.());
-      timeline2.value.addKeyframe(bonesInstance.GetLastSelectedBone?.(), timeline.playheadPosition);
+      timeline2.value.addKeyframe(bonesInstance.GetLastSelectedBone?.(), playheadPosition.value);
+
+      console.log("check now timeline data : ", JSON.stringify(timeline2.value));
     }
     const removeKeyframe = () => {
     }
@@ -2307,35 +2326,28 @@ const app = Vue.createApp({
 const TreeItem = {
   props: ['node', 'expandedNodes', 'selectedBone'],
   template: `
-    <div class="tree-item">
-      <div class="tree-item-header" style="display: flex; align-items: center;">
-        <!-- 箭頭按鈕 -->
-        <span v-if="hasChildren"
-              style="cursor: pointer; width: 16px; display: inline-block;"
+   <div class="tree-item">
+          <div class="tree-item-header" style="display: flex; align-items: center;">
+            <!-- 箭頭按鈕 -->
+            <span v-if="hasChildren" style="cursor: pointer; width: 16px; display: inline-block;"
               @click.stop="toggleNode(node.id)">
-          {{ isExpanded ? '▼' : '▶' }}
-        </span>
+              {{ isExpanded ? '▼' : '▶' }}
+            </span>
 
-        <!-- 名稱文字 -->
-        <span :style="{ backgroundColor: selectedBone.id === node.id ? 'gray' : 'transparent' }"
-              style="cursor: pointer;" @click="selectBone(node.id)">
-          {{ node.name }}
-        </span>
-      </div>
+            <!-- 名稱文字 -->
+            <span :style="{ backgroundColor: selectedBone?.id === node?.id ? 'gray' : 'transparent' }"
+              style="cursor: pointer;" @click="selectBone(node?.id)">
+              {{ node?.name || '(未命名骨骼)' }}
+            </span>
+          </div>
 
-      <!-- 子節點 -->
-      <div v-if="isExpanded" class="tree-item-children" style="padding-left: 16px;">
-        <tree-item
-          v-for="child in node.children"
-          :key="child.id"
-          :node="child"
-          :expanded-nodes="expandedNodes"
-          :selected-bone="selectedBone"
-          @toggle-node="$emit('toggle-node', $event)"
-          @name-click="$emit('name-click', $event)"
-        />
-      </div>
-    </div>
+          <!-- 子節點 -->
+          <div v-if="isExpanded" class="tree-item-children" style="padding-left: 16px;">
+            <tree-item v-for="child in node.children" :key="child.id" :node="child" :expanded-nodes="expandedNodes"
+              :selected-bone="selectedBone" @toggle-node="$emit('toggle-node', $event)"
+              @name-click="$emit('name-click', $event)" />
+          </div>
+        </div>
   `,
   computed: {
     hasChildren() {
