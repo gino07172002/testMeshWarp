@@ -160,14 +160,15 @@
 
       <div v-if="timeline2" class="timeline" v-on:contextmenu.prevent>
         <div class="timeline-header">
-          <div class="timeline-title">動畫時間軸
+          <div class="timeline-title">動畫時間軸  
             <!-- ▼▼ 新增：時間軸選擇與管理 ▼▼ -->
 
             <select v-model="selectedTimelineId.value" @change="selectTimelineId">
-              <option v-for="(tl, index) in timelineList.value" :key="index" :value="index">
-                {{ tl.name || 'no name' }} / {{t1.value}}
+              <option v-for="(tl, index) in timelineList" :key="index" :value="index">
+                {{ tl.name || 'no name' }}
               </option>
             </select>
+           
 
             <!-- 可修改名稱 -->
             <input v-if="currentTimeline" v-model="currentTimeline.name" @change="renameTimeline"
