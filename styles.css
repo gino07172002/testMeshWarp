@@ -385,6 +385,8 @@ body {
     z-index: 2;
 }
 
+
+
 .layer-item {
     padding: 6px 10px;
     border-bottom: 1px solid #3a3a3a;
@@ -401,6 +403,8 @@ body {
 .layer-item.selected {
     background-color: #2a569c;
 }
+
+
 
 .layer-toggle {
     cursor: pointer;

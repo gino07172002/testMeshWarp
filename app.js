@@ -638,7 +638,11 @@ const app = Vue.createApp({
     let currentJobName = null;
     const isWeightPaintMode = ref(true);
     const layerVersion = ref(0);
+
     const timeline2 = ref(new Timeline2('main', 2.0))
+    const timelineList = ref([timeline2.value]);
+    const selectedTimelineId = ref(0);
+
     const timeline = reactive(new Timeline({
       onUpdate: () => instance.proxy.$forceUpdate(),
       vueInstance: instance,
@@ -2208,14 +2212,12 @@ const app = Vue.createApp({
       let offsetX = event.clientX - timelineRect.left;
       const clampedX = Math.max(0, Math.min(offsetX, timelineRect.width));
 
-     const updateTimeline=()=>
-     
-      {
+      const updateTimeline = () => {
         timeline2.value.update(playheadPosition.value, skeletons);
         bonesInstance.updatePoseMesh(gl.value);
         forceUpdate();
       }
-     
+
       //maybe I should update bone-pose (for animation here)
 
       switch (event.type) {
@@ -2254,7 +2256,7 @@ const app = Vue.createApp({
           break;
       }
 
-      
+
 
     };
     const addKeyframe = () => {
@@ -2265,6 +2267,49 @@ const app = Vue.createApp({
     const removeKeyframe = () => {
     }
 
+    const selectBoneByKey = (boneId) => {
+      lastSelectedBone.value = bonesInstance.findBoneById(boneId);
+
+      console.log("now last select bone is ", lastSelectedBone.value.id);
+
+    }
+
+    const exportSkeletonToSpineJson = () => {
+      let result = meshSkeleton.exportSpineJson();
+      console.log(" hi spine json : ", JSON.stringify(result));
+
+    }
+    const saveSpineJson = () => {
+      meshSkeleton.exportToFile();
+
+      const imageName = "alien.png";
+      const imageSize = { width: 500, height: 768 };
+      const regionBounds = {
+        Bone_1: { x: 0, y: 0, width: 500, height: 768 },
+        Bone_2: { x: 0, y: 0, width: 500, height: 768 },
+        Bone_3: { x: 0, y: 0, width: 500, height: 768 }
+      };
+
+      // 產生 Atlas
+      meshSkeleton.exportAtlasFile("alien.atlas", imageName, imageSize, regionBounds);
+
+    }
+
+    const addTimeline = () => {
+      const newName = `動畫軸 ${timelineList.value.length + 1}`;
+      timelineList.value.push(new Timeline2(newName, 2.0));
+      selectedTimelineId.value = timelineList.value.length - 1;
+    };
+    const removeTimeline = () => {
+      if (timelineList.length > 1) {
+        timelineList.splice(selectedTimelineId, 1);
+        selectedTimelineId = Math.max(0, selectedTimelineId - 1);
+      }
+    }
+
+    const selectTimelineId = () => {
+      console.log("hi select timeline ID ", selectedTimelineId);
+    }
     onMounted(async () => {
 
       window.addEventListener('keydown', handleKeyDown);
@@ -2279,7 +2324,7 @@ const app = Vue.createApp({
     watch(selectedLayers, (newVal) => {
       console.log("勾選的圖層:", JSON.stringify(newVal)); // 這裡可以 emit 或呼叫父組件的方法
     });
-
+    const currentTimeline = computed(() => timelineList.value[selectedTimelineId.value]);
     return {
       selectTool,
       activeTool,
@@ -2319,6 +2364,17 @@ const app = Vue.createApp({
       playheadPosition,
       addKeyframe,
       removeKeyframe,
+      selectBoneByKey,
+      exportSkeletonToSpineJson,
+      saveSpineJson,
+      timelineList,
+      selectedTimelineId,
+      selectTimelineId,
+      addTimeline,
+      removeTimeline,
+      currentTimeline
+
+
     };
   }
 });

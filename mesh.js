@@ -789,7 +789,203 @@ export class Bone {
     this.rootBones = []; // 根骨骼列表
     this.autoBoneCounter = 1; // 自動命名計數器
   }
- updateRootBones() {
+
+
+  exportSpineJson(scale = 100) {
+    if (this.bones.length === 0) {
+      this.bones.push({ name: "root", localHead: { x: 0, y: 0 }, length: 0, localRotation: 0 });
+    }
+
+    const rootBones = this.bones.filter(b => !b.parent);
+    if (rootBones.length === 0) {
+      this.bones.unshift({ name: "root", localHead: { x: 0, y: 0 }, length: 0, localRotation: 0 });
+    }
+
+    // 🦴 bones
+    const spineBones = this.bones.map(bone => {
+      const boneData = {
+        name: bone.name,
+        x: (bone.localHead?.x ?? 0) * scale,
+        y: (bone.localHead?.y ?? 0) * scale,
+        rotation: bone.localRotation ?? 0,
+        length: (bone.length ?? 0) * scale,
+        color: "ffffffff"
+      };
+      if (bone.parent) boneData.parent = bone.parent.name;
+      return boneData;
+    });
+
+    // 📏 計算骨架範圍
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const bone of this.bones) {
+      const x0 = (bone.localHead?.x ?? 0) * scale;
+      const y0 = (bone.localHead?.y ?? 0) * scale;
+      const rad = (bone.localRotation ?? 0) * (Math.PI / 180);
+      const x1 = x0 + (bone.length ?? 0) * scale * Math.cos(rad);
+      const y1 = y0 + (bone.length ?? 0) * scale * Math.sin(rad);
+      minX = Math.min(minX, x0, x1);
+      minY = Math.min(minY, y0, y1);
+      maxX = Math.max(maxX, x0, x1);
+      maxY = Math.max(maxY, y0, y1);
+    }
+
+    if (!isFinite(minX)) minX = 0;
+    if (!isFinite(minY)) minY = 0;
+    if (!isFinite(maxX)) maxX = 0;
+    if (!isFinite(maxY)) maxY = 0;
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    // 🎨 slots （每個骨頭自動有一個 slot）
+    const spineSlots = this.bones.map(bone => ({
+      name: `${bone.name}`,
+      bone: bone.name,
+      attachment: bone.name,
+      color: "ffffffff",
+      blend: "normal"
+    }));
+
+    // 🧩 skins 與 attachments（新版陣列格式）
+    const attachments = {};
+    for (const bone of this.bones) {
+      const slotName = `${bone.name}`;
+      const attachmentName = bone.name;
+      attachments[slotName] = {
+        [attachmentName]: {
+          type: "region",
+          name: attachmentName + 'aa',
+          x: (bone.localHead?.x ?? 0) * scale,
+          y: (bone.localHead?.y ?? 0) * scale,
+          rotation: bone.localRotation ?? 0,
+          width: 500,
+          height: 768,
+          color: "ffffffff"
+        }
+      };
+    }
+
+    // 🧬 組合完整 Spine JSON
+    return {
+      skeleton: {
+        hash: Math.random().toString(36).substring(2, 12),
+        spine: "4.1.17",
+        x: minX,
+        y: minY,
+        width: 500,
+        height: 768,
+        images: "./images/",
+        audio: ""
+      },
+      bones: spineBones,
+      slots: spineSlots,
+      skins: [
+        {
+          name: "default",
+          attachments
+        }
+      ],
+      animations: {
+        default: {
+          bones: {},
+          slots: {}
+        }
+      }
+    };
+  }
+
+  /**
+  * 將 Spine JSON 匯出成檔案
+  * @param {string} filename - 檔案名稱（預設 skeleton.json）
+  * @param {number} scale - 輸出比例
+  */
+  exportToFile(filename = "skeleton.json", scale = 100) {
+    const data = this.exportSpineJson(scale);
+    const jsonStr = JSON.stringify(data, null, 2);
+
+    // 🖥️ Node.js 環境
+    if (typeof window === "undefined") {
+      const fs = require("fs");
+      fs.writeFileSync(filename, jsonStr, "utf-8");
+      console.log(`✅ 已輸出 Spine JSON 檔案：${filename}`);
+      return;
+    }
+
+    // 🌐 Browser 環境
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    console.log(`✅ 已在瀏覽器觸發下載：${filename}`);
+
+  }
+  /**
+   * 產生 Spine Atlas 檔案
+   * @param {string} filename - 輸出檔名，預設 skeleton.atlas
+   * @param {string} imageName - Atlas 中的 png 檔名
+   * @param {object} imageSize - png 尺寸 { width, height }
+   * @param {object} regions - 每個 region 的 bounds (選填)
+   *   格式: { regionName: { x, y, width, height } }
+   */
+  exportAtlasFile(
+    filename = "skeleton.atlas",
+    imageName = "alien.png",
+    imageSize = { width: 500, height: 768 },
+    regions = {}
+  ) {
+    if (this.bones.length === 0) {
+      console.warn("⚠️ 沒有骨骼資料，Atlas 會空白");
+    }
+
+    // Atlas 內容字串
+    let atlasContent = `${imageName}\n`;
+    atlasContent += `\tsize: ${imageSize.width}, ${imageSize.height}\n`;
+    atlasContent += `\tfilter: Linear, Linear\n`;
+
+    // 產生每個 region
+    for (const bone of this.bones) {
+      const regionName = bone.name;
+      const bound =
+        regions[regionName] || {
+          x: 0,
+          y: 0,
+          width: imageSize.width,
+          height: imageSize.height,
+        };
+      atlasContent += `${regionName}aa\n`;
+      atlasContent += `\tbounds: ${bound.x}, ${bound.y}, ${bound.width}, ${bound.height}\n`;
+    }
+
+    // 🔧 移除最後多餘的換行與空白
+    atlasContent = atlasContent.trimEnd();
+
+    // 🖥️ Node.js 環境
+    if (typeof window === "undefined") {
+      const fs = require("fs");
+      fs.writeFileSync(filename, atlasContent, "utf-8");
+      console.log(`✅ 已輸出 Atlas 檔案：${filename}`);
+      return;
+    }
+
+    // 🌐 Browser 環境
+    const blob = new Blob([atlasContent], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    console.log(`✅ 已在瀏覽器觸發下載 Atlas：${filename}`);
+  }
+
+  updateRootBones() {
     this.rootBones = this.bones.filter(bone => !bone.parent);
   }
   // 更新所有骨骼的全局變換
@@ -868,7 +1064,7 @@ export class Bone {
     }
 
     this.updateRootBones(); // 確保根骨骼列表是最新的
-    
+
     return bone;
   }
 

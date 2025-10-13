@@ -158,37 +158,69 @@
       </div>
       {{timeline2}}
 
-      <div v-if="timeline" class="timeline" v-on:contextmenu.prevent>
+      <div v-if="timeline2" class="timeline" v-on:contextmenu.prevent>
         <div class="timeline-header">
-          <div class="timeline-title">動畫時間軸</div>
+          <div class="timeline-title">動畫時間軸
+            <!-- ▼▼ 新增：時間軸選擇與管理 ▼▼ -->
+
+            <select v-model="selectedTimelineId.value" @change="selectTimelineId">
+              <option v-for="(tl, index) in timelineList.value" :key="index" :value="index">
+                {{ tl.name || 'no name' }} / {{t1.value}}
+              </option>
+            </select>
+
+            <!-- 可修改名稱 -->
+            <input v-if="currentTimeline" v-model="currentTimeline.name" @change="renameTimeline"
+              class="timeline-name-input" placeholder="輸入時間軸名稱" />
+
+            <button class="timeline-btn" @click="addTimeline">➕ 新增時間軸</button>
+            <button class="timeline-btn" @click="removeTimeline" :disabled="timelineList.length <= 1">🗑 刪除時間軸</button>
+
+
+          </div>
+
+
+
+
           <div class="timeline-controls">
             <button class="timeline-btn" v-on:click="addKeyframe">新增Key點</button>
             <button class="timeline-btn" v-on:click="removeKeyframe">刪除Key點</button>
             <input type="file" accept=".psd" id="psdFile" @change="handlePSDUpload">
             <button class="timeline-btn" v-on:click="psdImage">usePsd</button>
             <button class="timeline-btn" v-on:click="timeline.playAnimation">播放動畫</button>
+            <button class="timeline-btn" v-on:click="exportSkeletonToSpineJson">spineJson</button>
+            <button class="timeline-btn" v-on:click="saveSpineJson">saveJson</button>
           </div>
+
+
+          <!-- ▲▲ 新增：時間軸選擇與管理 ▲▲ -->
         </div>
 
 
         <div class="timeline-content">
           <div class="timeline-layers" id="timelineLayers">
-            <div v-for="bone in flattenedBones" v-bind:key="'layer-' + bone.id" class="tree-item-content"
-              v-bind:class="{ 'selected': lastSelectedBone && lastSelectedBone.index === bone.index }"
-              v-on:click="selectBone(bone)">
-              <span>{{ bone.id}} / {{lastSelectedBone.id}}</span>
+            <div class="timeline-track"></div>
+            <div v-for="(frames, key) in timeline2.keyframes" :key="'layer-' + key" class="timeline-track"
+              @click="selectBoneByKey(key)">
+              <span :style="{ backgroundColor: lastSelectedBone?.id === key ? 'gray' : 'transparent' }">{{ key }} / {{
+                lastSelectedBone ? lastSelectedBone.id : '' }}</span>
             </div>
           </div>
+
+
+
           <div class="timeline-tracks" id="timelineTracks" ref="timelineTracks" @mousedown="selectTimeline($event)"
             @mousemove="selectTimeline($event)">
             <div class="timeline-scale" :style="{ width: timelineLength + 'px' }">
               <span v-for="n in Math.ceil(timelineLength / 50)" :key="n" class="scale-mark"
                 :style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
             </div>
+
             <div id="trackContainer" ref="trackContainer" @mousedown="selectTimeline($event)"
               @mousemove="selectTimeline($event)" class="timeline-container">
 
               <div v-for="(frames, boneId) in timeline2.keyframes" :key="'track-' + boneId" class="timeline-track">
+
                 <div v-for="(keyframe, index) in frames" :key="'kf-' + boneId + '-' + index" class="keyframe"
                   :style="{ left: keyframe.time + 'px' }"></div>
               </div>
