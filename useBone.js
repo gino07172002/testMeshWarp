@@ -1,6 +1,6 @@
 const { ref, reactive, toRaw } = Vue;
 import glsInstance from './useWebGL.js';
-import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick } from './mesh.js';
+import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick,Attachment } from './mesh.js';
 
 console.log("Creating spine with", MeshBone);
 const meshSkeleton = reactive(new Skeleton("HumanSkeleton"));
@@ -102,18 +102,9 @@ function downloadImage() {
 
 export default class Bones {
   constructor(options = {}) {
-    //this.resetSkeletonToOriginal = this.resetSkeletonToOriginal.bind(this);
-    //this.applyTransformToChildren = this.applyTransformToChildren.bind(this);
-    // this.calculateDistance = this.calculateDistance.bind(this);
-    //this.calculateAngle = this.calculateAngle.bind(this);
-    //this.rotatePoint = this.rotatePoint.bind(this);
-    // this.checkKeyframe = this.checkKeyframe.bind(this);
+
     this.loadBones = this.loadBones.bind(this);
     this.saveBones = this.saveBones.bind(this);
-    // this.clearBones = this.clearBones.bind(this);
-    //this.detectBoneClick = this.detectBoneClick.bind(this);
-    //this.translateBone = this.translateBone.bind(this);
-    //this.rotateBone = this.rotateBone.bind(this);
 
     this.onUpdate = options.onUpdate || function () { };
     this.vueInstance = options.vueInstance || null;
@@ -203,21 +194,6 @@ export default class Bones {
       };
 
       const rawLayers = toRaw(glsInstance.layers);
-
-      /*
-      rawLayers.forEach(layer => {
-        console.log('layer test 1',toRaw(layer.name));
-        console.log('layer test 2',toRaw(layer.name.value));
-        console.log(`Layer: ${layer.name}`);
-         console.log(`Layer omg: ${layer.name.value}`);
-        console.log('Vertex Group:', toRaw(layer.vertexGroup.value));
-        const vertexGroupStr = JSON.stringify(toRaw(layer.vertexGroup.value));
-        console.log('Vertex Group Stringified:', vertexGroupStr);
-      });
-      
-     
-      console.log("checking law value");
-      */
 
 
       const vertexGroupObjects = rawLayers.map(layer => ({
@@ -677,90 +653,9 @@ export default class Bones {
   }
   updatePoseMesh(gl) {
     console.log(" update pose mesh ... ");
-    /*
-    //consider bone's pose and vertex group's weight to update mesh vertices
-
-    //1.get all layers
-    const layers = this.glsInstance.layers;
-    //2.get all bones
-    const bones = meshSkeleton.bones;
-    //3. get all vertices and caculate total weight of bone for each vertex from vertex group
-    //layer has vertex group which has bone index and weight
-    for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
-      const layer = layers[layerIndex];
-      const vertices = layer.vertices.value;
-      const vertexGroups = layer.vertexGroup.value; // array of {boneIndex, weight} for each vertex
-      if (!vertexGroups || vertexGroups.length === 0) continue;
-      const newVertices = new Float32Array(vertices.length);
-
-      for (let i = 0; i < vertices.length; i += 4) {
-        const vx = vertices[i];     // x
-        const vy = vertices[i + 1]; // y
-        const vz = vertices[i + 2]; // z
-        const vw = vertices[i + 3]; // w
-        const vertexIndex = i / 4;
-        const groups = vertexGroups[vertexIndex]; // array of {boneIndex, weight}
-
-        if (!groups || groups.length === 0) {
-          newVertices[i] = vx;
-          newVertices[i + 1] = vy;
-          newVertices[i + 2] = vz;
-          newVertices[i + 3] = vw;
-          continue;
-        }
-        console.log(" vertex ", vertexIndex, " groups: ", groups);
-
-        let newX = 0;
-        let newY = 0;
-        let totalWeight = 0;
-        for (let j = 0; j < groups.length; j++) {
-          const { boneIndex, weight } = groups[j];
-          const bone = bones.find(b => b.id === boneIndex);
-          if (bone) {
-
-            const head = bone.getGlobalHead();
-            const tail = bone.getGlobalTail();
-            const angle = bone.globalRotation;
-            const length = bone.length;
-            // calculate the new position of the vertex based on bone's head, tail, angle and length
-            const projectedLength = ((vx - head.x) * Math.cos(angle) + (vy - head.y) * Math.sin(angle));
-            const clampedLength = Math.max(0, Math.min(length, projectedLength));
-            const boneX = head.x + clampedLength * Math.cos(angle);
-            const boneY = head.y + clampedLength * Math.sin(angle);
-            newX += boneX * weight;
-            newY += boneY * weight;
-            totalWeight += weight;
-          }
-        }
-        if (totalWeight > 0) {
-          newX /= totalWeight;
-          newY /= totalWeight;
-          newX = 1;
-          newY = 1;
-          newVertices[i] = newX;
-
-          newVertices[i + 1] = newY;
-          newVertices[i + 2] = vz;
-          newVertices[i + 3] = vw;
-        }
-        else {
-          newVertices[i] = vx;
-          newVertices[i + 1] = vy;
-          newVertices[i + 2] = vz;
-          newVertices[i + 3] = vw;
-        }
-      }
-      //layer.poseVertices.value = newVertices;
-      layer.vertices.value = newVertices;
-
-      //bind to webgl buffer
-      console.log(" update layer ", layerIndex, " with new vertices: ", newVertices[0]);
-      // gl.bindBuffer(gl.ARRAY_BUFFER, glsInstance.layers[layerIndex].vbo);
-      //  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(newVertices), gl.STATIC_DRAW);
-*/
-
-    //simple test : just move all vertices  with root bone's head position
-    const layers = this.glsInstance.layers;
+  
+    //simple test : just move all vertices  with root bone's head position , maybe would be more complex later
+    const layers = this.glsInstance.layers; 
     if (!meshSkeleton || meshSkeleton.rootBones.length === 0) return;
 
     // === 預先建立一個骨頭名稱對應表 ===

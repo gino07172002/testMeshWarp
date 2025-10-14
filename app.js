@@ -28,12 +28,15 @@ import {
 
 } from './psd.js';
 
+
+import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick, Attachment } from './mesh.js';
+
+
 import {
   Timeline2
 } from './timeline2.js';
 import glsInstance from './useWebGL.js';
 import Bones from './useBone.js';
-import Timeline from './timeline.js';
 
 import ImageCanvasManager from './ImageCanvasManager.js';
 
@@ -377,9 +380,7 @@ const app = Vue.createApp({
     },
     flattenedBones() {
       let result = [];
-      this.boneTree.forEach(root => {
-        this.timeline.getFlattenedBones(root, 0, result);
-      });
+
       return result;
     }
   },
@@ -522,7 +523,6 @@ const app = Vue.createApp({
       this.status = '正在儲存專案...';
       const projectData = {
         layers: this.layers,
-        keyframes: this.timeline.keyframes,
         points: this.points
       };
       fetch('/api/project/save', {
@@ -631,23 +631,14 @@ const app = Vue.createApp({
     const selectedLayers = ref([]);
     const chosenLayers = ref([])   // 控制選擇(多選)
     const currentChosedLayer = ref(0); // 控制選擇(單選) 
-    const multiSelectVertexs = ref([]); // 控制多選頂點
-    let multiDragMode = false;
     const selectedValues = ref([]);
     const selectedGroups = ref([]); // 控制選擇的頂點群組
     let currentJobName = null;
     const isWeightPaintMode = ref(true);
-    const layerVersion = ref(0);
 
-    const timeline2 = ref(new Timeline2('main', 2.0))
-    const timelineList = ref([timeline2.value]);
-    const selectedTimelineId = ref(0);
-
-    const timeline = reactive(new Timeline({
-      onUpdate: () => instance.proxy.$forceUpdate(),
-      vueInstance: instance,
-      updateMeshForSkeletonPose: glsInstance.updateMeshForSkeletonPose,
-    }));
+    const timelineList = ref([new Timeline2('main', 2.0)])
+    const selectedTimelineId = ref(0)
+    const timeline2 = computed(() => timelineList.value[selectedTimelineId.value])
     const forceUpdate = () => {
       refreshKey.value++; // 每次加 1 → 會觸發 template 重新渲染
     };
@@ -655,17 +646,22 @@ const app = Vue.createApp({
       forceUpdate();
       showLayers.value = glsInstance.layers;
     }
-    function toggleNode(nodeId) {
-      const idx = expandedNodes.indexOf(nodeId);
-      if (idx >= 0) {
-        expandedNodes.splice(idx, 1);
-      } else {
-        expandedNodes.push(nodeId);
-      }
-    };
 
-    function handleNameClick(boneId) {
+
+
+    function toggleNode(nodeId) {
+      // nodeId 可能是 string 或物件（防呆）
+      const id = typeof nodeId === 'object' ? nodeId.id : nodeId;
+      const idx = expandedNodes.indexOf(id);
+      if (idx >= 0) expandedNodes.splice(idx, 1);
+      else expandedNodes.push(id);
+    }
+
+
+    function handleNameClick(input) {
       // selectedBone.value = boneId; // 或做你原本選骨骼的處理
+
+      let boneId = input.id || input; // 防呆處理
       console.log(" click bone id : ", boneId, "bone index? ", boneId.boneIndex);
 
       lastSelectedBone.value = bonesInstance.findBoneById(boneId);
@@ -1701,38 +1697,64 @@ const app = Vue.createApp({
     const psdImage = async () => {
       if (!gl.value) return;
       glsInstance.clearAllLayer();
-
       texture.value = [];
 
       let index = 0;
-
-
       let canvasHeight = wholeImageWidth;
       let canvasWidth = wholeImageHeight;
 
       for (const layerData of layersForTexture) {
-        // console.log(" layer data image scale info : ", layerData.width, " , ", layerData.height, " , layerData.top : ", layerData.top, " , ", layerData.left);
-        texture.value.push(await layerToTexture(gl.value, layerData));
-        glsInstance.addLayer("psd" + index); index += 1;
+        // === 1. 建立 WebGL 紋理 ===
+        const texInfo = await layerToTexture(gl.value, layerData);
+        texture.value.push(texInfo);
+
+        // === 2. 建立 layer 實體 ===
+        const layerName = "psd" + index;
+        const layer = glsInstance.addLayer(layerName);
+        index += 1;
+
+        // === 3. 建立 attachment 並綁到 layer 上 ===
+        const attachment = Attachment(layerData, texInfo.tex);
+        layer.attachment = attachment;   // ✅ 新增這行，將 attachment 掛進 layer
+
+        // === Log 檢查 attachment 是否正確建立 ===
+        console.log(`Attachment for layer "${layer.name}" created:`);
+        console.log({
+          name: attachment.name,
+          texture: attachment.texture ? "OK" : "NULL",
+          width: attachment.width,
+          height: attachment.height,
+          verticesLength: attachment.vertices.length,
+          indicesLength: attachment.indices.length,
+          visible: attachment.visible,
+          coords: attachment.coords
+        });
       }
 
-      // 确定要处理的图层
-
+      // === 同步/初始化 ===
       syncLayers();
       selectedLayers.value = [];
+
       console.log(" glsInstance.layers size: ", glsInstance.layers.length);
+
       for (let i = 0; i < texture.value.length; i++) {
-
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, texture.value[i].top, texture.value[i].left, canvasWidth, canvasHeight, glsInstance.layers[i]);
-
-        // 绑定当前图层的缓冲区
+        const texInfo = texture.value[i];
         const layer = glsInstance.layers[i];
-        console.log("hi layer", layer);
+
+        // === 使用 layer.attachment 的資料代替 layerData ===
+        const att = layer.attachment;
+        glsInstance.createLayerBuffers(
+          gl.value,
+          att.image, att.width, att.height,
+          att.top, att.left,
+          canvasWidth, canvasHeight,
+          layer
+        );
+
+        // === 維持原有的 attribute 綁定 ===
         gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
         gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
 
-        // === 设置顶点属性（只需一次）===
-        // 1. 纹理程序的属性
         gl.value.useProgram(program.value);
         const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
         const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
@@ -1741,21 +1763,20 @@ const app = Vue.createApp({
         gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
         gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
 
-        // 2. 颜色程序的属性
         gl.value.useProgram(colorProgram.value);
         const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
         gl.value.enableVertexAttribArray(colorPosAttrib);
         gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
+
         selectedLayers.value.push(i);
       }
 
-      // 解绑所有缓冲区
       gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
       gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
 
       console.log("WebGL initialization complete");
       currentJobName = "psd";
-      // 启动渲染循环
+
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "psd");
     };
     const toggleLayerSelection = (index) => {
@@ -2232,7 +2253,6 @@ const app = Vue.createApp({
           const handleMouseMove = (e) => {
             if (timelineDragging.value) {
               offsetX = e.clientX - timelineRect.left;
-              timeline.playheadPosition = Math.max(0, Math.min(offsetX, timelineRect.width));
               playheadPosition.value = Math.max(0, Math.min(offsetX, timelineRect.width));
 
               updateTimeline();
@@ -2240,13 +2260,11 @@ const app = Vue.createApp({
           };
           document.addEventListener('mouseup', handleMouseUp);
           document.addEventListener('mousemove', handleMouseMove);
-          timeline.playheadPosition = clampedX;
           playheadPosition.value = clampedX;
           updateTimeline();
           break;
         case 'mousemove':
           if (timelineDragging.value) {
-            timeline.playheadPosition = clampedX;
             playheadPosition.value = clampedX;
             updateTimeline();
           }
@@ -2294,6 +2312,9 @@ const app = Vue.createApp({
       meshSkeleton.exportAtlasFile("alien.atlas", imageName, imageSize, regionBounds);
 
     }
+    const playAnimation = () => {
+      console.log("hi play animation! ");
+    }
 
     const addTimeline = () => {
       const newName = `動畫軸 ${timelineList.value.length + 1}`;
@@ -2307,7 +2328,7 @@ const app = Vue.createApp({
       }
     }
 
-    const selectTimelineId = () => {
+    const choseTimelineId = () => {
       console.log("hi select timeline ID ", selectedTimelineId);
     }
     onMounted(async () => {
@@ -2328,7 +2349,6 @@ const app = Vue.createApp({
     return {
       selectTool,
       activeTool,
-      timeline,
       resetPose,
       drawAgain,
       skeletons,
@@ -2369,45 +2389,71 @@ const app = Vue.createApp({
       saveSpineJson,
       timelineList,
       selectedTimelineId,
-      selectTimelineId,
+      choseTimelineId,
       addTimeline,
       removeTimeline,
-      currentTimeline
-
+      currentTimeline,
+      playAnimation
 
     };
   }
 });
-
 const TreeItem = {
-  props: ['node', 'expandedNodes', 'selectedBone'],
+  props: ['node', 'expandedNodes', 'selectedItem'],
+  emits: ['toggle-node', 'item-click'],
   template: `
-   <div class="tree-item">
-          <div class="tree-item-header" style="display: flex; align-items: center;">
-            <!-- 箭頭按鈕 -->
-            <span v-if="hasChildren" style="cursor: pointer; width: 16px; display: inline-block;"
-              @click.stop="toggleNode(node.id)">
-              {{ isExpanded ? '▼' : '▶' }}
-            </span>
+    <div class="tree-item">
+      <!-- Bone 標題 -->
+      <div class="tree-item-header" style="display: flex; align-items: center;">
+        <!-- 展開箭頭 -->
+        <span v-if="hasChildren || hasSlots"
+          style="cursor: pointer; width: 16px; display: inline-block;"
+          @click.stop="toggleNode(node.id)">
+          {{ isExpanded ? '▼' : '▶' }}
+        </span>
+        <span v-else style="display:inline-block; width:16px;"></span>
 
-            <!-- 名稱文字 -->
-            <span :style="{ backgroundColor: selectedBone?.id === node?.id ? 'gray' : 'transparent' }"
-              style="cursor: pointer;" @click="selectBone(node?.id)">
-              {{ node?.name || '(未命名骨骼)' }}
-            </span>
-          </div>
+        <!-- Bone 名稱 -->
+        <span
+          :style="{
+            backgroundColor: selectedItem?.type === 'bone' && selectedItem?.id === node?.id ? 'gray' : 'transparent'
+          }"
+          style="cursor: pointer;"
+          @click="selectItem({ type: 'bone', id: node?.id })"
+        >
+          🦴 {{ node?.name || '(未命名骨骼)' }}
+        </span>
+      </div>
 
-          <!-- 子節點 -->
-          <div v-if="isExpanded" class="tree-item-children" style="padding-left: 16px;">
-            <tree-item v-for="child in node.children" :key="child.id" :node="child" :expanded-nodes="expandedNodes"
-              :selected-bone="selectedBone" @toggle-node="$emit('toggle-node', $event)"
-              @name-click="$emit('name-click', $event)" />
-          </div>
+      <!-- 展開內容 -->
+      <div v-if="isExpanded" class="tree-item-children" style="padding-left: 16px;">
+        <!-- Slot -->
+        <div v-for="slot in node.slots" :key="slot.id"
+             style="cursor:pointer; padding:2px;"
+             :style="{ backgroundColor: selectedItem?.type === 'slot' && selectedItem?.id === slot.id ? 'gray' : 'transparent' }"
+             @click="selectItem({ type: 'slot', id: slot.id })">
+          🎯 Slot: {{ slot.name }}
         </div>
+
+        <!-- 子 Bone -->
+        <tree-item
+          v-for="child in node.children"
+          :key="child.id"
+          :node="child"
+          :expanded-nodes="expandedNodes"
+          :selected-item="selectedItem"
+          @toggle-node="$emit('toggle-node', $event)"
+          @item-click="$emit('item-click', $event)"
+        />
+      </div>
+    </div>
   `,
   computed: {
     hasChildren() {
       return this.node.children && this.node.children.length > 0;
+    },
+    hasSlots() {
+      return this.node.slots && this.node.slots.length > 0;
     },
     isExpanded() {
       return this.expandedNodes.includes(this.node.id);
@@ -2417,8 +2463,8 @@ const TreeItem = {
     toggleNode(nodeId) {
       this.$emit('toggle-node', nodeId);
     },
-    selectBone(boneId) {
-      this.$emit('name-click', boneId);
+    selectItem(item) {
+      this.$emit('item-click', item);
     }
   }
 };

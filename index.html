@@ -10,6 +10,13 @@
 </head>
 
 <body>
+  <nav>
+        <a href="#" data-page="index">page1</a>
+        <a href="#" data-page="home">page2</a>
+    </nav>
+    <main id="content">
+        <!-- 內容將在這裡動態載入 -->
+    </main>
   <div id="app">
     <div class="editor-container">
       <!-- 頂部標題列 -->
@@ -73,13 +80,21 @@
         <div class="layers-panel">
           <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
             <div class="panel-title">階層式物件</div>
+
             <div class="layers-container">
               <div v-for="skeleton in skeletons" :key="skeleton.name" class="skeleton-block">
-                <div class="skeleton-header">{{ skeleton.name }} {{lastSelectedBone?.name}}</div>
+                <div class="skeleton-header">
+                  {{ skeleton.name }}
+                  <span v-if="selectedItem">
+                    （選取：
+                    {{ selectedItem.type === 'bone' ? '🦴' : '🎯' }}
+                    {{ selectedItem.name || selectedItem.id }}）
+                  </span>
+                </div>
 
                 <tree-item v-for="root in skeleton.rootBones" :key="root.id" :node="root"
-                  :expanded-nodes="expandedNodes" :selected-bone="lastSelectedBone" @toggle-node="toggleNode"
-                  @name-click="handleNameClick" />
+                  :expanded-nodes="expandedNodes" :selected-item="selectedItem" @toggle-node="toggleNode"
+                  @item-click="handleNameClick" />
               </div>
             </div>
           </div>
@@ -160,15 +175,16 @@
 
       <div v-if="timeline2" class="timeline" v-on:contextmenu.prevent>
         <div class="timeline-header">
-          <div class="timeline-title">動畫時間軸  
+          <div class="timeline-title">動畫時間軸
             <!-- ▼▼ 新增：時間軸選擇與管理 ▼▼ -->
 
-            <select v-model="selectedTimelineId.value" @change="selectTimelineId">
+            <select v-model="selectedTimelineId" @change="choseTimelineId">
               <option v-for="(tl, index) in timelineList" :key="index" :value="index">
                 {{ tl.name || 'no name' }}
               </option>
             </select>
-           
+            index: {{selectedTimelineId}}
+
 
             <!-- 可修改名稱 -->
             <input v-if="currentTimeline" v-model="currentTimeline.name" @change="renameTimeline"
@@ -176,11 +192,7 @@
 
             <button class="timeline-btn" @click="addTimeline">➕ 新增時間軸</button>
             <button class="timeline-btn" @click="removeTimeline" :disabled="timelineList.length <= 1">🗑 刪除時間軸</button>
-
-
           </div>
-
-
 
 
           <div class="timeline-controls">
@@ -188,7 +200,7 @@
             <button class="timeline-btn" v-on:click="removeKeyframe">刪除Key點</button>
             <input type="file" accept=".psd" id="psdFile" @change="handlePSDUpload">
             <button class="timeline-btn" v-on:click="psdImage">usePsd</button>
-            <button class="timeline-btn" v-on:click="timeline.playAnimation">播放動畫</button>
+            <button class="timeline-btn" v-on:click="playAnimation">播放動畫</button>
             <button class="timeline-btn" v-on:click="exportSkeletonToSpineJson">spineJson</button>
             <button class="timeline-btn" v-on:click="saveSpineJson">saveJson</button>
           </div>
@@ -208,8 +220,6 @@
             </div>
           </div>
 
-
-
           <div class="timeline-tracks" id="timelineTracks" ref="timelineTracks" @mousedown="selectTimeline($event)"
             @mousemove="selectTimeline($event)">
             <div class="timeline-scale" :style="{ width: timelineLength + 'px' }">
@@ -228,7 +238,7 @@
 
             </div>
             <div id="timeSelection" class="time-selection"
-              :style="{ display: timeline.timeSelection.active ? 'block' : 'none', left: timeline.timeSelection.start + 'px', width: (timeline.timeSelection.end - timeline.timeSelection.start) + 'px' }">
+              :style="{ display: false ? 'block' : 'none', left: 0 + 'px', width: 3 + 'px' }">
             </div>
             <div id="playhead" class="playhead" :style="{ left: playheadPosition + 'px' }"
               @mousedown="selectTimeline($event)">
@@ -252,6 +262,30 @@
   </div>
 
   <script type="module">
+
+       function loadPage(page) {
+            fetch(`${page}.html`)
+                .then(response => response.text())
+                .then(html => {
+                    document.getElementById('content').innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('載入頁面時發生錯誤:', error);
+                    document.getElementById('content').innerHTML = '<p>頁面載入失敗</p>';
+                });
+        }
+        
+        // 初始載入首頁
+        loadPage('index2');
+        
+        // 為導航連結添加事件監聽器
+        document.querySelectorAll('nav a').forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                const page = this.getAttribute('data-page');
+                loadPage(page);
+            });
+        });
     // 創建應用
     import app from './app.js';
     app.mount('#app');

@@ -91,6 +91,7 @@ export class Bone {
     this.length = Math.max(0, length);
     this.parent = parent;
     this.isConnected = isConnected;
+    this.slot = []; // slot is spine2d's concept, a bone can have one slot to attach image, maybe not the same as out architecture
 
     // 新增 local/global head/rotation
     if (parent) {
@@ -1449,108 +1450,6 @@ export function getAllBonesAtClick(skeleton, clickX, clickY, headTailRadius = 8,
   });
 }
 
-// 使用範例：
-/*
-// 假設你有一個 skeleton 實例
-const skeleton = new Skeleton("MyArmature");
-
-// 添加一些骨骼
-const rootBone = skeleton.addBone("Root", 100, 100, 80, 0);
-const childBone = skeleton.addBone("Child", 0, 0, 60, Math.PI/4, rootBone);
-
-// 檢測點擊
-function onMouseClick(event) {
-  const rect = canvas.getBoundingClientRect();
-  const clickX = event.clientX - rect.left;
-  const clickY = event.clientY - rect.top;
-  
-  const result = getClosestBoneAtClick(skeleton, clickX, clickY);
-  
-  if (result) {
-    console.log(`點擊到骨骼: ${result.bone.name}`);
-    console.log(`點擊部位: ${result.type}`);
-    console.log(`距離: ${result.distance.toFixed(2)} 像素`);
-    
-    // 根據點擊類型執行不同操作
-    switch(result.type) {
-      case 'head':
-        console.log('可以拖拽移動 head 位置');
-        break;
-      case 'tail':
-        console.log('可以拖拽調整長度和角度');
-        break;
-      case 'body':
-        console.log('可以拖拽整個骨骼');
-        break;
-    }
-  } else {
-    console.log('沒有點擊到任何骨骼');
-  }
-}
-
-// 如果你想要更精確的控制，可以使用進階版本
-function onMouseClickAdvanced(event) {
-  const rect = canvas.getBoundingClientRect();
-  const clickX = event.clientX - rect.left;
-  const clickY = event.clientY - rect.top;
-  
-  const results = getAllBonesAtClick(skeleton, clickX, clickY);
-  
-  if (results.length > 0) {
-    console.log(`找到 ${results.length} 個可能的目標:`);
-    results.forEach((result, index) => {
-      console.log(`${index + 1}. ${result.bone.name} (${result.type}) - 距離: ${result.distance.toFixed(2)}`);
-    });
-    
-    // 使用最近的結果
-    const closest = results[0];
-    console.log(`選擇: ${closest.bone.name} 的 ${closest.type}`);
-  }
-}
-*/
-
-/**
- * 圖層類
- */
-export class Layer {
-  constructor(name) {
-    if (!name || typeof name !== 'string') {
-      throw new Error('Layer name must be a non-empty string');
-    }
-    this.name = name;
-    this.vertices = [];
-    this.visible = true;
-    this.locked = false;
-
-    //vertex group: use to control vertex's influence on bones
-    // this.vertexGroup = null; // can be set to a VertexGroup instance
-
-    //an example of vertex group influence map
-
-    this.vertexGroup = [
-      //// {name: "group1", vertex: {name: "v1", weight: 0.5}},
-      // {name: "group2", vertex: {name: "v2", weight: 0.3}},
-      // {name: "group3", vertex: {name: "v3", weight: 0.8}}
-    ];
-  }
-
-  addVertex(vertex) {
-    if (!this.vertices.includes(vertex)) {
-      this.vertices.push(vertex);
-    }
-  }
-
-  removeVertex(vertex) {
-    const index = this.vertices.indexOf(vertex);
-    if (index >= 0) {
-      this.vertices.splice(index, 1);
-    }
-  }
-
-  clear() {
-    this.vertices = [];
-  }
-}
 
 /**
  * 2D 網格類
@@ -2016,352 +1915,90 @@ export class Project2D {
   }
 }
 
-/**
- * 動畫關鍵幀類
- */
-export class Keyframe {
-  constructor(time, value, interpolation = 'linear') {
-    this.time = time; // 時間（秒）
-    this.value = value; // 值（可以是數字、向量等）
-    this.interpolation = interpolation; // 插值類型：'linear', 'bezier', 'step'
-    this.inTangent = null; // 貝塞爾曲線入切線
-    this.outTangent = null; // 貝塞爾曲線出切線
-  }
 
-  /**
-   * 設定貝塞爾切線
-   */
-  setBezierTangents(inTangent, outTangent) {
-    this.inTangent = inTangent;
-    this.outTangent = outTangent;
-  }
-}
-
-/**
- * 動畫軌道類
- */
-export class AnimationTrack {
-  constructor(targetPath, property) {
-    this.targetPath = targetPath; // 目標路徑，例如 "skeleton.bone1.rotation"
-    this.property = property; // 屬性名稱
-    this.keyframes = []; // 關鍵幀數組
-  }
-
-  /**
-   * 添加關鍵幀
-   */
-  addKeyframe(time, value, interpolation = 'linear') {
-    const keyframe = new Keyframe(time, value, interpolation);
-
-    // 保持關鍵幀按時間排序
-    let insertIndex = 0;
-    while (insertIndex < this.keyframes.length && this.keyframes[insertIndex].time < time) {
-      insertIndex++;
+//slot is spine2d's concept, if export to spine2d json, need to use slot
+export class Slot {
+  constructor({
+    name,
+    bone,
+    attachments = {},
+    currentAttachmentName = null,
+    color = { r: 1, g: 1, b: 1, a: 1 },
+    blendMode = 'normal',
+    visible = true,
+    zIndex = 0,
+  }) {
+    if (!name || typeof name !== 'string') {
+      throw new Error('Slot name must be a non-empty string');
+    }
+    if (!(bone instanceof Bone)) {
+      throw new Error('Slot must attach to a valid Bone');
     }
 
-    this.keyframes.splice(insertIndex, 0, keyframe);
-    return keyframe;
-  }
-
-  /**
-   * 移除關鍵幀
-   */
-  removeKeyframe(time) {
-    const index = this.keyframes.findIndex(kf => Math.abs(kf.time - time) < 0.001);
-    if (index >= 0) {
-      this.keyframes.splice(index, 1);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * 取得指定時間的插值
-   */
-  evaluate(time) {
-    if (this.keyframes.length === 0) return null;
-    if (this.keyframes.length === 1) return this.keyframes[0].value;
-
-    // 找到時間範圍
-    let leftIndex = -1;
-    let rightIndex = -1;
-
-    for (let i = 0; i < this.keyframes.length; i++) {
-      if (this.keyframes[i].time <= time) {
-        leftIndex = i;
-      }
-      if (this.keyframes[i].time >= time && rightIndex === -1) {
-        rightIndex = i;
-        break;
-      }
-    }
-
-    // 邊界情況
-    if (leftIndex === -1) return this.keyframes[0].value;
-    if (rightIndex === -1) return this.keyframes[this.keyframes.length - 1].value;
-    if (leftIndex === rightIndex) return this.keyframes[leftIndex].value;
-
-    // 插值計算
-    const leftKf = this.keyframes[leftIndex];
-    const rightKf = this.keyframes[rightIndex];
-    const t = (time - leftKf.time) / (rightKf.time - leftKf.time);
-
-    return this._interpolate(leftKf, rightKf, t);
-  }
-
-  /**
-   * 插值計算
-   */
-  _interpolate(leftKf, rightKf, t) {
-    switch (leftKf.interpolation) {
-      case 'step':
-        return leftKf.value;
-
-      case 'linear':
-        if (typeof leftKf.value === 'number') {
-          return leftKf.value + (rightKf.value - leftKf.value) * t;
-        } else if (leftKf.value.x !== undefined) {
-          // 向量插值
-          return {
-            x: leftKf.value.x + (rightKf.value.x - leftKf.value.x) * t,
-            y: leftKf.value.y + (rightKf.value.y - leftKf.value.y) * t
-          };
-        }
-        break;
-
-      case 'bezier':
-        // 簡化的貝塞爾插值（三次貝塞爾）
-        const t2 = t * t;
-        const t3 = t2 * t;
-        const mt = 1 - t;
-        const mt2 = mt * mt;
-        const mt3 = mt2 * mt;
-
-        if (typeof leftKf.value === 'number') {
-          const p0 = leftKf.value;
-          const p1 = leftKf.outTangent || leftKf.value;
-          const p2 = rightKf.inTangent || rightKf.value;
-          const p3 = rightKf.value;
-
-          return mt3 * p0 + 3 * mt2 * t * p1 + 3 * mt * t2 * p2 + t3 * p3;
-        }
-        break;
-    }
-
-    return leftKf.value;
-  }
-
-  /**
-   * 取得軌道的時間範圍
-   */
-  getTimeRange() {
-    if (this.keyframes.length === 0) return { start: 0, end: 0 };
-    return {
-      start: this.keyframes[0].time,
-      end: this.keyframes[this.keyframes.length - 1].time
-    };
-  }
-}
-
-/**
- * 動畫片段類
- */
-export class AnimationClip {
-  constructor(name, duration = 1.0) {
+    this.id = `${name}_${globalSlotId++}`;
     this.name = name;
-    this.duration = duration; // 動畫時長（秒）
-    this.tracks = []; // 動畫軌道數組
-    this.loop = true; // 是否循環播放
+    this.bone = bone;
+    this.attachments = attachments; // { name: Layer or Mesh or Image }
+    this.currentAttachmentName = currentAttachmentName;
+    this.color = color;
+    this.blendMode = blendMode;
+    this.visible = visible;
+    this.zIndex = zIndex;
+
+    bone.slot = this;
   }
 
-  /**
-   * 添加軌道
-   */
-  addTrack(targetPath, property) {
-    const track = new AnimationTrack(targetPath, property);
-    this.tracks.push(track);
-    return track;
+  addAttachment(name, attachment) {
+    this.attachments[name] = attachment;
   }
 
-  /**
-   * 移除軌道
-   */
-  removeTrack(targetPath, property) {
-    const index = this.tracks.findIndex(t =>
-      t.targetPath === targetPath && t.property === property
-    );
-    if (index >= 0) {
-      this.tracks.splice(index, 1);
-      return true;
+  removeAttachment(name) {
+    delete this.attachments[name];
+  }
+
+  setAttachment(name) {
+    if (!this.attachments[name]) {
+      console.warn(`Attachment "${name}" not found in slot "${this.name}"`);
+      return;
     }
-    return false;
+    this.currentAttachmentName = name;
   }
 
-  /**
-   * 取得軌道
-   */
-  getTrack(targetPath, property) {
-    return this.tracks.find(t =>
-      t.targetPath === targetPath && t.property === property
-    );
+  get currentAttachment() {
+    return this.attachments[this.currentAttachmentName] || null;
   }
 
-  /**
-   * 評估動畫在指定時間的狀態
-   */
-  evaluate(time) {
-    const result = {};
-
-    this.tracks.forEach(track => {
-      const value = track.evaluate(time);
-      if (value !== null) {
-        if (!result[track.targetPath]) {
-          result[track.targetPath] = {};
-        }
-        result[track.targetPath][track.property] = value;
-      }
-    });
-
-    return result;
-  }
-
-  /**
-   * 自動計算持續時間
-   */
-  calculateDuration() {
-    let maxTime = 0;
-    this.tracks.forEach(track => {
-      const range = track.getTimeRange();
-      maxTime = Math.max(maxTime, range.end);
-    });
-    this.duration = maxTime;
+  getWorldTransform() {
+    return this.bone.getGlobalTransform();
   }
 }
 
-/**
- * 動畫播放器類
- */
-export class AnimationPlayer {
-  constructor() {
-    this.clips = new Map(); // 動畫片段
-    this.currentTime = 0;
-    this.isPlaying = false;
-    this.playbackSpeed = 1.0;
-    this.currentClip = null;
-  }
-
-  /**
-   * 添加動畫片段
-   */
-  addClip(clip) {
-    this.clips.set(clip.name, clip);
-  }
-
-  /**
-   * 播放動畫
-   */
-  play(clipName) {
-    const clip = this.clips.get(clipName);
-    if (!clip) return false;
-
-    this.currentClip = clip;
-    this.isPlaying = true;
-    return true;
-  }
-
-  /**
-   * 停止播放
-   */
-  stop() {
-    this.isPlaying = false;
-    this.currentTime = 0;
-  }
-
-  /**
-   * 暫停播放
-   */
-  pause() {
-    this.isPlaying = false;
-  }
-
-  /**
-   * 繼續播放
-   */
-  resume() {
-    this.isPlaying = true;
-  }
-
-  /**
-   * 更新動畫（每幀調用）
-   */
-  update(deltaTime) {
-    if (!this.isPlaying || !this.currentClip) return null;
-
-    this.currentTime += deltaTime * this.playbackSpeed;
-
-    // 處理循環
-    if (this.currentTime >= this.currentClip.duration) {
-      if (this.currentClip.loop) {
-        this.currentTime = this.currentTime % this.currentClip.duration;
-      } else {
-        this.currentTime = this.currentClip.duration;
-        this.isPlaying = false;
-      }
-    }
-
-    // 評估當前狀態
-    return this.currentClip.evaluate(this.currentTime);
-  }
-
-  /**
-   * 應用動畫狀態到目標對象
-   */
-  applyToProject(project, animationState) {
-    if (!animationState) return;
-
-    for (const targetPath in animationState) {
-      const properties = animationState[targetPath];
-      const target = this._resolveTargetPath(project, targetPath);
-
-      if (target) {
-        for (const property in properties) {
-          if (target[property] !== undefined) {
-            target[property] = properties[property];
-
-            // 如果是骨骼，標記為需要更新
-            if (target instanceof Bone) {
-              target._markDirty();
-            }
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * 解析目標路徑
-   */
-  _resolveTargetPath(project, path) {
-    const parts = path.split('.');
-    let current = project;
-
-    for (const part of parts) {
-      if (current.getSkeleton && current.getSkeleton(part)) {
-        current = current.getSkeleton(part);
-      } else if (current.getMesh && current.getMesh(part)) {
-        current = current.getMesh(part);
-      } else if (current.getBone && current.getBone(part)) {
-        current = current.getBone(part);
-      } else if (current[part] !== undefined) {
-        current = current[part];
-      } else {
-        return null;
-      }
-    }
-
-    return current;
-  }
+export function Attachment(layerData, glTexture) {
+  return {
+    name: layerData.name || 'Unnamed',
+    image: layerData.imageData,
+    texture: glTexture,          // WebGL texture object
+    width: layerData.width,
+    height: layerData.height,
+    top: layerData.top,
+    left: layerData.left,
+    bottom: layerData.bottom,
+    right: layerData.right,
+    vertices: layerData.vertices || [],
+    indices: layerData.indices || [],
+    poseVertices: layerData.poseVertices || [],
+    coords: {
+      top: layerData.top,
+      left: layerData.left,
+      bottom: layerData.bottom,
+      right: layerData.right
+    },
+    visible: layerData.visible ?? true,
+    opacity: layerData.opacity ?? 1.0,
+  };
 }
+
+
 
 /**
  * 工具函數
