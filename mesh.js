@@ -1,5 +1,18 @@
 // mesh.js
 
+
+//temporarily put here
+const { defineStore } = Pinia;
+
+// 定義 store 並匯出
+export const useCounterStore = defineStore('counter', {
+  state: () => ({ count: 0 }),
+  actions: {
+    increment() {
+      this.count++;
+    },
+  },
+});
 /**
  * 頂點類 - 表示網格中的一個頂點
  */

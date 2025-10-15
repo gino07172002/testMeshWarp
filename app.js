@@ -1,5 +1,7 @@
 const { createApp, onMounted, ref, reactive, computed, watch } = Vue;
+const { createPinia } = Pinia;
 
+import { useCounterStore } from './mesh.js'
 export const boneIdToIndexMap = reactive({});
 export const boneTree = reactive({});
 import {
@@ -181,36 +183,6 @@ const convertToNDC = (e, canvas, container) => {
     x: (canvasX / canvas.width) * 2 - 1, // NDC X
     y: 1 - (canvasY / canvas.height) * 2 // NDC Y
   };
-};
-
-const changeImage = async (newUrl) => {
-  if (!gl.value) return;
-
-  // 刪除舊紋理釋放資源
-  if (texture.value) {
-    gl.value.deleteTexture(texture.value.tex);
-    texture.value = null;
-  }
-
-  try {
-    // 載入新圖片並更新紋理
-    let result = await loadTexture(gl.value, newUrl);
-    texture.value = { tex: result.texture };
-    imageData.value = result.data;
-    imageWidth.value = result.width;
-    imageHeight.value = result.height;
-    // 根據新圖片尺寸重新建立頂點緩衝
-    glsInstance.createBuffers2(gl.value);
-
-    // 若骨架數據與圖片相關，需重新初始化
-
-  } catch (error) {
-    console.error("更換圖片失敗:", error);
-  }
-};
-
-const changeImage2 = async (layerIndices = null) => {
-  console.log(" in changeImage2 ... ");
 };
 
 
@@ -639,6 +611,10 @@ const app = Vue.createApp({
     const timelineList = ref([new Timeline2('main', 2.0)])
     const selectedTimelineId = ref(0)
     const timeline2 = computed(() => timelineList.value[selectedTimelineId.value])
+
+    //pinia test
+    const counter = useCounterStore();
+
     const forceUpdate = () => {
       refreshKey.value++; // 每次加 1 → 會觸發 template 重新渲染
     };
@@ -2393,8 +2369,8 @@ const app = Vue.createApp({
       addTimeline,
       removeTimeline,
       currentTimeline,
-      playAnimation
-
+      playAnimation,
+      counter
     };
   }
 });
@@ -2468,7 +2444,23 @@ const TreeItem = {
     }
   }
 };
+const { createRouter, createWebHashHistory } = VueRouter;
+    const Home = { template: '<h1>首頁</h1>' };
+    const Editor = { template: '<h1>編輯器</h1>' };
 
+    const routes = [
+      { path: '/', component: Home },
+      { path: '/editor', component: Editor },
+    ];
+
+    const router = createRouter({
+      history: createWebHashHistory(),
+      routes,
+    });
 
 app.component('tree-item', TreeItem);
+const pinia = createPinia();
+app.use(pinia);
+app.use(router)
+
 export default app;

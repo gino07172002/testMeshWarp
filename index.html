@@ -4,20 +4,22 @@
 <head>
   <meta charset="UTF-8">
   <title>網格變形圖像動畫編輯軟體</title>
-  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/pinia/dist/pinia.iife.prod.js"></script>
+  <script src="https://unpkg.com/vue-router@4"></script>
   <script src="app.js" type="module"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
-  <nav>
-        <a href="#" data-page="index">page1</a>
-        <a href="#" data-page="home">page2</a>
-    </nav>
-    <main id="content">
-        <!-- 內容將在這裡動態載入 -->
-    </main>
+
   <div id="app">
+    <nav>
+      <router-link to="/">首頁</router-link>
+      <router-link to="/editor">編輯器</router-link>
+    </nav>
+    <router-view></router-view>
+
     <div class="editor-container">
       <!-- 頂部標題列 -->
       <div class="header">
@@ -45,6 +47,8 @@
       </div>
 
       <!-- 主畫面：左側工具列 / 中間畫布區 / 右側圖層面板 -->
+      <p>Count: {{ counter.count }}</p>
+      <button @click="counter.increment()">+1</button>
       <div class="main-container">
         <!-- 左側工具 -->
         <div class="toolbar">
@@ -248,8 +252,6 @@
             </div>
           </div>
 
-
-
         </div>
       </div>
 
@@ -262,32 +264,18 @@
   </div>
 
   <script type="module">
+    // 🧩 1. 頁面動態載入功能
+    
+    // 🧩 2. Vue + Pinia 初始化
+    const { createApp } = Vue;
+    
+    import app from './app.js'
+    // 建立 Pinia 實例並掛上
 
-       function loadPage(page) {
-            fetch(`${page}.html`)
-                .then(response => response.text())
-                .then(html => {
-                    document.getElementById('content').innerHTML = html;
-                })
-                .catch(error => {
-                    console.error('載入頁面時發生錯誤:', error);
-                    document.getElementById('content').innerHTML = '<p>頁面載入失敗</p>';
-                });
-        }
-        
-        // 初始載入首頁
-        loadPage('index2');
-        
-        // 為導航連結添加事件監聽器
-        document.querySelectorAll('nav a').forEach(link => {
-            link.addEventListener('click', function(e) {
-                e.preventDefault();
-                const page = this.getAttribute('data-page');
-                loadPage(page);
-            });
-        });
-    // 創建應用
-    import app from './app.js';
+
+
+    // 掛載 Vue app
+
     app.mount('#app');
   </script>
 </body>
