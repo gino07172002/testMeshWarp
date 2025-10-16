@@ -13,6 +13,8 @@ export const useCounterStore = defineStore('counter', {
     },
   },
 });
+
+
 /**
  * 頂點類 - 表示網格中的一個頂點
  */

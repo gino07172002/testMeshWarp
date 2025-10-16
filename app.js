@@ -1,7 +1,7 @@
 const { createApp, onMounted, ref, reactive, computed, watch } = Vue;
-const { createPinia } = Pinia;
 
-import { useCounterStore } from './mesh.js'
+
+
 export const boneIdToIndexMap = reactive({});
 export const boneTree = reactive({});
 import {
@@ -160,6 +160,9 @@ const shaders = {
   }
     `
 };
+
+const testWordOutside = ref("test word Outside");
+
 // 準備多圖層資料結構陣列
 let layersForTexture = [];
 let wholeImageWidth = 0;
@@ -614,6 +617,9 @@ const app = Vue.createApp({
 
     //pinia test
     const counter = useCounterStore();
+    const testWord = ref("test word");
+    window.testWord = testWord;
+    const myWord = testWordOutside; // 指向同一個 ref 物件
 
     const forceUpdate = () => {
       refreshKey.value++; // 每次加 1 → 會觸發 template 重新渲染
@@ -2370,7 +2376,8 @@ const app = Vue.createApp({
       removeTimeline,
       currentTimeline,
       playAnimation,
-      counter
+      counter,
+      testWord
     };
   }
 });
@@ -2444,19 +2451,55 @@ const TreeItem = {
     }
   }
 };
+//import {Home } from './home.js'
+//import {Editor } from './editor.js'
+
 const { createRouter, createWebHashHistory } = VueRouter;
-    const Home = { template: '<h1>首頁</h1>' };
-    const Editor = { template: '<h1>編輯器</h1>' };
+const { createPinia, defineStore } = Pinia;
 
-    const routes = [
-      { path: '/', component: Home },
-      { path: '/editor', component: Editor },
-    ];
+import { useCounterStore } from './mesh.js'
 
-    const router = createRouter({
-      history: createWebHashHistory(),
-      routes,
-    });
+
+const Home = {
+  template: `
+    <h1>首頁bbb</h1>
+    
+     <p>Count: {{ store.count }}</p>
+     <p>rootCount: {{ testWord }}</p>
+      <p>wordOutside: {{ myWordOutside }}</p>
+    <button @click="store.increment()">+1</button>
+  `,
+  setup() {
+    const testWord = window.testWord;
+    const store = useCounterStore();
+    const myWordOutside = testWordOutside;
+    return { store, testWord ,myWordOutside};
+  }
+};
+
+const Editor = {
+  template: `
+    <h1>編輯器 {{ store.count }}</h1>
+    <button @click="store.count++">+</button>
+  `,
+  setup() {
+    const store = useCounterStore();
+    return { store };
+  }
+};
+
+
+const routes = [
+  {
+    path: '/', component: Home,
+  },
+  { path: '/editor', component: Editor },
+];
+
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes,
+});
 
 app.component('tree-item', TreeItem);
 const pinia = createPinia();
