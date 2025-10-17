@@ -1,6 +1,6 @@
 const { createApp, onMounted, ref, reactive, computed, watch } = Vue;
 
-
+window.testWord = 'Hello';
 
 export const boneIdToIndexMap = reactive({});
 export const boneTree = reactive({});
@@ -618,7 +618,7 @@ const app = Vue.createApp({
     //pinia test
     const counter = useCounterStore();
     const testWord = ref("test word");
-    window.testWord = testWord;
+    window.testWord = testWord.value;
     const myWord = testWordOutside; // 指向同一個 ref 物件
 
     const forceUpdate = () => {
@@ -2460,40 +2460,16 @@ const { createPinia, defineStore } = Pinia;
 import { useCounterStore } from './mesh.js'
 
 
-const Home = {
-  template: `
-    <h1>首頁bbb</h1>
-    
-     <p>Count: {{ store.count }}</p>
-     <p>rootCount: {{ testWord }}</p>
-      <p>wordOutside: {{ myWordOutside }}</p>
-    <button @click="store.increment()">+1</button>
-  `,
-  setup() {
-    const testWord = window.testWord;
-    const store = useCounterStore();
-    const myWordOutside = testWordOutside;
-    return { store, testWord ,myWordOutside};
-  }
-};
-
-const Editor = {
-  template: `
-    <h1>編輯器 {{ store.count }}</h1>
-    <button @click="store.count++">+</button>
-  `,
-  setup() {
-    const store = useCounterStore();
-    return { store };
-  }
-};
-
+import { Home } from './Home.js';
+import { Editor } from './Editor.js';
+import { Page } from './page.js';
 
 const routes = [
   {
     path: '/', component: Home,
   },
   { path: '/editor', component: Editor },
+  { path: '/page', component: Page },
 ];
 
 const router = createRouter({
