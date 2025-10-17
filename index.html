@@ -15,37 +15,40 @@
 <body>
 
   <div id="app">
+    <div class="menu-bar">
+      <div class="menu-item" @click.stop="toggleDropdown('fileDropdown')"> <!-- 添加.stop修飾符 -->
+        檔案
+        <div class="dropdown-menu" v-show="fileDropdown">
+          <div class="dropdown-item" @click.stop="handleFileAction('new')">新增</div>
+          <div class="dropdown-item" @click.stop="handleFileAction('open')">開啟</div>
+          <div class="dropdown-item" @click.stop="handleFileAction('save')">儲存</div>
+          <div class="dropdown-item" @click.stop="handleFileAction('export')">匯出</div>
+        </div>
+      </div>
+      <div class="menu-item" @click.stop="toggleDropdown('editDropdown')">
+        編輯
+        <div class="dropdown-menu" v-show="editDropdown">
+          <div class="dropdown-item" @click.stop="handleEditAction('undo')">復原</div>
+          <div class="dropdown-item" @click.stop="handleEditAction('redo')">重做</div>
+          <div class="dropdown-item" @click.stop="handleEditAction('cut')">剪下</div>
+          <div class="dropdown-item" @click.stop="handleEditAction('copy')">複製</div>
+          <div class="dropdown-item" @click.stop="handleEditAction('paste')">貼上</div>
+        </div>
+      </div>
+    </div>
+
     <nav>
       <router-link to="/">首頁</router-link>
       <router-link to="/editor">編輯器</router-link>
-      <router-link to="/page">強姦</router-link> 
+      <router-link to="/page">page1</router-link>
+      <router-link to="/meshEditor">mesh editor</router-link>
     </nav>
     <router-view></router-view>
 
     <div class="editor-container">
       <!-- 頂部標題列 -->
       <div class="header">
-        <div class="menu-bar">
-          <div class="menu-item" @click.stop="toggleDropdown('fileDropdown')"> <!-- 添加.stop修飾符 -->
-            檔案
-            <div class="dropdown-menu" v-show="fileDropdown">
-              <div class="dropdown-item" @click.stop="handleFileAction('new')">新增</div>
-              <div class="dropdown-item" @click.stop="handleFileAction('open')">開啟</div>
-              <div class="dropdown-item" @click.stop="handleFileAction('save')">儲存</div>
-              <div class="dropdown-item" @click.stop="handleFileAction('export')">匯出</div>
-            </div>
-          </div>
-          <div class="menu-item" @click.stop="toggleDropdown('editDropdown')">
-            編輯
-            <div class="dropdown-menu" v-show="editDropdown">
-              <div class="dropdown-item" @click.stop="handleEditAction('undo')">復原</div>
-              <div class="dropdown-item" @click.stop="handleEditAction('redo')">重做</div>
-              <div class="dropdown-item" @click.stop="handleEditAction('cut')">剪下</div>
-              <div class="dropdown-item" @click.stop="handleEditAction('copy')">複製</div>
-              <div class="dropdown-item" @click.stop="handleEditAction('paste')">貼上</div>
-            </div>
-          </div>
-        </div>
+
       </div>
 
       <!-- 主畫面：左側工具列 / 中間畫布區 / 右側圖層面板 -->

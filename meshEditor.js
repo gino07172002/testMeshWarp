@@ -2,16 +2,27 @@
 import { useCounterStore } from './mesh.js';
 const { defineComponent, ref, onMounted, h } = Vue;
 import { globalVars as v,triggerRefresh, loadHtmlPage } from './globalVars.js'  // 引入全局變數
+import {
+  gl,
+  texture,
+  program,
+  colorProgram,
+  skeletonProgram,
+  weightPaintProgram,
+  skinnedProgram,
+
+} from './useWebGL.js';
 
 
-export const Editor = defineComponent({
-  name: 'meshEditor',
+//load meshEditor.html at beginning
+export const meshEditor = defineComponent({
+  name: 'Editor',
   setup() {
     const counter = useCounterStore();
     const renderFn = ref(null);
     
     onMounted(async () => {
-      renderFn.value = await loadHtmlPage('./Editor.html');
+      renderFn.value = await loadHtmlPage('./meshEditor.html');
     });
     
     return () =>
