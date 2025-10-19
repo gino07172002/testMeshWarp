@@ -1,4 +1,4 @@
-const { createApp, onMounted, ref, reactive, computed, watch } = Vue;
+const { createApp, onMounted, ref, reactive, computed, watch, provide } = Vue;
 import { globalVars as v } from './globalVars.js'  // 引入全局變數
 
 window.testWord = 'Hello';
@@ -15,6 +15,7 @@ import {
 } from './useBone.js';
 
 import {
+  shaders,
   gl,
   texture,
   program,
@@ -24,8 +25,12 @@ import {
   skinnedProgram,
   render,
   renderGridOnly,
-  renderMeshSkeleton, 
-  renderWeightPaint
+  renderMeshSkeleton,
+  renderWeightPaint,
+  layerForTextureWebgl,
+  layerToTexture,
+  psdRender,
+  pngRender
 } from './useWebGL.js';
 
 import {
@@ -49,124 +54,6 @@ import Bones from './useBone.js';
 
 import ImageCanvasManager from './ImageCanvasManager.js';
 
-// Shader sources
-const shaders = {
-  vertex: `
-        attribute vec2 aPosition;
-        attribute vec2 aTexCoord;
-        varying vec2 vTexCoord;
-        uniform mat4 uTransform;
-        void main() {
-          gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
-          vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
-        }
-      `,
-  fragment: `
-        precision mediump float;
-        varying vec2 vTexCoord;
-        uniform sampler2D uTexture;
-        uniform float uOpacity;
-        void main() {
-          vec4 color = texture2D(uTexture, vTexCoord);
-          gl_FragColor = vec4(color.rgb, color.a * uOpacity);
-        }
-      `,
-  colorVertex: `
-        attribute vec2 aPosition;
-        uniform float uPointSize;
-        void main() {
-          gl_Position = vec4(aPosition, 0.0, 1.0);
-          gl_PointSize = uPointSize;
-        }
-      `,
-  colorFragment: `
-        precision mediump float;
-        uniform vec4 uColor;
-        void main() {
-          gl_FragColor = uColor;
-        }
-      `,
-  skeletonVertex: `
-        attribute vec2 aPosition;
-        uniform float uPointSize;
-        void main() {
-          gl_Position = vec4(aPosition, 0.0, 1.0);
-          gl_PointSize = uPointSize;
-        }
-      `,
-  skeletonFragment: `
-        precision mediump float;
-        uniform vec4 uColor;
-        void main() {
-          gl_FragColor = uColor;
-        }
-      `,
-  weightPaintVertex: `
-    attribute vec2 aPosition;
-    uniform mat4 uTransform;
-    void main() {
-      gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
-    }
-  `,
-  weightPaintFragment: `
-    precision mediump float;
-    uniform vec4 uColor;
-    void main() {
-      gl_FragColor = uColor;
-    }
-  `,
-  skinnedVertex: `
- attribute vec2 aPosition;
-  attribute vec2 aTexCoord;
-
-  // Bone Skinning
-  attribute vec4 aBoneIndices;   // 每個頂點最多 4 骨骼
-  attribute vec4 aBoneWeights;
-
-  uniform mat4 uTransform;
-  uniform sampler2D uBoneTexture; // 骨骼矩陣 texture
-  uniform float uBoneTextureSize; // 骨骼數量 / texture 寬度 (每骨骼 4 row)
-
-  varying vec2 vTexCoord;
-
-  // 從骨骼 texture 讀 4x4 矩陣
-  mat4 getBoneMatrix(float index) {
-      float y = (index * 4.0 + 0.5) / uBoneTextureSize;
-      mat4 m;
-      m[0] = texture2D(uBoneTexture, vec2(0.5 / 4.0, y));
-      m[1] = texture2D(uBoneTexture, vec2(1.5 / 4.0, y));
-      m[2] = texture2D(uBoneTexture, vec2(2.5 / 4.0, y));
-      m[3] = texture2D(uBoneTexture, vec2(3.5 / 4.0, y));
-      return m;
-  }
-
-  void main() {
-      vec4 pos = vec4(aPosition, 0.0, 1.0);
-      vec4 skinned = vec4(0.0);
-
-      for(int i = 0; i < 4; i++) {
-          float bIndex = aBoneIndices[i];
-          float w = aBoneWeights[i];
-          mat4 boneMat = getBoneMatrix(bIndex);
-          skinned += boneMat * pos * w;
-      }
-
-      gl_Position = uTransform * skinned;
-      vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
-  }
-  `,
-  skinnedFragment: `
-  precision mediump float;
-  varying vec2 vTexCoord;
-  uniform sampler2D uTexture;
-  uniform float uOpacity;
-
-  void main() {
-      vec4 color = texture2D(uTexture, vTexCoord);
-      gl_FragColor = vec4(color.rgb, color.a * uOpacity);
-  }
-    `
-};
 
 const testWordOutside = ref("test word Outside");
 
@@ -196,51 +83,7 @@ const convertToNDC = (e, canvas, container) => {
 };
 
 
-const layerToTexture = (gl, layer) => {
-  return new Promise((resolve, reject) => {
-    // 從圖層中提取必要資料
-    const { imageData, width, height } = layer;
 
-    // 檢查資料有效性
-    if (!imageData || width <= 0 || height <= 0) {
-      reject(new Error('無效的圖層資料'));
-      return;
-    }
-
-    // 創建並綁定紋理
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-
-    // 設置像素儲存參數（翻轉 Y 軸以匹配 PSD 座標系）
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-
-    // 上傳紋理資料
-    gl.texImage2D(
-      gl.TEXTURE_2D,        // 目標
-      0,                    // 詳細級別
-      gl.RGBA,             // 內部格式
-      width,               // 寬度
-      height,              // 高度
-      0,                    // 邊框
-      gl.RGBA,             // 格式
-      gl.UNSIGNED_BYTE,    // 類型
-      imageData            // 像素資料
-    );
-
-    // 設置紋理參數
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-    // 解綁紋理
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    let coords = { top: layer.top, left: layer.left, bottom: layer.bottom, right: layer.right };
-    // 解析 Promise，返回紋理 all coordinate needed
-    console.log(" top : ", layer.top, " , left: ", layer.left);
-    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height, top: layer.top, left: layer.left, image: imageData });
-  });
-};
 
 
 // Texture Loading Functions
@@ -496,6 +339,7 @@ const app = Vue.createApp({
 
             layersForTexture.push(layerForTexture);
           }
+          layerForTextureWebgl.value = layersForTexture;
 
 
           console.log(" then renew canvas... ");
@@ -642,7 +486,47 @@ const app = Vue.createApp({
       showLayers.value = glsInstance.layers;
     }
 
-
+    // provide reactive values and functions to child components that use inject()
+    try {
+      provide && provide('activeTool', activeTool);
+      provide && provide('selectTool', selectTool);
+      provide && provide('bindingBoneWeight', bindingBoneWeight);
+      // Additional shared state for allEditor
+      provide && provide('skeletons', skeletons);
+      provide && provide('lastSelectedBone', lastSelectedBone);
+      provide && provide('selectedItem', ref(null));
+      provide && provide('showLayers', showLayers);
+      provide && provide('selectedLayers', selectedLayers);
+      provide && provide('chosenLayers', chosenLayers);
+      provide && provide('selectedGroups', selectedGroups);
+      provide && provide('currentChosedLayer', currentChosedLayer);
+      provide && provide('vertexGroupInfo', vertexGroupInfo);
+      provide && provide('editingGroup', editingGroup);
+      provide && provide('weightValue', weightValue);
+      provide && provide('timelineList', timelineList);
+      provide && provide('selectedTimelineId', selectedTimelineId);
+      provide && provide('timeline2', timeline2);
+      provide && provide('currentTimeline', currentTimeline);
+      provide && provide('playheadPosition', playheadPosition);
+      // functions
+      provide && provide('onAdd', onAdd);
+      provide && provide('onRemove', onRemove);
+      provide && provide('onAssign', onAssign);
+      provide && provide('onSelect', onSelect);
+      provide && provide('setWeight', setWeight);
+      provide && provide('choseTimelineId', choseTimelineId);
+      provide && provide('addTimeline', addTimeline);
+      provide && provide('removeTimeline', removeTimeline);
+      provide && provide('addKeyframe', addKeyframe);
+      provide && provide('removeKeyframe', removeKeyframe);
+      provide && provide('handlePSDUpload', handlePSDUpload);
+      provide && provide('psdImage', psdImage);
+      provide && provide('playAnimation', playAnimation);
+      provide && provide('exportSkeletonToSpineJson', exportSkeletonToSpineJson);
+      provide && provide('saveSpineJson', saveSpineJson);
+    } catch (e) {
+      console.warn('provide failed', e);
+    }
 
     function toggleNode(nodeId) {
       // nodeId 可能是 string 或物件（防呆）
@@ -908,26 +792,27 @@ const app = Vue.createApp({
 
     // 修复后的渲染函数 - 解决只能看到最后一个图层的问题
     const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer, jobName) => {
-      if (currentJobName != jobName)
+      if (currentJobName != jobName) {
+        console.log("stop running ");
         return;
-
+      }
       time += 0.016;
       render(gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers.value);
 
       // === 在所有圖層之後渲染格線/骨架 ===
       if (isWeightPaintMode && selectedGroups.value.length > 0) {
         // Weight Paint Mode
-        renderGridOnly(gl, colorProgram,glsInstance.layers[currentChosedLayer.value],glsInstance.getLayerSize(),currentChosedLayer.value, selectedVertices.value); // 先畫網格和小點
-        renderWeightPaint(gl, weightPaintProgram.value, selectedGroups.value[0],glsInstance.layers[currentChosedLayer.value]); // 再疊加權重視覺化
+        renderGridOnly(gl, colorProgram, glsInstance.layers[currentChosedLayer.value], glsInstance.getLayerSize(), currentChosedLayer.value, selectedVertices.value); // 先畫網格和小點
+        renderWeightPaint(gl, weightPaintProgram.value, selectedGroups.value[0], glsInstance.layers[currentChosedLayer.value]); // 再疊加權重視覺化
       } else {
         // 正常模式
         // const selectedVertices = getSelectedVertexIndices(); // 你的選取邏輯
-        renderGridOnly(gl, colorProgram,glsInstance.layers[currentChosedLayer.value],glsInstance.getLayerSize(),currentChosedLayer.value, selectedVertices.value);
+        renderGridOnly(gl, colorProgram, glsInstance.layers[currentChosedLayer.value], glsInstance.getLayerSize(), currentChosedLayer.value, selectedVertices.value);
       }
 
       // === 渲染骨架 ===
       if (typeof renderMeshSkeleton === 'function' && meshSkeleton) {
-        renderMeshSkeleton(gl, skeletonProgram, meshSkeleton,bonesInstance , mousePressed,activeTool.value === "bone-animate");
+        renderMeshSkeleton(gl, skeletonProgram, meshSkeleton, bonesInstance, mousePressed, activeTool.value === "bone-animate");
       }
       // 下一幀
       requestAnimationFrame(() =>
@@ -935,7 +820,7 @@ const app = Vue.createApp({
       );
     };
 
-   
+
 
 
     // 调试函数：打印图层信息
@@ -1047,235 +932,21 @@ const app = Vue.createApp({
     };
 
     const firstImage = async () => {
+
       if (!gl.value) return;
-
-      console.log("load first image...");
-
-      // 清空之前的圖層
-      glsInstance.clearAllLayer();
-      texture.value = [];
-      selectedLayers.value = [];
-
-      // 加载纹理
-      let result = await loadTexture(gl.value, './png3.png');
-
-      let layer = {
-        imageData: result.data,
-        width: result.width,
-        height: result.height,
-        top: 0,   // 預設居中顯示
-        left: 0
-      };
-
-      texture.value.push(await layerToTexture(gl.value, layer));
-      glsInstance.addLayer("QQ");
-
-      let canvasHeight = layer.height;
-      let canvasWidth = layer.width;
-
-      // === 初始化图层缓冲区和顶点属性 ===
-      for (let i = 0; i < texture.value.length; i++) {
-        glsInstance.createLayerBuffers(
-          gl.value,
-          texture.value[i].image,
-          texture.value[i].width,
-          texture.value[i].height,
-          1,
-          -1,
-          canvasWidth,
-          canvasHeight,
-          glsInstance.layers[i]
-        );
-
-        // 绑定当前图层的缓冲区
-        const layerObj = glsInstance.layers[i];
-        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layerObj.vbo);
-        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layerObj.ebo);
-
-        // === 设置顶点属性（只需一次）===
-        // 1. 纹理程序的属性
-        gl.value.useProgram(program.value);
-        const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
-        const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
-        gl.value.enableVertexAttribArray(posAttrib);
-        gl.value.enableVertexAttribArray(texAttrib);
-        gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
-        gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
-
-        // 2. 颜色程序的属性
-        gl.value.useProgram(colorProgram.value);
-        const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
-        gl.value.enableVertexAttribArray(colorPosAttrib);
-        gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
-
-        // 把圖層加到選取清單，讓 render2 能正常跑
-        selectedLayers.value.push(i);
-      }
+      await pngRender('./png3.png', selectedLayers, wholeImageHeight, wholeImageWidth);
       syncLayers();
-      console.log(" sync layers checking size : ", glsInstance.layers.length);
-      // 解绑所有缓冲区
-      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
-      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
-
       console.log("WebGL initialization complete");
       currentJobName = "png";
 
       // 启动渲染循环
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "png");
     };
-
-    const secondImage = async () => {
-
-      console.log(" load first image ... ");
-      // 加载纹理
-      let result = await loadTexture(gl.value, './png4.png');
-      texture.value = [];
-      glsInstance.clearAllLayer();
-
-      let layer = {
-        imageData: result.data,
-        width: result.width,
-        height: result.height
-      };
-
-      let result2 = await loadTexture(gl.value, './png2.png');
-
-
-      let layer2 = {
-        imageData: result2.data,
-        width: result2.width,
-        height: result2.height
-      };
-      texture.value.push(await layerToTexture(gl.value, layer));
-      texture.value.push(await layerToTexture(gl.value, layer2));
-
-      let canvasHeight = layer.height;
-      let canvasWidth = layer.width;
-      glsInstance.addLayer("QQ");
-      glsInstance.addLayer("ahaha");
-      // === 初始化图层缓冲区和顶点属性 ===
-      for (let i = 0; i < texture.value.length; i++) {
-
-        glsInstance.createLayerBuffers(gl.value, texture.value[i].image, texture.value[i].width, texture.value[i].height, 1, -1, canvasWidth, canvasHeight, glsInstance.layers[i]);
-
-        // 绑定当前图层的缓冲区
-        const layer = glsInstance.layers[i];
-        console.log("hi layer", layer);
-        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
-        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
-
-        // === 设置顶点属性（只需一次）===
-        // 1. 纹理程序的属性
-        gl.value.useProgram(program.value);
-        const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
-        const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
-        gl.value.enableVertexAttribArray(posAttrib);
-        gl.value.enableVertexAttribArray(texAttrib);
-        gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
-        gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
-
-        // 2. 颜色程序的属性
-        gl.value.useProgram(colorProgram.value);
-        const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
-        gl.value.enableVertexAttribArray(colorPosAttrib);
-        gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
-      }
-
-
-
-      // 解绑所有缓冲区
-      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
-      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
-
-      console.log("WebGL initialization complete");
-      currentJobName = "png2";
-      // 启动渲染循环
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "png2");
-    }
-
     const psdImage = async () => {
       if (!gl.value) return;
-      glsInstance.clearAllLayer();
-      texture.value = [];
-
-      let index = 0;
-      let canvasHeight = wholeImageWidth;
-      let canvasWidth = wholeImageHeight;
-
-      for (const layerData of layersForTexture) {
-        // === 1. 建立 WebGL 紋理 ===
-        const texInfo = await layerToTexture(gl.value, layerData);
-        texture.value.push(texInfo);
-
-        // === 2. 建立 layer 實體 ===
-        const layerName = "psd" + index;
-        const layer = glsInstance.addLayer(layerName);
-        index += 1;
-
-        // === 3. 建立 attachment 並綁到 layer 上 ===
-        const attachment = Attachment(layerData, texInfo.tex);
-        layer.attachment = attachment;   // ✅ 新增這行，將 attachment 掛進 layer
-
-        // === Log 檢查 attachment 是否正確建立 ===
-        console.log(`Attachment for layer "${layer.name}" created:`);
-        console.log({
-          name: attachment.name,
-          texture: attachment.texture ? "OK" : "NULL",
-          width: attachment.width,
-          height: attachment.height,
-          verticesLength: attachment.vertices.length,
-          indicesLength: attachment.indices.length,
-          visible: attachment.visible,
-          coords: attachment.coords
-        });
-      }
-
-      // === 同步/初始化 ===
+      await psdRender(selectedLayers, wholeImageHeight, wholeImageWidth);
       syncLayers();
-      selectedLayers.value = [];
-
-      console.log(" glsInstance.layers size: ", glsInstance.layers.length);
-
-      for (let i = 0; i < texture.value.length; i++) {
-        const texInfo = texture.value[i];
-        const layer = glsInstance.layers[i];
-
-        // === 使用 layer.attachment 的資料代替 layerData ===
-        const att = layer.attachment;
-        glsInstance.createLayerBuffers(
-          gl.value,
-          att.image, att.width, att.height,
-          att.top, att.left,
-          canvasWidth, canvasHeight,
-          layer
-        );
-
-        // === 維持原有的 attribute 綁定 ===
-        gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
-        gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
-
-        gl.value.useProgram(program.value);
-        const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
-        const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
-        gl.value.enableVertexAttribArray(posAttrib);
-        gl.value.enableVertexAttribArray(texAttrib);
-        gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
-        gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
-
-        gl.value.useProgram(colorProgram.value);
-        const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
-        gl.value.enableVertexAttribArray(colorPosAttrib);
-        gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
-
-        selectedLayers.value.push(i);
-      }
-
-      gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
-      gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
-
-      console.log("WebGL initialization complete");
       currentJobName = "psd";
-
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "psd");
     };
     const toggleLayerSelection = (index) => {
@@ -1832,6 +1503,7 @@ const app = Vue.createApp({
     }
     onMounted(async () => {
 
+
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
 
@@ -1856,7 +1528,6 @@ const app = Vue.createApp({
       handleNameClick,
       lastSelectedBone,
       psdImage,
-      secondImage,
       firstImage,
       showLayers,
       selectedLayers,
@@ -1896,6 +1567,7 @@ const app = Vue.createApp({
       counter,
       testWord
     };
+
   }
 });
 const TreeItem = {
@@ -1978,6 +1650,7 @@ import { useCounterStore } from './mesh.js'
 
 
 import { Home } from './Home.js';
+import { allEditor } from './allEditor.js';
 import { Editor } from './Editor.js';
 import { Page } from './page.js';
 import { meshEditor } from './meshEditor.js';
@@ -1986,6 +1659,7 @@ const routes = [
   {
     path: '/', component: Home,
   },
+  { path: '/allEditor', component: allEditor },
   { path: '/editor', component: Editor },
   { path: '/page', component: Page },
   { path: '/meshEditor', component: meshEditor },

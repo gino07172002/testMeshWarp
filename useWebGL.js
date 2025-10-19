@@ -9,7 +9,8 @@ import {
 
 import {
   Mesh2D,
-  Bone
+  Bone,
+  Attachment
 } from './mesh.js';
 // 📦 全局狀態區 (State)
 const gl = ref(null);                    // WebGL 上下文
@@ -19,7 +20,126 @@ const colorProgram = ref(null);          // 顏色著色器程序
 const skeletonProgram = ref(null);       // 骨骼著色器程序
 const weightPaintProgram = ref(null);
 const skinnedProgram = ref(null);
+const layerForTextureWebgl = ref([]);
 
+// Shader sources
+export const shaders = {
+  vertex: `
+        attribute vec2 aPosition;
+        attribute vec2 aTexCoord;
+        varying vec2 vTexCoord;
+        uniform mat4 uTransform;
+        void main() {
+          gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
+          vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
+        }
+      `,
+  fragment: `
+        precision mediump float;
+        varying vec2 vTexCoord;
+        uniform sampler2D uTexture;
+        uniform float uOpacity;
+        void main() {
+          vec4 color = texture2D(uTexture, vTexCoord);
+          gl_FragColor = vec4(color.rgb, color.a * uOpacity);
+        }
+      `,
+  colorVertex: `
+        attribute vec2 aPosition;
+        uniform float uPointSize;
+        void main() {
+          gl_Position = vec4(aPosition, 0.0, 1.0);
+          gl_PointSize = uPointSize;
+        }
+      `,
+  colorFragment: `
+        precision mediump float;
+        uniform vec4 uColor;
+        void main() {
+          gl_FragColor = uColor;
+        }
+      `,
+  skeletonVertex: `
+        attribute vec2 aPosition;
+        uniform float uPointSize;
+        void main() {
+          gl_Position = vec4(aPosition, 0.0, 1.0);
+          gl_PointSize = uPointSize;
+        }
+      `,
+  skeletonFragment: `
+        precision mediump float;
+        uniform vec4 uColor;
+        void main() {
+          gl_FragColor = uColor;
+        }
+      `,
+  weightPaintVertex: `
+    attribute vec2 aPosition;
+    uniform mat4 uTransform;
+    void main() {
+      gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
+    }
+  `,
+  weightPaintFragment: `
+    precision mediump float;
+    uniform vec4 uColor;
+    void main() {
+      gl_FragColor = uColor;
+    }
+  `,
+  skinnedVertex: `
+ attribute vec2 aPosition;
+  attribute vec2 aTexCoord;
+
+  // Bone Skinning
+  attribute vec4 aBoneIndices;   // 每個頂點最多 4 骨骼
+  attribute vec4 aBoneWeights;
+
+  uniform mat4 uTransform;
+  uniform sampler2D uBoneTexture; // 骨骼矩陣 texture
+  uniform float uBoneTextureSize; // 骨骼數量 / texture 寬度 (每骨骼 4 row)
+
+  varying vec2 vTexCoord;
+
+  // 從骨骼 texture 讀 4x4 矩陣
+  mat4 getBoneMatrix(float index) {
+      float y = (index * 4.0 + 0.5) / uBoneTextureSize;
+      mat4 m;
+      m[0] = texture2D(uBoneTexture, vec2(0.5 / 4.0, y));
+      m[1] = texture2D(uBoneTexture, vec2(1.5 / 4.0, y));
+      m[2] = texture2D(uBoneTexture, vec2(2.5 / 4.0, y));
+      m[3] = texture2D(uBoneTexture, vec2(3.5 / 4.0, y));
+      return m;
+  }
+
+  void main() {
+      vec4 pos = vec4(aPosition, 0.0, 1.0);
+      vec4 skinned = vec4(0.0);
+
+      for(int i = 0; i < 4; i++) {
+          float bIndex = aBoneIndices[i];
+          float w = aBoneWeights[i];
+          mat4 boneMat = getBoneMatrix(bIndex);
+          skinned += boneMat * pos * w;
+      }
+
+      gl_Position = uTransform * skinned;
+      vTexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y);
+  }
+  `,
+  skinnedFragment: `
+  precision mediump float;
+  varying vec2 vTexCoord;
+  uniform sampler2D uTexture;
+  uniform float uOpacity;
+
+  void main() {
+      vec4 color = texture2D(uTexture, vTexCoord);
+      gl_FragColor = vec4(color.rgb, color.a * uOpacity);
+  }
+    `
+};
 
 
 const transparentCells = ref(new Set()); // Store transparent cells
@@ -351,7 +471,7 @@ class gls {
 }
 
 //webgl function to render image
-export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers) => {
+export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers = []) => {
 
 
   // 啟用混合，但不要用深度測試（透明圖層會出問題）
@@ -361,7 +481,6 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
   // 不要清掉畫布，不然會只剩最後一層
   // gl.clear(gl.COLOR_BUFFER_BIT);
 
-
   if (!texture.value || !Array.isArray(texture.value) || texture.value.length === 0) {
     console.log(" nothing here, stop loop");
     return;
@@ -370,7 +489,6 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
   const textures = texture.value;
 
   gl.useProgram(program);
-
 
   // let layerIndices = [0, 1, 2, 3, 4];
   let layerIndices = selectedLayers;
@@ -846,8 +964,254 @@ export function renderGridOnly(gl, colorProgram, baseLayer, layerSize, currentCh
     }
   }
 }
+export const layerToTexture = (gl, layer) => {
+  return new Promise((resolve, reject) => {
+    // 從圖層中提取必要資料
+    const { imageData, width, height } = layer;
+
+    // 檢查資料有效性
+    if (!imageData || width <= 0 || height <= 0) {
+      reject(new Error('無效的圖層資料'));
+      return;
+    }
+
+    // 創建並綁定紋理
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // 設置像素儲存參數（翻轉 Y 軸以匹配 PSD 座標系）
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+    // 上傳紋理資料
+    gl.texImage2D(
+      gl.TEXTURE_2D,        // 目標
+      0,                    // 詳細級別
+      gl.RGBA,             // 內部格式
+      width,               // 寬度
+      height,              // 高度
+      0,                    // 邊框
+      gl.RGBA,             // 格式
+      gl.UNSIGNED_BYTE,    // 類型
+      imageData            // 像素資料
+    );
+
+    // 設置紋理參數
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    // 解綁紋理
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    let coords = { top: layer.top, left: layer.left, bottom: layer.bottom, right: layer.right };
+    // 解析 Promise，返回紋理 all coordinate needed
+    console.log(" top : ", layer.top, " , left: ", layer.left);
+    resolve({ tex: texture, coords: coords, width: layer.width, height: layer.height, top: layer.top, left: layer.left, image: imageData });
+  });
+};
+const loadTexture = (gl, url) => {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => {
+      const currentTexture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, currentTexture);
+
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = image.width;
+      tempCanvas.height = image.height;
+      const tempCtx = tempCanvas.getContext('2d');
+
+      tempCtx.drawImage(image, 0, 0);
+
+      const imgData = tempCtx.getImageData(0, 0, image.width, image.height);
+
+      gl.bindTexture(gl.TEXTURE_2D, null);
 
 
+      resolve({
+        texture: currentTexture,      // WebGL紋理物件
+        data: imgData.data,            // 圖像的像素數據 (Uint8Array)
+        width: image.width,            // 圖像寬度
+        height: image.height           // 圖像高度
+      });
+    };
+
+    image.onerror = (error) => {
+      console.error("Image loading failed:", error);
+      reject(error);
+    };
+
+    image.src = url;
+  });
+};
+export const pngRender = async (path, selectedLayers, wholeImageHeight, wholeImageWidth) => {
+  console.log("load first image...");
+
+  // 清空之前的圖層
+  glsInstance.clearAllLayer();
+  texture.value = [];
+  selectedLayers.value = [];
+
+  // 加载纹理
+  let result = await loadTexture(gl.value, path);
+
+  let layer = {
+    imageData: result.data,
+    width: result.width,
+    height: result.height,
+    top: 0,   // 預設居中顯示
+    left: 0
+  };
+
+  texture.value.push(await layerToTexture(gl.value, layer));
+  console.log(" hi texture in load png: ", texture.value.length);
+  glsInstance.addLayer("QQ");
+
+  let canvasHeight = layer.height;
+  let canvasWidth = layer.width;
+
+  // === 初始化图层缓冲区和顶点属性 ===
+  for (let i = 0; i < texture.value.length; i++) {
+    glsInstance.createLayerBuffers(
+      gl.value,
+      texture.value[i].image,
+      texture.value[i].width,
+      texture.value[i].height,
+      1,
+      -1,
+      canvasWidth,
+      canvasHeight,
+      glsInstance.layers[i]
+    );
+
+    // 绑定当前图层的缓冲区
+    const layerObj = glsInstance.layers[i];
+    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layerObj.vbo);
+    gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layerObj.ebo);
+
+    // === 设置顶点属性（只需一次）===
+    // 1. 纹理程序的属性
+    gl.value.useProgram(program.value);
+    const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
+    const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
+    gl.value.enableVertexAttribArray(posAttrib);
+    gl.value.enableVertexAttribArray(texAttrib);
+    gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
+    gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
+
+    // 2. 颜色程序的属性
+    gl.value.useProgram(colorProgram.value);
+    const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
+    gl.value.enableVertexAttribArray(colorPosAttrib);
+    gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
+
+    // 把圖層加到選取清單，讓 render2 能正常跑
+    selectedLayers.value.push(i);
+  }
+
+  console.log(" sync layers checking size : ", glsInstance.layers.length);
+  // 解绑所有缓冲区
+  gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
+  gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
+
+}
+
+export const psdRender = async (selectedLayers, wholeImageHeight, wholeImageWidth) => {
+
+  glsInstance.clearAllLayer();
+  texture.value = [];
+
+  let index = 0;
+  let canvasHeight = wholeImageWidth;
+  let canvasWidth = wholeImageHeight;
+
+  for (const layerData of layerForTextureWebgl.value) {
+    // === 1. 建立 WebGL 紋理 ===
+    const texInfo = await layerToTexture(gl.value, layerData);
+    texture.value.push(texInfo);
+
+    // === 2. 建立 layer 實體 ===
+    const layerName = "psd" + index;
+    const layer = glsInstance.addLayer(layerName);
+    index += 1;
+
+    // === 3. 建立 attachment 並綁到 layer 上 ===
+
+    const attachment = Attachment(layerData, texInfo.tex);
+    layer.attachment = attachment;   // ✅ 新增這行，將 attachment 掛進 layer
+
+    // === Log 檢查 attachment 是否正確建立 ===
+    console.log(`Attachment for layer "${layer.name}" created:`);
+    console.log({
+      name: attachment.name,
+      texture: attachment.texture ? "OK" : "NULL",
+      width: attachment.width,
+      height: attachment.height,
+      verticesLength: attachment.vertices.length,
+      indicesLength: attachment.indices.length,
+      visible: attachment.visible,
+      coords: attachment.coords
+    });
+
+  }
+
+  // === 同步/初始化 ===
+  //syncLayers();
+  selectedLayers.value = [];
+
+  console.log(" glsInstance.layers size: ", glsInstance.layers.length);
+
+  for (let i = 0; i < texture.value.length; i++) {
+    const texInfo = texture.value[i];
+    const layer = glsInstance.layers[i];
+
+    // === 使用 layer.attachment 的資料代替 layerData ===
+
+    const att = layer.attachment;
+    glsInstance.createLayerBuffers(
+      gl.value,
+      att.image, att.width, att.height,
+      att.top, att.left,
+      canvasWidth, canvasHeight,
+      layer
+    );
+
+
+    // === 維持原有的 attribute 綁定 ===
+    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
+    gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
+
+    gl.value.useProgram(program.value);
+    const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
+    const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
+    gl.value.enableVertexAttribArray(posAttrib);
+    gl.value.enableVertexAttribArray(texAttrib);
+    gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
+    gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
+
+    gl.value.useProgram(colorProgram.value);
+    const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
+    gl.value.enableVertexAttribArray(colorPosAttrib);
+    gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
+
+    selectedLayers.value.push(i);
+  }
+
+  gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
+  gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
+
+  console.log("WebGL initialization complete");
+
+}
 
 //外部引用
 // 📤 模組導出 (Exports)
@@ -859,11 +1223,13 @@ export {
   skeletonProgram,
   weightPaintProgram,
   skinnedProgram,
-
+  layerForTextureWebgl,
 
   configSettings,
   transparentCells,
   isAreaTransparent
 };
 
-export default new gls();
+const glsInstance = new gls();
+
+export default glsInstance;

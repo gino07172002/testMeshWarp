@@ -1,6 +1,17 @@
-<!-- editor.html -->
-<div>
+<div :key="v._refreshKey">
   <h1>編輯器QQDD</h1>
-  <p>Count: {{ counter.count }}</p>
-  <button @click="counter.increment()">+1</button>
+  
+  <!-- 🔍 Debug: 檢查 glsInstance 是否存在 -->
+  <p>glsInstance 存在嗎? {{ v.glsInstance ? '是' : '否' }}</p>
+  <p>glsInstance 類型: {{ typeof v.glsInstance }}</p>
+  <p> checking counter:</p>
+  <!-- 只在確定存在時才訪問 layers -->
+  <p v-if="v.glsInstance && v.glsInstance.layers">
+    test glsinstance info: {{ v.glsInstance.layers.length }}
+  </p>
+  <p v-else style="color: red;">
+    ⚠️ glsInstance 或 layers 未定義
+  </p>
+  
+  <!-- ... 其他內容 -->
 </div>

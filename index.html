@@ -39,6 +39,7 @@
 
     <nav>
       <router-link to="/">首頁</router-link>
+      <router-link to="/allEditor">allEditor</router-link>
       <router-link to="/editor">編輯器</router-link>
       <router-link to="/page">page1</router-link>
       <router-link to="/meshEditor">mesh editor</router-link>
@@ -182,7 +183,7 @@
       </div>
       {{timeline2}}
 
-      <div v-if="timeline2" class="timeline" v-on:contextmenu.prevent>
+      <div class="timeline" v-on:contextmenu.prevent>
         <div class="timeline-header">
           <div class="timeline-title">動畫時間軸
             <!-- ▼▼ 新增：時間軸選擇與管理 ▼▼ -->
