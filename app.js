@@ -487,46 +487,7 @@ const app = Vue.createApp({
     }
 
     // provide reactive values and functions to child components that use inject()
-    try {
-      provide && provide('activeTool', activeTool);
-      provide && provide('selectTool', selectTool);
-      provide && provide('bindingBoneWeight', bindingBoneWeight);
-      // Additional shared state for allEditor
-      provide && provide('skeletons', skeletons);
-      provide && provide('lastSelectedBone', lastSelectedBone);
-      provide && provide('selectedItem', ref(null));
-      provide && provide('showLayers', showLayers);
-      provide && provide('selectedLayers', selectedLayers);
-      provide && provide('chosenLayers', chosenLayers);
-      provide && provide('selectedGroups', selectedGroups);
-      provide && provide('currentChosedLayer', currentChosedLayer);
-      provide && provide('vertexGroupInfo', vertexGroupInfo);
-      provide && provide('editingGroup', editingGroup);
-      provide && provide('weightValue', weightValue);
-      provide && provide('timelineList', timelineList);
-      provide && provide('selectedTimelineId', selectedTimelineId);
-      provide && provide('timeline2', timeline2);
-      provide && provide('currentTimeline', currentTimeline);
-      provide && provide('playheadPosition', playheadPosition);
-      // functions
-      provide && provide('onAdd', onAdd);
-      provide && provide('onRemove', onRemove);
-      provide && provide('onAssign', onAssign);
-      provide && provide('onSelect', onSelect);
-      provide && provide('setWeight', setWeight);
-      provide && provide('choseTimelineId', choseTimelineId);
-      provide && provide('addTimeline', addTimeline);
-      provide && provide('removeTimeline', removeTimeline);
-      provide && provide('addKeyframe', addKeyframe);
-      provide && provide('removeKeyframe', removeKeyframe);
-      provide && provide('handlePSDUpload', handlePSDUpload);
-      provide && provide('psdImage', psdImage);
-      provide && provide('playAnimation', playAnimation);
-      provide && provide('exportSkeletonToSpineJson', exportSkeletonToSpineJson);
-      provide && provide('saveSpineJson', saveSpineJson);
-    } catch (e) {
-      console.warn('provide failed', e);
-    }
+
 
     function toggleNode(nodeId) {
       // nodeId 可能是 string 或物件（防呆）
@@ -1501,6 +1462,8 @@ const app = Vue.createApp({
     const choseTimelineId = () => {
       console.log("hi select timeline ID ", selectedTimelineId);
     }
+
+
     onMounted(async () => {
 
 
@@ -1517,6 +1480,54 @@ const app = Vue.createApp({
       console.log("勾選的圖層:", JSON.stringify(newVal)); // 這裡可以 emit 或呼叫父組件的方法
     });
     const currentTimeline = computed(() => timelineList.value[selectedTimelineId.value]);
+
+    try {
+      provide && provide('activeTool', activeTool);
+      provide && provide('selectTool', selectTool);
+      provide && provide('bindingBoneWeight', bindingBoneWeight);
+      // Additional shared state for allEditor
+      provide && provide('skeletons', skeletons);
+      provide && provide('lastSelectedBone', lastSelectedBone);
+      provide && provide('selectedItem', ref(null));
+      provide && provide('showLayers', showLayers);
+      provide && provide('selectedLayers', selectedLayers);
+      provide && provide('chosenLayers', chosenLayers);
+      provide && provide('selectedGroups', selectedGroups);
+      provide && provide('currentChosedLayer', currentChosedLayer);
+      provide && provide('vertexGroupInfo', vertexGroupInfo);
+      provide && provide('editingGroup', editingGroup);
+      provide && provide('weightValue', weightValue);
+      provide && provide('timelineList', timelineList);
+      provide && provide('selectedTimelineId', selectedTimelineId);
+      provide && provide('timeline2', timeline2);
+      provide && provide('currentTimeline', currentTimeline);
+      provide && provide('playheadPosition', playheadPosition);
+      // functions
+      provide && provide('onAdd', onAdd);
+      provide && provide('onRemove', onRemove);
+      provide && provide('onAssign', onAssign);
+      provide && provide('onSelect', onSelect);
+      provide && provide('setWeight', setWeight);
+      provide && provide('choseTimelineId', choseTimelineId);
+      provide && provide('addTimeline', addTimeline);
+      provide && provide('removeTimeline', removeTimeline);
+      provide && provide('addKeyframe', addKeyframe);
+      provide && provide('removeKeyframe', removeKeyframe);
+      provide && provide('psdImage', psdImage);
+      provide && provide('playAnimation', playAnimation);
+      provide && provide('exportSkeletonToSpineJson', exportSkeletonToSpineJson);
+      provide && provide('saveSpineJson', saveSpineJson);
+      provide && provide('selectTimeline', selectTimeline);
+      provide && provide('expandedNodes',  expandedNodes); 
+      provide && provide('toggleNode',  toggleNode);
+      provide && provide('handleNameClick',  handleNameClick);
+      provide && provide(' toggleLayerSelection',toggleLayerSelection);
+    
+      
+    } catch (e) {
+      console.warn('provide failed', e);
+    }
+
     return {
       selectTool,
       activeTool,
@@ -1569,6 +1580,8 @@ const app = Vue.createApp({
     };
 
   }
+
+
 });
 const TreeItem = {
   props: ['node', 'expandedNodes', 'selectedItem'],

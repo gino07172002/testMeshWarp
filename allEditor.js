@@ -2,6 +2,14 @@
 import { useCounterStore } from './mesh.js';
 const { defineComponent, ref, onMounted, h, nextTick, inject, computed } = Vue;
 import { globalVars as v, triggerRefresh, loadHtmlPage } from './globalVars.js'  // 引入全局變數
+import {
+  //initBone,
+  boneParents,
+  meshSkeleton,
+  skeletons,
+  lastSelectedBone,
+  selectedVertices
+} from './useBone.js';
 
 import {
   Timeline2
@@ -16,7 +24,10 @@ import {
   weightPaintProgram,
   skinnedProgram,
   render,
-  pngRender
+  renderGridOnly,
+  pngRender,
+  renderMeshSkeleton
+
 } from './useWebGL.js';
 
 import glsInstance from './useWebGL.js';
@@ -75,11 +86,11 @@ export const allEditor = defineComponent({
     const timeline2 = inject('timeline2', computed(() => timelineList.value[selectedTimelineId.value]));
 
     // inject functions (fallback to local no-ops)
-    const onAdd = inject('onAdd', () => {});
-    const onRemove = inject('onRemove', () => {});
-    const onAssign = inject('onAssign', () => {});
-    const onSelect = inject('onSelect', () => {});
-    const setWeight = inject('setWeight', () => {});
+    const onAdd = inject('onAdd', () => { });
+    const onRemove = inject('onRemove', () => { });
+    const onAssign = inject('onAssign', () => { });
+    const onSelect = inject('onSelect', () => { });
+    const setWeight = inject('setWeight', () => { });
     const choseTimelineId = inject('choseTimelineId', () => { console.log('choseTimelineId not provided'); });
     const renameTimeline = inject('renameTimeline', () => { console.log('renameTimeline not provided'); });
     const addTimeline = inject('addTimeline', () => { console.log('addTimeline not provided'); });
@@ -91,6 +102,12 @@ export const allEditor = defineComponent({
     const playAnimation = inject('playAnimation', () => { console.log('playAnimation not provided'); });
     const exportSkeletonToSpineJson = inject('exportSkeletonToSpineJson', () => { console.log('exportSkeletonToSpineJson not provided'); });
     const saveSpineJson = inject('saveSpineJson', () => { console.log('saveSpineJson not provided'); });
+    const selectTimeline = inject('selectTimeline', () => { console.log(' selectTimeline not provided'); });
+    const expandedNodes = inject('expandedNodes', () => { console.log('expandedNodes not provided'); });
+    const toggleNode = inject('toggleNode', () => { console.log('toggleNode not provided'); });
+    const handleNameClick = inject('handleNameClick', () => { console.log('handleNameClick not provided'); });
+    const toggleLayerSelection = inject('toggleLayerSelection', () => { console.log('toggleLayerSelection not provided'); });
+
 
     const currentTimeline = inject('currentTimeline', computed(() => timelineList.value[selectedTimelineId.value]));
     onMounted(async () => {
@@ -104,8 +121,13 @@ export const allEditor = defineComponent({
 
       await pngRender('./png3.png', [], 0, 0);
       console.log("checking texture : ", texture.value.length);
-      if (glsInstance.layers.length > 0)
+      if (glsInstance.layers.length > 0) {
         render(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers);
+        renderGridOnly(gl.value, colorProgram.value, glsInstance.layers[currentChosedLayer.value], glsInstance.getLayerSize(), currentChosedLayer.value, []);
+        if (typeof renderMeshSkeleton === 'function' && meshSkeleton) {
+          //  renderMeshSkeleton(gl.value, skeletonProgram.value, meshSkeleton, bonesInstance, mousePressed, activeTool.value === "bone-animate");
+        }
+      }
 
     });
 
@@ -150,7 +172,12 @@ export const allEditor = defineComponent({
           exportSkeletonToSpineJson,
           saveSpineJson,
           timelineLength,
-          playheadPosition
+          playheadPosition,
+          selectTimeline,
+          expandedNodes,
+          toggleNode,
+          handleNameClick,
+          toggleLayerSelection
         })
         : h('div', '載入中...');
   },

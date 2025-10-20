@@ -36,237 +36,240 @@
         </div>
       </div>
     </div>
-
-    <nav>
+    
+    <div class="content-area">
       <router-link to="/">首頁</router-link>
       <router-link to="/allEditor">allEditor</router-link>
       <router-link to="/editor">編輯器</router-link>
       <router-link to="/page">page1</router-link>
       <router-link to="/meshEditor">mesh editor</router-link>
-    </nav>
-    <router-view></router-view>
+      </nav>
+      <router-view></router-view>
+    </div>
+    <nav>
 
-    <div class="editor-container">
-      <!-- 頂部標題列 -->
-      <div class="header">
+      <div class="editor-container">
+        <!-- 頂部標題列 -->
+        <div class="header">
 
-      </div>
-
-      <!-- 主畫面：左側工具列 / 中間畫布區 / 右側圖層面板 -->
-      <p>Count: {{ counter.count }}</p>
-      <button @click="counter.increment()">+1</button>
-      <div class="main-container">
-        <!-- 左側工具 -->
-        <div class="toolbar">
-          <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')"
-            @contextmenu.prevent>grab-point</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'select-points' }"
-            @click="selectTool('select-points')" @contextmenu.prevent>select-points</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }" @click="selectTool('bone-create')"
-            @contextmenu.prevent>bone-create</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-animate' }"
-            @click="selectTool('bone-animate')" @contextmenu.prevent>bone-animate</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bind-bones' }" @click="bindingBoneWeight(1.0)"
-            @contextmenu.prevent>auto bind bones</button>
-
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-save' }" @click="selectTool('bone-save')"
-            @contextmenu.prevent>bone-save</button>
-          <button class="tool-btn" :class="{ active: activeTool === 'bone-load' }" @click="selectTool('bone-load')"
-            @contextmenu.prevent>bone-load</button>
         </div>
 
-        <!-- 中間畫布 -->
-        <div class="canvas-area" @contextmenu.prevent>
-          <div class="image-container" ref="imageContainer" @contextmenu.prevent>
+        <!-- 主畫面：左側工具列 / 中間畫布區 / 右側圖層面板 -->
+        <p>Count: {{ counter.count }}</p>
+        <button @click="counter.increment()">+1</button>
+        <div class="main-container">
+          <!-- 左側工具 -->
+          <div class="toolbar">
+            <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')"
+              @contextmenu.prevent>grab-point</button>
+            <button class="tool-btn" :class="{ active: activeTool === 'select-points' }"
+              @click="selectTool('select-points')" @contextmenu.prevent>select-points</button>
+            <button class="tool-btn" :class="{ active: activeTool === 'bone-create' }"
+              @click="selectTool('bone-create')" @contextmenu.prevent>bone-create</button>
+            <button class="tool-btn" :class="{ active: activeTool === 'bone-animate' }"
+              @click="selectTool('bone-animate')" @contextmenu.prevent>bone-animate</button>
+            <button class="tool-btn" :class="{ active: activeTool === 'bind-bones' }" @click="bindingBoneWeight(1.0)"
+              @contextmenu.prevent>auto bind bones</button>
 
-            <canvas class="image-canvas" id="webgl" width="640" height="480" @contextmenu.prevent></canvas>
-
-          </div>
-        </div>
-
-
-
-        <!-- 右側圖層 -->
-        <div class="layers-panel">
-          <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
-            <div class="panel-title">階層式物件</div>
-
-            <div class="layers-container">
-              <div v-for="skeleton in skeletons" :key="skeleton.name" class="skeleton-block">
-                <div class="skeleton-header">
-                  {{ skeleton.name }}
-                  <span v-if="selectedItem">
-                    （選取：
-                    {{ selectedItem.type === 'bone' ? '🦴' : '🎯' }}
-                    {{ selectedItem.name || selectedItem.id }}）
-                  </span>
-                </div>
-
-                <tree-item v-for="root in skeleton.rootBones" :key="root.id" :node="root"
-                  :expanded-nodes="expandedNodes" :selected-item="selectedItem" @toggle-node="toggleNode"
-                  @item-click="handleNameClick" />
-              </div>
-            </div>
+            <button class="tool-btn" :class="{ active: activeTool === 'bone-save' }" @click="selectTool('bone-save')"
+              @contextmenu.prevent>bone-save</button>
+            <button class="tool-btn" :class="{ active: activeTool === 'bone-load' }" @click="selectTool('bone-load')"
+              @contextmenu.prevent>bone-load</button>
           </div>
 
-          <div class="panel-section layers-section" style="height:200px; flex: 0 0 200px;">
-            <div class="panel-title">圖層</div>
-            <div class="layers-content">
-              <div class="layers-container">
-                <div id="layerContainer"></div>
-                <span>{{ showLayers?.length }}</span>
+          <!-- 中間畫布 -->
+          <div class="canvas-area" @contextmenu.prevent>
+            <div class="image-container" ref="imageContainer" @contextmenu.prevent>
 
-                <div v-for="(layer, index) in showLayers" :key="index" class="layer-item">
-                  <!-- 勾選控制顯示/隱藏 -->
-                  <input type="checkbox" :value="index" v-model="selectedLayers" />
+              <canvas class="image-canvas" id="webgl" width="640" height="480" @contextmenu.prevent></canvas>
 
-                  <!-- 點擊名稱選擇圖層 -->
-                  <span class="layer-name" :class="{ active: chosenLayers.includes(index) }"
-                    @click="toggleLayerSelection(index)">
-                    圖層 {{ layer.name }}
-                  </span>
-                </div>
-
-
-              </div>
             </div>
           </div>
 
 
-          <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
-            <div class="panel-title">屬性</div>
-            <div class="layers-content">
+
+          <!-- 右側圖層 -->
+          <div class="layers-panel">
+            <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
+              <div class="panel-title">階層式物件</div>
+
               <div class="layers-container">
-                <span> select bone: {{ lastSelectedBone?.name }}</span><br>
-                <span> chose layer: {{ currentChosedLayer }}</span><br>
-
-                <!-- Multi-select for vertex groups -->
-                <label for="vertex-group-select">Vertex Groups:</label>
-                <div class="vertex-group-list">
-                  <div v-for="group in vertexGroupInfo" :key="group.name" class="vertex-group-item"
-                    :class="{ selected: selectedGroups.includes(group.name) }" @click="toggleSelect(group.name)"
-                    @dblclick="startEdit(group.name)">
-
-                    <!-- 如果正在編輯這個 group，就顯示 input -->
-                    <input v-if="editingGroup === group.name" v-model="editName" @keyup.enter="confirmEdit(group)"
-                      @blur="confirmEdit(group)" autofocus />
-
-                    <!-- 否則顯示文字 -->
-                    <span v-else>
-                      {{ group.name }}
+                <div v-for="skeleton in skeletons" :key="skeleton.name" class="skeleton-block">
+                  <div class="skeleton-header">
+                    {{ skeleton.name }}
+                    <span v-if="selectedItem">
+                      （選取：
+                      {{ selectedItem.type === 'bone' ? '🦴' : '🎯' }}
+                      {{ selectedItem.name || selectedItem.id }}）
                     </span>
                   </div>
-                </div>
 
-                <!-- 四個按鈕：橫向排列 -->
-                <div class="vertex-btn-group">
-                  <button @click="onAdd">+</button>
-                  <button @click="onRemove">-</button>
-                </div>
-                <div class="vertex-btn-group">
-                  <button @click="onAssign">Assign</button>
-                  <button @click="onSelect">Select</button>
-                </div>
-                <div class="vertex-btn-group">
-                  <span> set weight</span>
-                  <input type="number" v-model.number="weightValue" step="0.1" min="0" max="1" />
-                  <button @click="setWeight">Set</button>
+                  <tree-item v-for="root in skeleton.rootBones" :key="root.id" :node="root"
+                    :expanded-nodes="expandedNodes" :selected-item="selectedItem" @toggle-node="toggleNode"
+                    @item-click="handleNameClick" />
                 </div>
               </div>
             </div>
-          </div>
+
+            <div class="panel-section layers-section" style="height:200px; flex: 0 0 200px;">
+              <div class="panel-title">圖層</div>
+              <div class="layers-content">
+                <div class="layers-container">
+                  <div id="layerContainer"></div>
+                  <span>{{ showLayers?.length }}</span>
+
+                  <div v-for="(layer, index) in showLayers" :key="index" class="layer-item">
+                    <!-- 勾選控制顯示/隱藏 -->
+                    <input type="checkbox" :value="index" v-model="selectedLayers" />
+
+                    <!-- 點擊名稱選擇圖層 -->
+                    <span class="layer-name" :class="{ active: chosenLayers.includes(index) }"
+                      @click="toggleLayerSelection(index)">
+                      圖層 {{ layer.name }}
+                    </span>
+                  </div>
 
 
-
-
-        </div>
-      </div>
-      {{timeline2}}
-
-      <div class="timeline" v-on:contextmenu.prevent>
-        <div class="timeline-header">
-          <div class="timeline-title">動畫時間軸
-            <!-- ▼▼ 新增：時間軸選擇與管理 ▼▼ -->
-
-            <select v-model="selectedTimelineId" @change="choseTimelineId">
-              <option v-for="(tl, index) in timelineList" :key="index" :value="index">
-                {{ tl.name || 'no name' }}
-              </option>
-            </select>
-            index: {{selectedTimelineId}}
-
-
-            <!-- 可修改名稱 -->
-            <input v-if="currentTimeline" v-model="currentTimeline.name" @change="renameTimeline"
-              class="timeline-name-input" placeholder="輸入時間軸名稱" />
-
-            <button class="timeline-btn" @click="addTimeline">➕ 新增時間軸</button>
-            <button class="timeline-btn" @click="removeTimeline" :disabled="timelineList.length <= 1">🗑 刪除時間軸</button>
-          </div>
-
-
-          <div class="timeline-controls">
-            <button class="timeline-btn" v-on:click="addKeyframe">新增Key點</button>
-            <button class="timeline-btn" v-on:click="removeKeyframe">刪除Key點</button>
-            <input type="file" accept=".psd" id="psdFile" @change="handlePSDUpload">
-            <button class="timeline-btn" v-on:click="psdImage">usePsd</button>
-            <button class="timeline-btn" v-on:click="playAnimation">播放動畫</button>
-            <button class="timeline-btn" v-on:click="exportSkeletonToSpineJson">spineJson</button>
-            <button class="timeline-btn" v-on:click="saveSpineJson">saveJson</button>
-          </div>
-
-
-          <!-- ▲▲ 新增：時間軸選擇與管理 ▲▲ -->
-        </div>
-
-
-        <div class="timeline-content">
-          <div class="timeline-layers" id="timelineLayers">
-            <div class="timeline-track"></div>
-            <div v-for="(frames, key) in timeline2.keyframes" :key="'layer-' + key" class="timeline-track"
-              @click="selectBoneByKey(key)">
-              <span :style="{ backgroundColor: lastSelectedBone?.id === key ? 'gray' : 'transparent' }">{{ key }} / {{
-                lastSelectedBone ? lastSelectedBone.id : '' }}</span>
-            </div>
-          </div>
-
-          <div class="timeline-tracks" id="timelineTracks" ref="timelineTracks" @mousedown="selectTimeline($event)"
-            @mousemove="selectTimeline($event)">
-            <div class="timeline-scale" :style="{ width: timelineLength + 'px' }">
-              <span v-for="n in Math.ceil(timelineLength / 50)" :key="n" class="scale-mark"
-                :style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
+                </div>
+              </div>
             </div>
 
-            <div id="trackContainer" ref="trackContainer" @mousedown="selectTimeline($event)"
-              @mousemove="selectTimeline($event)" class="timeline-container">
 
-              <div v-for="(frames, boneId) in timeline2.keyframes" :key="'track-' + boneId" class="timeline-track">
+            <div class="panel-section layers-section" style="height: 200px; flex: 0 0 200px;">
+              <div class="panel-title">屬性</div>
+              <div class="layers-content">
+                <div class="layers-container">
+                  <span> select bone: {{ lastSelectedBone?.name }}</span><br>
+                  <span> chose layer: {{ currentChosedLayer }}</span><br>
 
-                <div v-for="(keyframe, index) in frames" :key="'kf-' + boneId + '-' + index" class="keyframe"
-                  :style="{ left: keyframe.time + 'px' }"></div>
+                  <!-- Multi-select for vertex groups -->
+                  <label for="vertex-group-select">Vertex Groups:</label>
+                  <div class="vertex-group-list">
+                    <div v-for="group in vertexGroupInfo" :key="group.name" class="vertex-group-item"
+                      :class="{ selected: selectedGroups.includes(group.name) }" @click="toggleSelect(group.name)"
+                      @dblclick="startEdit(group.name)">
+
+                      <!-- 如果正在編輯這個 group，就顯示 input -->
+                      <input v-if="editingGroup === group.name" v-model="editName" @keyup.enter="confirmEdit(group)"
+                        @blur="confirmEdit(group)" autofocus />
+
+                      <!-- 否則顯示文字 -->
+                      <span v-else>
+                        {{ group.name }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- 四個按鈕：橫向排列 -->
+                  <div class="vertex-btn-group">
+                    <button @click="onAdd">+</button>
+                    <button @click="onRemove">-</button>
+                  </div>
+                  <div class="vertex-btn-group">
+                    <button @click="onAssign">Assign</button>
+                    <button @click="onSelect">Select</button>
+                  </div>
+                  <div class="vertex-btn-group">
+                    <span> set weight</span>
+                    <input type="number" v-model.number="weightValue" step="0.1" min="0" max="1" />
+                    <button @click="setWeight">Set</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+
+
+
+          </div>
+        </div>
+        {{timeline2}}
+
+        <div class="timeline" v-on:contextmenu.prevent>
+          <div class="timeline-header">
+            <div class="timeline-title">動畫時間軸
+              <!-- ▼▼ 新增：時間軸選擇與管理 ▼▼ -->
+
+              <select v-model="selectedTimelineId" @change="choseTimelineId">
+                <option v-for="(tl, index) in timelineList" :key="index" :value="index">
+                  {{ tl.name || 'no name' }}
+                </option>
+              </select>
+              index: {{selectedTimelineId}}
+
+
+              <!-- 可修改名稱 -->
+              <input v-if="currentTimeline" v-model="currentTimeline.name" @change="renameTimeline"
+                class="timeline-name-input" placeholder="輸入時間軸名稱" />
+
+              <button class="timeline-btn" @click="addTimeline">➕ 新增時間軸</button>
+              <button class="timeline-btn" @click="removeTimeline" :disabled="timelineList.length <= 1">🗑
+                刪除時間軸</button>
+            </div>
+
+
+            <div class="timeline-controls">
+              <button class="timeline-btn" v-on:click="addKeyframe">新增Key點</button>
+              <button class="timeline-btn" v-on:click="removeKeyframe">刪除Key點</button>
+              <input type="file" accept=".psd" id="psdFile" @change="handlePSDUpload">
+              <button class="timeline-btn" v-on:click="psdImage">usePsd</button>
+              <button class="timeline-btn" v-on:click="playAnimation">播放動畫</button>
+              <button class="timeline-btn" v-on:click="exportSkeletonToSpineJson">spineJson</button>
+              <button class="timeline-btn" v-on:click="saveSpineJson">saveJson</button>
+            </div>
+
+
+            <!-- ▲▲ 新增：時間軸選擇與管理 ▲▲ -->
+          </div>
+
+
+          <div class="timeline-content">
+            <div class="timeline-layers" id="timelineLayers">
+              <div class="timeline-track"></div>
+              <div v-for="(frames, key) in timeline2.keyframes" :key="'layer-' + key" class="timeline-track"
+                @click="selectBoneByKey(key)">
+                <span :style="{ backgroundColor: lastSelectedBone?.id === key ? 'gray' : 'transparent' }">{{ key }} / {{
+                  lastSelectedBone ? lastSelectedBone.id : '' }}</span>
+              </div>
+            </div>
+
+            <div class="timeline-tracks" id="timelineTracks" ref="timelineTracks" @mousedown="selectTimeline($event)"
+              @mousemove="selectTimeline($event)">
+              <div class="timeline-scale" :style="{ width: timelineLength + 'px' }">
+                <span v-for="n in Math.ceil(timelineLength / 50)" :key="n" class="scale-mark"
+                  :style="{ left: (n-1) * 50 + 'px' }">{{ (n-1) * 1 }}</span>
               </div>
 
-            </div>
-            <div id="timeSelection" class="time-selection"
-              :style="{ display: false ? 'block' : 'none', left: 0 + 'px', width: 3 + 'px' }">
-            </div>
-            <div id="playhead" class="playhead" :style="{ left: playheadPosition + 'px' }"
-              @mousedown="selectTimeline($event)">
-            </div>
-            <div id="timeIndicator" class="current-time-indicator" :style="{ left: playheadPosition + 'px' }">
-              {{ (playheadPosition / 50).toFixed(2) }}s
-            </div>
-          </div>
+              <div id="trackContainer" ref="trackContainer" @mousedown="selectTimeline($event)"
+                @mousemove="selectTimeline($event)" class="timeline-container">
 
+                <div v-for="(frames, boneId) in timeline2.keyframes" :key="'track-' + boneId" class="timeline-track">
+
+                  <div v-for="(keyframe, index) in frames" :key="'kf-' + boneId + '-' + index" class="keyframe"
+                    :style="{ left: keyframe.time + 'px' }"></div>
+                </div>
+
+              </div>
+              <div id="timeSelection" class="time-selection"
+                :style="{ display: false ? 'block' : 'none', left: 0 + 'px', width: 3 + 'px' }">
+              </div>
+              <div id="playhead" class="playhead" :style="{ left: playheadPosition + 'px' }"
+                @mousedown="selectTimeline($event)">
+              </div>
+              <div id="timeIndicator" class="current-time-indicator" :style="{ left: playheadPosition + 'px' }">
+                {{ (playheadPosition / 50).toFixed(2) }}s
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+
+        <!-- 狀態列 -->
+        <div class="status-bar">
+          <div class="status-item">狀態: {{ status }}</div>
         </div>
       </div>
-
-
-      <!-- 狀態列 -->
-      <div class="status-bar">
-        <div class="status-item">狀態: {{ status }}</div>
-      </div>
-    </div>
   </div>
 
   <script type="module">
