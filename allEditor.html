@@ -23,8 +23,8 @@
           @contextmenu.prevent>bone-load</button>
       </div>
       <!-- 中間畫布 -->
-      <div class="image-container" ref="imageContainer" @contextmenu.prevent>
-        <canvas class="image-canvas" id="webgl" width="640" height="480" @contextmenu.prevent></canvas>
+      <div class="image-container" @contextmenu.prevent>
+        <canvas class="image-canvas" id="webgl2" width="640" height="480" @contextmenu.prevent></canvas>
       </div>
 
       <div class="layers-panel">
@@ -32,6 +32,7 @@
           <div class="panel-title">階層式物件</div>
 
           <div class="layers-container">
+            {{expandedNodes}}
             <div v-for="skeleton in skeletons" :key="skeleton.name" class="skeleton-block">
               <div class="skeleton-header">
                 {{ skeleton.name }}
@@ -42,6 +43,7 @@
                 </span>
               </div>
 
+              
               <tree-item v-for="root in skeleton.rootBones" :key="root.id" :node="root" :expanded-nodes="expandedNodes"
                 :selected-item="selectedItem" @toggle-node="toggleNode" @item-click="handleNameClick" />
             </div>

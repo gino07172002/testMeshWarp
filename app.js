@@ -1,5 +1,5 @@
 const { createApp, onMounted, ref, reactive, computed, watch, provide } = Vue;
-import { globalVars as v } from './globalVars.js'  // 引入全局變數
+import { globalVars as v,convertToNDC } from './globalVars.js'  // 引入全局變數
 
 window.testWord = 'Hello';
 
@@ -11,7 +11,8 @@ import {
   meshSkeleton,
   skeletons,
   lastSelectedBone,
-  selectedVertices
+  selectedVertices,
+  bonesInstance
 } from './useBone.js';
 
 import {
@@ -50,9 +51,7 @@ import {
   Timeline2
 } from './timeline2.js';
 import glsInstance from './useWebGL.js';
-import Bones from './useBone.js';
 
-import ImageCanvasManager from './ImageCanvasManager.js';
 
 
 const testWordOutside = ref("test word Outside");
@@ -62,25 +61,6 @@ let layersForTexture = [];
 let wholeImageWidth = 0;
 let wholeImageHeight = 0;
 // Coordinate conversion utility function
-const convertToNDC = (e, canvas, container) => {
-  const rect = canvas.getBoundingClientRect();
-
-  // 考慮 devicePixelRatio
-  const dpr = window.devicePixelRatio || 1;
-
-  // 取得在 canvas 內的相對位置 (CSS 像素)
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-
-  // 換算成 canvas 實際像素
-  const canvasX = x * (canvas.width / rect.width);
-  const canvasY = y * (canvas.height / rect.height);
-
-  return {
-    x: (canvasX / canvas.width) * 2 - 1, // NDC X
-    y: 1 - (canvasY / canvas.height) * 2 // NDC Y
-  };
-};
 
 
 
@@ -133,10 +113,6 @@ const loadTexture = (gl, url) => {
 };
 
 
-
-// assign necessary vule to global
-
-v.glsInstance.value = glsInstance;
 
 const app = Vue.createApp({
   data() {
@@ -508,15 +484,11 @@ const app = Vue.createApp({
 
       console.log(" lastSelectedBone : ", lastSelectedBone.value.id);
     };
-    const bonesInstance = new Bones({
-      onUpdate: () => instance.proxy.$forceUpdate(),
-      vueInstance: instance,
-      gl: gl.value,
-      isShiftPressed: isShiftPressed,
-      skeletonIndices: skeletonIndices,
-      glsInstance: glsInstance,
-    });
+    
+// assign necessary vule to global
 
+v.glsInstance.value = glsInstance;
+v.bonesInstance.value  = bonesInstance;
     const selectTool = (tool) => {
       activeTool.value = tool;
       console.log("switch to tool : ", tool);
@@ -544,6 +516,7 @@ const app = Vue.createApp({
 
     const handleKeyDown = (e) => {
       if (e.key === 'Shift') {
+        console.log("hi shift")
         isShiftPressed.value = true;
       }
       if (e.key === 'Control') {
@@ -877,11 +850,11 @@ const app = Vue.createApp({
 
     const drawGlCanvas = async () => {
       const canvas = document.getElementById('webgl');
-      const container = canvas.closest('.image-container');
+    
       const webglContext = canvas.getContext('webgl');
 
       gl.value = webglContext;
-      setupCanvasEvents(canvas, gl.value, container);
+      setupCanvasEvents(canvas, gl.value);
 
       // 创建着色器程序
       program.value = glsInstance.createProgram(gl.value, shaders.vertex, shaders.fragment);

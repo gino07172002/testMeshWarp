@@ -35,83 +35,16 @@ const boneEndBeingDragged = ref(null);
 let lineIndex = 0;
 const minBoneLength = 0.1;
 
-// 📦 外部依賴（由 app.js 呼叫 initBone 設定）
-let gl, program, texture, vbo, ebo, indices;
 
-// 📷 匯出圖片（可選）
-function downloadImage() {
-  const canvas = document.getElementById('webgl');
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = canvas.width;
-  tempCanvas.height = canvas.height;
-  const tempCtx = tempCanvas.getContext('2d');
 
-  function cleanRender() {
-    gl.clearColor(0.0, 0.0, 0.0, 0.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    if (texture) {
-      gl.useProgram(program);
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
-
-      const posAttrib = gl.getAttribLocation(program, 'aPosition');
-      gl.enableVertexAttribArray(posAttrib);
-      gl.vertexAttribPointer(posAttrib, 2, gl.FLOAT, false, 16, 0);
-
-      const texAttrib = gl.getAttribLocation(program, 'aTexCoord');
-      gl.enableVertexAttribArray(texAttrib);
-      gl.vertexAttribPointer(texAttrib, 2, gl.FLOAT, false, 16, 8);
-
-      gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
-    }
-
-    const width = canvas.width;
-    const height = canvas.height;
-    const pixels = new Uint8Array(width * height * 4);
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-
-    const imageData = tempCtx.createImageData(width, height);
-    imageData.data.set(pixels);
-
-    for (let row = 0; row < height / 2; row++) {
-      for (let col = 0; col < width * 4; col++) {
-        const temp = imageData.data[row * width * 4 + col];
-        imageData.data[row * width * 4 + col] =
-          imageData.data[(height - row - 1) * width * 4 + col];
-        imageData.data[(height - row - 1) * width * 4 + col] = temp;
-      }
-    }
-
-    tempCtx.putImageData(imageData, 0, 0);
-    const dataURL = tempCanvas.toDataURL('image/png');
-    const downloadLink = document.createElement('a');
-    downloadLink.href = dataURL;
-    downloadLink.download = 'mesh_deformed_image.png';
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    document.body.removeChild(downloadLink);
-  }
-
-  gl.flush();
-  requestAnimationFrame(cleanRender);
-}
-
-export default class Bones {
+ class Bones {
   constructor(options = {}) {
 
     this.loadBones = this.loadBones.bind(this);
     this.saveBones = this.saveBones.bind(this);
 
-    this.onUpdate = options.onUpdate || function () { };
-    this.vueInstance = options.vueInstance || null;
-    this.glsInstance = options.glsInstance;
     this.selectedBone = options.selectedBone;
-    this.skeletonIndices = options.skeletonIndices;
-    this.isShiftPressed = options.isShiftPressed;
+    
     this.parentBoneIndex = -1;
   }
 
@@ -206,7 +139,7 @@ export default class Bones {
       const allSaveData = {
         skeletons: serializedBones,
         selectedBoneId: this.selectedBone?.id || null,
-        skeletonIndices: this.skeletonIndices,
+       
         layers: vertexGroupObjects
       };
 
@@ -246,7 +179,7 @@ export default class Bones {
 
       // ✅ 還原選中與索引
       this.selectedBone = this.findBoneByIdInSkeletons(allBones, parsed.selectedBoneId);
-      this.skeletonIndices = parsed.skeletonIndices;
+     
       console.log('glsInstance:', glsInstance);
       console.log('glsInstance.layers:', glsInstance.layers);
       console.log('glsInstance.layers.value:', glsInstance.layers?.value);
@@ -562,7 +495,7 @@ export default class Bones {
     const minY = Math.min(mousedown_y, yNDC);
     const maxY = Math.max(mousedown_y, yNDC);
 
-    const vertices = this.glsInstance.layers[layerIndex].vertices.value;
+    const vertices = glsInstance.layers[layerIndex].vertices.value;
     console.log(" vertices length: ", vertices.length);
 
     // 找出框到的點
@@ -655,7 +588,7 @@ export default class Bones {
     console.log(" update pose mesh ... ");
   
     //simple test : just move all vertices  with root bone's head position , maybe would be more complex later
-    const layers = this.glsInstance.layers; 
+    const layers = glsInstance.layers; 
     if (!meshSkeleton || meshSkeleton.rootBones.length === 0) return;
 
     // === 預先建立一個骨頭名稱對應表 ===
@@ -795,10 +728,11 @@ export {
   selectedBoneForEditing,
   editingBoneEnd,
   boneEndBeingDragged,
-  downloadImage,
+ 
   Bones,
   meshSkeleton,
   skeletons,
   lastSelectedBone,
   selectedVertices
 };
+export const bonesInstance = new Bones();

@@ -2,11 +2,13 @@
 const { ref, shallowRef, triggerRef, isRef, unref, toRaw, isReactive } = Vue;
 const { compile } = VueCompilerDOM;
 
+
 export const globalVars = {
   testWordQQ: ref("Hello QQ"),
   counter: ref(0),
   userName: ref("Alice"),
   glsInstance: shallowRef(null), // 使用 shallowRef
+  bonesInstance: shallowRef(null), 
   someDebug: ref(0),
   _refreshKey: ref(0),
 
@@ -29,6 +31,25 @@ export const globalVars = {
     });
     console.log('All shallowRefs triggered');
   },
+};
+export const convertToNDC = (e, canvas, container) => {
+  const rect = canvas.getBoundingClientRect();
+
+  // 考慮 devicePixelRatio
+  const dpr = window.devicePixelRatio || 1;
+
+  // 取得在 canvas 內的相對位置 (CSS 像素)
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  // 換算成 canvas 實際像素
+  const canvasX = x * (canvas.width / rect.width);
+  const canvasY = y * (canvas.height / rect.height);
+
+  return {
+    x: (canvasX / canvas.width) * 2 - 1, // NDC X
+    y: 1 - (canvasY / canvas.height) * 2 // NDC Y
+  };
 };
 
 export function triggerRefresh() {
