@@ -21,7 +21,9 @@ const skeletonProgram = ref(null);       // 骨骼著色器程序
 const weightPaintProgram = ref(null);
 const skinnedProgram = ref(null);
 const layerForTextureWebgl = ref([]);
+const currentJobName = ref(null);;
 
+export const loadedImage = ref(null);
 // Shader sources
 export const shaders = {
   vertex: `
@@ -469,6 +471,33 @@ class gls {
   // Modified createBuffers to populate transparentCells
 
 }
+export const setCurrentJobName = (jobName) => {
+  currentJobName.value = jobName;
+}
+var time = 0;
+export const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers, passes, jobName) => {
+  if (currentJobName.value != jobName) {
+    console.log("stop running ");
+    return;
+  }
+  console.log("running");
+  // console.log("selectedLayers.value, in render2: ", selectedLayers);
+  time += 0.016;
+  let res = render(gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers);
+
+  if (res === false) {
+    return;
+  }
+  // === 在所有圖層之後渲染格線/骨架 ===
+  for (const pass of passes) {
+    pass(); // 每個 pass 內的參數已事先綁好
+  }
+
+  // 下一幀
+  requestAnimationFrame(() =>
+    render2(gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers, passes, jobName)
+  );
+};
 
 //webgl function to render image
 export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers = []) => {
@@ -483,7 +512,7 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
 
   if (!texture.value || !Array.isArray(texture.value) || texture.value.length === 0) {
     console.log(" nothing here, stop loop");
-    return;
+    return false;
   }
 
   const textures = texture.value;
@@ -578,9 +607,13 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
   }
 
 };
-
-export const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton, bonesInstance, mousePressed, drawPoseBone) => {
+export const makeRenderPass = (fn, ...args) => {
+  return () => fn(...args);
+};
+export const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton, bonesInstance, mousePressed, activeTool) => {
   // 保存當前WebGL狀態
+  let drawPoseBone = (activeTool.value === "bone-animate");
+
   const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM);
   const prevArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
   const prevElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
@@ -790,11 +823,11 @@ const renderPoints = (gl, program, posAttrib, verticesPoints, color, pointSize) 
 };
 
 //draw weight
-export function renderWeightPaint(gl, program, selectedGroupName, layer) {
+export function renderWeightPaint(gl, program, selectedGroupName, layer, isWeightPaintMode) {
   //if (!program || glsInstance.getLayerSize() === 0) return;
 
 
-  if (!layer || !layer.vertexGroup || !layer.vertices.value) return;
+  if (!isWeightPaintMode || !layer || !layer.vertexGroup || !layer.vertices.value) return;
 
   // 找到選中的 vertex group
   const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
@@ -914,8 +947,11 @@ function weightToColor(weight) {
   return { r, g, b };
 }
 // 辅助函数：只渲染网格
-export function renderGridOnly(gl, colorProgram, baseLayer, layerSize, currentChosedLayer, selectedVertices = []) {
+export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChosedLayerRef, selectedVertices = []) {
+  let currentChosedLayer = currentChosedLayerRef.value;
+  console.log(" drawing chosed layer grid : ", currentChosedLayer);
 
+  var baseLayer = layers[currentChosedLayer];
   if (layerSize === 0) return;
   //console.log(" draw selectde vertices : ",selectedVertices);
 
@@ -1053,17 +1089,26 @@ const loadTexture = (gl, url) => {
     image.src = url;
   });
 };
-export const pngRender = async (path, selectedLayers, wholeImageHeight, wholeImageWidth) => {
-  console.log("load first image...");
-
+export const clearTexture = (selectedLayers) => {
   // 清空之前的圖層
   glsInstance.clearAllLayer();
-  texture.value = [];
+
   selectedLayers.value = [];
 
-  // 加载纹理
-  let result = await loadTexture(gl.value, path);
+}
+export const pngLoadTexture = async (path) => {
+  console.log("load png texture...");
 
+  loadedImage.value = await loadTexture(gl.value, path);
+  glsInstance.addLayer("QQ");
+  return loadedImage.value;
+}
+export const pngRender = async () => {
+  console.log("load first image...");
+  texture.value = [];
+
+  // 加载纹理
+  let result = loadedImage.value;
   let layer = {
     imageData: result.data,
     width: result.width,
@@ -1074,12 +1119,11 @@ export const pngRender = async (path, selectedLayers, wholeImageHeight, wholeIma
 
   texture.value.push(await layerToTexture(gl.value, layer));
   console.log(" hi texture in load png: ", texture.value.length);
-  glsInstance.addLayer("QQ");
 
-  let canvasHeight = layer.height;
-  let canvasWidth = layer.width;
+  console.log("rebind gl layers...");
 
-  // === 初始化图层缓冲区和顶点属性 ===
+  let canvasHeight = texture.value[0].height;
+  let canvasWidth = texture.value[0].width;
   for (let i = 0; i < texture.value.length; i++) {
     glsInstance.createLayerBuffers(
       gl.value,
@@ -1092,11 +1136,19 @@ export const pngRender = async (path, selectedLayers, wholeImageHeight, wholeIma
       canvasHeight,
       glsInstance.layers[i]
     );
+  }
+}
+
+export const bindGl = async (selectedLayers) => {
+
+
+  // === 初始化图层缓冲区和顶点属性 ===
+  for (let i = 0; i < texture.value.length; i++) {
 
     // 绑定当前图层的缓冲区
-    const layerObj = glsInstance.layers[i];
-    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layerObj.vbo);
-    gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layerObj.ebo);
+    const layer = glsInstance.layers[i];
+    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
+    gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
 
     // === 设置顶点属性（只需一次）===
     // 1. 纹理程序的属性
@@ -1124,7 +1176,6 @@ export const pngRender = async (path, selectedLayers, wholeImageHeight, wholeIma
   gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
 
 }
-
 export const psdRender = async (selectedLayers, wholeImageHeight, wholeImageWidth) => {
 
   glsInstance.clearAllLayer();
@@ -1163,15 +1214,11 @@ export const psdRender = async (selectedLayers, wholeImageHeight, wholeImageWidt
     });
 
   }
+  //syncLayers();
 
   // === 同步/初始化 ===
-  //syncLayers();
-  selectedLayers.value = [];
-
-  console.log(" glsInstance.layers size: ", glsInstance.layers.length);
-
   for (let i = 0; i < texture.value.length; i++) {
-    const texInfo = texture.value[i];
+
     const layer = glsInstance.layers[i];
 
     // === 使用 layer.attachment 的資料代替 layerData ===
@@ -1184,31 +1231,8 @@ export const psdRender = async (selectedLayers, wholeImageHeight, wholeImageWidt
       canvasWidth, canvasHeight,
       layer
     );
-
-
-    // === 維持原有的 attribute 綁定 ===
-    gl.value.bindBuffer(gl.value.ARRAY_BUFFER, layer.vbo);
-    gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, layer.ebo);
-
-    gl.value.useProgram(program.value);
-    const posAttrib = gl.value.getAttribLocation(program.value, 'aPosition');
-    const texAttrib = gl.value.getAttribLocation(program.value, 'aTexCoord');
-    gl.value.enableVertexAttribArray(posAttrib);
-    gl.value.enableVertexAttribArray(texAttrib);
-    gl.value.vertexAttribPointer(posAttrib, 2, gl.value.FLOAT, false, 16, 0);
-    gl.value.vertexAttribPointer(texAttrib, 2, gl.value.FLOAT, false, 16, 8);
-
-    gl.value.useProgram(colorProgram.value);
-    const colorPosAttrib = gl.value.getAttribLocation(colorProgram.value, 'aPosition');
-    gl.value.enableVertexAttribArray(colorPosAttrib);
-    gl.value.vertexAttribPointer(colorPosAttrib, 2, gl.value.FLOAT, false, 16, 0);
-
-    selectedLayers.value.push(i);
   }
-
-  gl.value.bindBuffer(gl.value.ARRAY_BUFFER, null);
-  gl.value.bindBuffer(gl.value.ELEMENT_ARRAY_BUFFER, null);
-
+  await bindGl(selectedLayers);
   console.log("WebGL initialization complete");
 
 }

@@ -3,12 +3,21 @@ const { ref, shallowRef, triggerRef, isRef, unref, toRaw, isReactive } = Vue;
 const { compile } = VueCompilerDOM;
 
 
+export const selectedLayers = ref([]);
+export const currentChosedLayer = ref(0); // 控制選擇(單選) 
+export const selectedGroups = ref([]); // 控制選擇的頂點群組
+export const mousePressed = ref(); // e event of mouse down , ex: 0:left, 2:right
+export const isShiftPressed = ref(false);
+export const initGlAlready = ref(false);
+export const refreshKey = ref(0);
+export const  wholeImageWidth = ref(0);;
+export const  wholeImageHeight = ref(0);;
 export const globalVars = {
   testWordQQ: ref("Hello QQ"),
   counter: ref(0),
   userName: ref("Alice"),
   glsInstance: shallowRef(null), // 使用 shallowRef
-  bonesInstance: shallowRef(null), 
+  bonesInstance: shallowRef(null),
   someDebug: ref(0),
   _refreshKey: ref(0),
 
@@ -31,6 +40,9 @@ export const globalVars = {
     });
     console.log('All shallowRefs triggered');
   },
+};
+export const forceUpdate = ()=> {
+  refreshKey.value++;
 };
 export const convertToNDC = (e, canvas, container) => {
   const rect = canvas.getBoundingClientRect();
@@ -138,11 +150,12 @@ export async function loadHtmlPage(url) {
       const proxyCtx = createDeepProxy(ctx);
 
       // 🐛 Debug: 看看解開後的結果
+      /*
       console.log('proxyCtx:', proxyCtx);
       console.log('proxyCtx.v:', proxyCtx.v);
       console.log('proxyCtx.v.glsInstance:', proxyCtx.v?.glsInstance);
       console.log('proxyCtx.v.glsInstance.layers:', proxyCtx.v?.glsInstance?.layers);
-
+*/
       return compiledRender.call(this, proxyCtx);
     };
 

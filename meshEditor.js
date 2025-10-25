@@ -77,4 +77,3 @@ const doRender = () => {
 const doRenderAgain = () => {
   console.log("hi do Render Again=!");
 }
-doRender();

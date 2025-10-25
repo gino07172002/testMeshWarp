@@ -9,12 +9,8 @@ export const Editor = defineComponent({
   setup() {
     const counter = useCounterStore();
     const renderFn = ref(null);
-
-    console.log(" is v exist ?", v);
-    console.log(" is v.glsInstance exist ?", v.glsInstance.value);
-
     onMounted(async () => {
-      console.log(" is v.glsInstance exist mount ?", v.glsInstance.value);
+     
       renderFn.value = await loadHtmlPage('./Editor.html');
     });
 
@@ -33,9 +29,7 @@ export const Editor = defineComponent({
         add: v.add
       };
 
-      console.log('unwrappedV.glsInstance:', unwrappedV.glsInstance);
-      console.log('unwrappedV.glsInstance.layers:', unwrappedV.glsInstance?.layers);
-
+      
       return renderFn.value({
         counter,
         v: unwrappedV,

@@ -1,5 +1,15 @@
 const { createApp, onMounted, ref, reactive, computed, watch, provide } = Vue;
-import { globalVars as v,convertToNDC } from './globalVars.js'  // 引入全局變數
+import {
+  globalVars as v, convertToNDC,
+  selectedLayers,
+  currentChosedLayer,
+  selectedGroups,
+  mousePressed,
+  isShiftPressed,
+  refreshKey,
+  wholeImageWidth,
+  wholeImageHeight
+} from './globalVars.js'  // 引入全局變數
 
 window.testWord = 'Hello';
 
@@ -25,13 +35,16 @@ import {
   weightPaintProgram,
   skinnedProgram,
   render,
+  render2,
+  setCurrentJobName,
   renderGridOnly,
   renderMeshSkeleton,
   renderWeightPaint,
   layerForTextureWebgl,
   layerToTexture,
   psdRender,
-  pngRender
+  pngRender,
+  makeRenderPass
 } from './useWebGL.js';
 
 import {
@@ -58,8 +71,7 @@ const testWordOutside = ref("test word Outside");
 
 // 準備多圖層資料結構陣列
 let layersForTexture = [];
-let wholeImageWidth = 0;
-let wholeImageHeight = 0;
+
 // Coordinate conversion utility function
 
 
@@ -198,9 +210,7 @@ const app = Vue.createApp({
     document.removeEventListener('click', this.handleClickOutside);
   },
   methods: {
-    forceUpdate() {
-      this.refreshKey++;
-    },
+
     usePsd() {
       console.log("hello use psd ... ");
       psdHello();
@@ -259,8 +269,10 @@ const app = Vue.createApp({
 
           let imageWidth = psdInfo.width;
           let imageHeight = psdInfo.height;
-          wholeImageHeight = imageHeight;
-          wholeImageWidth = imageWidth;
+          wholeImageHeight.value = imageHeight;
+          
+          wholeImageWidth.value = imageWidth;
+          console.log(" processed psd image width height: ", wholeImageHeight.value, wholeImageWidth.value);
           const glContext = gl.value; // WebGL context from useWebGL.js
 
 
@@ -429,18 +441,17 @@ const app = Vue.createApp({
     const selectedVertex = ref(-1);
     const activeTool = ref('grab-point');
     const skeletonIndices = ref([]);
-    const isShiftPressed = ref(false);
+
     const isCtrlPressed = ref(false);
     const instance = Vue.getCurrentInstance();
-    const mousePressed = ref(); // e event of mouse down , ex: 0:left, 2:right
-    const refreshKey = ref(0);
+
     const expandedNodes = reactive([]);
     const showLayers = ref(glsInstance.layers);
-    const selectedLayers = ref([]);
+    //const selectedLayers = selectedLayers;
     const chosenLayers = ref([])   // 控制選擇(多選)
-    const currentChosedLayer = ref(0); // 控制選擇(單選) 
+
     const selectedValues = ref([]);
-    const selectedGroups = ref([]); // 控制選擇的頂點群組
+
     let currentJobName = null;
     const isWeightPaintMode = ref(true);
 
@@ -484,11 +495,11 @@ const app = Vue.createApp({
 
       console.log(" lastSelectedBone : ", lastSelectedBone.value.id);
     };
-    
-// assign necessary vule to global
 
-v.glsInstance.value = glsInstance;
-v.bonesInstance.value  = bonesInstance;
+    // assign necessary vule to global
+
+    v.glsInstance.value = glsInstance;
+    v.bonesInstance.value = bonesInstance;
     const selectTool = (tool) => {
       activeTool.value = tool;
       console.log("switch to tool : ", tool);
@@ -724,35 +735,8 @@ v.bonesInstance.value  = bonesInstance;
     //render start
     var time = 0;
 
-    // 修复后的渲染函数 - 解决只能看到最后一个图层的问题
-    const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer, jobName) => {
-      if (currentJobName != jobName) {
-        console.log("stop running ");
-        return;
-      }
-      time += 0.016;
-      render(gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers.value);
 
-      // === 在所有圖層之後渲染格線/骨架 ===
-      if (isWeightPaintMode && selectedGroups.value.length > 0) {
-        // Weight Paint Mode
-        renderGridOnly(gl, colorProgram, glsInstance.layers[currentChosedLayer.value], glsInstance.getLayerSize(), currentChosedLayer.value, selectedVertices.value); // 先畫網格和小點
-        renderWeightPaint(gl, weightPaintProgram.value, selectedGroups.value[0], glsInstance.layers[currentChosedLayer.value]); // 再疊加權重視覺化
-      } else {
-        // 正常模式
-        // const selectedVertices = getSelectedVertexIndices(); // 你的選取邏輯
-        renderGridOnly(gl, colorProgram, glsInstance.layers[currentChosedLayer.value], glsInstance.getLayerSize(), currentChosedLayer.value, selectedVertices.value);
-      }
 
-      // === 渲染骨架 ===
-      if (typeof renderMeshSkeleton === 'function' && meshSkeleton) {
-        renderMeshSkeleton(gl, skeletonProgram, meshSkeleton, bonesInstance, mousePressed, activeTool.value === "bone-animate");
-      }
-      // 下一幀
-      requestAnimationFrame(() =>
-        render2(gl, program, colorProgram, skeletonProgram, renderLayer, jobName)
-      );
-    };
 
 
 
@@ -850,7 +834,7 @@ v.bonesInstance.value  = bonesInstance;
 
     const drawGlCanvas = async () => {
       const canvas = document.getElementById('webgl');
-    
+
       const webglContext = canvas.getContext('webgl');
 
       gl.value = webglContext;
@@ -871,19 +855,104 @@ v.bonesInstance.value  = bonesInstance;
       await pngRender('./png3.png', selectedLayers, wholeImageHeight, wholeImageWidth);
       syncLayers();
       console.log("WebGL initialization complete");
-      currentJobName = "png";
+      setCurrentJobName("png");
 
+      const passes = [];
+
+      // 根據模式動態加入 pass
+      {
+        // 權重繪製模式
+        passes.push(
+          makeRenderPass(
+            renderGridOnly,
+            gl.value,
+            colorProgram.value,
+            glsInstance.layers[currentChosedLayer.value],
+            glsInstance.getLayerSize(),
+            currentChosedLayer.value,
+            selectedVertices.value
+          ),
+          makeRenderPass(
+            renderWeightPaint,
+            gl.value,
+            weightPaintProgram.value,
+            selectedGroups.value[0],
+            glsInstance.layers[currentChosedLayer.value],
+            isWeightPaintMode
+          )
+        );
+
+      }
+
+      // === 骨架渲染（所有模式都要）===
+
+      passes.push(
+        makeRenderPass(
+          renderMeshSkeleton,
+          gl.value,
+          skeletonProgram.value,
+          meshSkeleton,
+          bonesInstance,
+          mousePressed,
+          activeTool
+        )
+      );
+      setCurrentJobName("png");
       // 启动渲染循环
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "png");
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers.value, passes, "png");
     };
     const psdImage = async () => {
       if (!gl.value) return;
       await psdRender(selectedLayers, wholeImageHeight, wholeImageWidth);
       syncLayers();
-      currentJobName = "psd";
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, "psd");
+      //construct necessary pass
+
+
+      const passes = [];
+
+      // 根據模式動態加入 pass
+      {
+        // 權重繪製模式
+        passes.push(
+          makeRenderPass(
+            renderGridOnly,
+            gl.value,
+            colorProgram.value,
+            glsInstance.layers[currentChosedLayer.value],
+            glsInstance.getLayerSize(),
+            currentChosedLayer.value,
+            selectedVertices.value
+          ),
+          makeRenderPass(
+            renderWeightPaint,
+            gl.value,
+            weightPaintProgram.value,
+            selectedGroups.value[0],
+            glsInstance.layers[currentChosedLayer.value]
+          )
+        );
+      }
+
+
+      // === 骨架渲染（所有模式都要）===
+      passes.push(
+        makeRenderPass(
+          renderMeshSkeleton,
+          gl.value,
+          skeletonProgram.value,
+          meshSkeleton,
+          bonesInstance,
+          mousePressed,
+          activeTool
+        )
+      );
+
+      setCurrentJobName("psd");
+
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers.value, passes, "psd");
     };
     const toggleLayerSelection = (index) => {
+      console.log(" toggle layer selection : ", index);
       if (chosenLayers.value.includes(index)) {
         chosenLayers.value = chosenLayers.value.filter(i => i !== index)
       } else {
@@ -950,6 +1019,7 @@ v.bonesInstance.value  = bonesInstance;
       console.log(`Found ${allBones.length} bones and ${vertexCount} vertices`);
 
       // 清空舊的 vertex group
+      console.log("some body clear vertex group ... ");
       layer.vertexGroup.value = [];
       const vertexGroupMap = new Map();
 
@@ -1089,14 +1159,17 @@ v.bonesInstance.value  = bonesInstance;
         });
       }
 
+      console.log("some body change vertex group there ... ");
       layer.vertexGroup.value = Array.from(vertexGroupMap.values());
       console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
       console.log(`Average bones per vertex: ${layer.vertexGroup.value.reduce((sum, g) => sum + g.vertices.length, 0) / vertexCount
         }`);
     };
     const vertexGroupInfo = computed(() => {
+      console.log(" refresh vertex group : ")
       refreshKey.value; // 強制刷新
       console.log(" currentChosedLayer value : ", currentChosedLayer.value, ", layer size: ", glsInstance.layers.length);
+      console.log("glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value ", glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value.length);
       return glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value
     })
 
@@ -1444,7 +1517,7 @@ v.bonesInstance.value  = bonesInstance;
       window.addEventListener('keyup', handleKeyUp);
 
       try {
-        drawGlCanvas();
+        // drawGlCanvas();
       } catch (error) {
         console.error("Initialization error:", error);
       }
@@ -1491,12 +1564,15 @@ v.bonesInstance.value  = bonesInstance;
       provide && provide('exportSkeletonToSpineJson', exportSkeletonToSpineJson);
       provide && provide('saveSpineJson', saveSpineJson);
       provide && provide('selectTimeline', selectTimeline);
-      provide && provide('expandedNodes',  expandedNodes); 
-      provide && provide('toggleNode',  toggleNode);
-      provide && provide('handleNameClick',  handleNameClick);
-      provide && provide(' toggleLayerSelection',toggleLayerSelection);
-    
-      
+      provide && provide('expandedNodes', expandedNodes);
+      provide && provide('toggleNode', toggleNode);
+      provide && provide('handleNameClick', handleNameClick);
+      provide && provide('toggleLayerSelection', toggleLayerSelection);
+
+      provide && provide('toggleSelect', toggleSelect);
+      provide && provide('firstImage', firstImage);
+
+
     } catch (e) {
       console.warn('provide failed', e);
     }
