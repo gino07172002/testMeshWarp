@@ -51,6 +51,7 @@ import {
   clearTexture,
   pngLoadTexture,
   layerForTextureWebgl,
+  getClosestVertex
 } from './useWebGL.js';
 
 
@@ -173,8 +174,8 @@ export const meshEditor = defineComponent({
             }
             else {
               console.log(" hi I should add point at : ", xNDC, " , ", yNDC);
-                glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { add: [{ x: xNDC, y: yNDC }] });
-         
+              glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { add: [{ x: xNDC, y: yNDC }] });
+
             }
           }
           else if (activeTool.value === 'edit-points') {
@@ -183,58 +184,44 @@ export const meshEditor = defineComponent({
             }
             else {
               console.log(" hi I should edit point at : ", xNDC, " , ", yNDC);
-              let minDist = Infinity;
-              localSelectedVertex = -1;
-
-              const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
-              for (let i = 0; i < vertices.length; i += 4) {
-                const dx = vertices[i] - xNDC;
-                const dy = vertices[i + 1] - yNDC;
-                const dist = dx * dx + dy * dy;
-                if (dist < minDist) {
-                  minDist = dist;
-                  localSelectedVertex = i / 4;
-                }
-              }
-
-              if (minDist < 0.02) {
-                isDragging = true;
-                selectedVertex.value = localSelectedVertex; // 單點記錄
-              }
-              let vertexIndex = localSelectedVertex;
+              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
               isDragging = true;
             }
-          }else if (activeTool.value === 'remove-points') {
+          }
+
+          else if (activeTool.value === 'remove-points') {
             if (e.button === 2) {
 
             }
+
             else {
               console.log(" hi I should edit point at : ", xNDC, " , ", yNDC);
-              let minDist = Infinity;
-              localSelectedVertex = -1;
 
-              const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
-              for (let i = 0; i < vertices.length; i += 4) {
-                const dx = vertices[i] - xNDC;
-                const dy = vertices[i + 1] - yNDC;
-                const dist = dx * dx + dy * dy;
-                if (dist < minDist) {
-                  minDist = dist;
-                  localSelectedVertex = i / 4;
-                }
-              }
-
-              if (minDist < 0.02) {
-                isDragging = true;
-                selectedVertex.value = localSelectedVertex; // 單點記錄
-              }
-              let vertexIndex = localSelectedVertex;
+              let vertexIndex = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
               isDragging = true;
-              console.log(" remove vertex index : ",vertexIndex);
-              if(vertexIndex!==-1)
-              glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { delete: [vertexIndex] });
+              console.log(" remove vertex index : ", vertexIndex);
+              if (vertexIndex !== -1)
+                glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { delete: [vertexIndex] });
             }
           }
+          else if (activeTool.value === 'link-points') {
+            if (e.button === 0) {
+
+              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+              console.log("link point select first vertex at  ", selectedVertex.value);
+              isDragging = true;
+            }
+          }
+          else if (activeTool.value === 'delete-edge') {
+            if (e.button === 0) {
+
+              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+              console.log("delete edge  select first vertex at  ", selectedVertex.value);
+              isDragging = true;
+            }
+          }
+
+
         }
       };
 
@@ -267,13 +254,16 @@ export const meshEditor = defineComponent({
 
           if (isDragging && selectedVertex.value !== -1) {
             let vertexIndex = selectedVertex.value;
-            console.log("currentChosedLayer.value : ",currentChosedLayer.value)
+            console.log("currentChosedLayer.value : ", currentChosedLayer.value)
             glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { update: [{ index: vertexIndex, x: xNDC, y: yNDC }] });
             forceUpdate();
           }
         }
+        else if (activeTool.value === 'link-points') {
 
 
+
+        }
         else if (activeTool.value === 'bone-create') {
 
           // console.log(" mouse move event : ", e.buttons);  // in mouse move e.buttons: 1:left, 2:right, 3:left+right
@@ -322,6 +312,29 @@ export const meshEditor = defineComponent({
 
         else if (activeTool.value === 'bone-animate' && isDragging) {
           // bonesInstance.handleBoneAnimateMouseUp();
+        }
+
+        else if (activeTool.value === 'link-points') {
+          if (e.button === 0) {
+
+            let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+            console.log("link point select first vertex at  ", selectedVertex.value);
+            console.log("link point select second vertex at  ", vertex2);
+            if (vertex2 !== -1 && selectedVertex.value !== -1 && vertex2 !== selectedVertex.value) {
+              glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { addEdge: [{ v1: selectedVertex.value, v2: vertex2 }] });
+            }
+          }
+        }
+        else if (activeTool.value === 'delete-edge') {
+          if (e.button === 0) {
+
+            let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+            console.log("link point select first vertex at  ", selectedVertex.value);
+            console.log("link point select second vertex at  ", vertex2);
+            if (vertex2 !== -1 && selectedVertex.value !== -1 && vertex2 !== selectedVertex.value) {
+              glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { deleteEdge: [{ v1: selectedVertex.value, v2: vertex2 }] });
+            }
+          }
         }
         isDragging = false;
         selectedVertex.value = -1;

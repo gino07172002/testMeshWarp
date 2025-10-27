@@ -7,16 +7,18 @@
         @contextmenu.prevent>grab-point</button>
       <button class="tool-btn" :class="{ active: activeTool === 'select-points' }" @click="selectTool('select-points')"
         @contextmenu.prevent>select-points</button>
-        <button class="tool-btn" :class="{ active: activeTool === 'add-points' }" @click="selectTool('add-points')"
+      <button class="tool-btn" :class="{ active: activeTool === 'add-points' }" @click="selectTool('add-points')"
         @contextmenu.prevent>add-points</button>
-        <button class="tool-btn" :class="{ active: activeTool === 'edit-points' }" @click="selectTool('edit-points')"
+      <button class="tool-btn" :class="{ active: activeTool === 'edit-points' }" @click="selectTool('edit-points')"
         @contextmenu.prevent>edit-points</button>
-        <button class="tool-btn" :class="{ active: activeTool === 'link-points' }" @click="selectTool('link-points')"
+      <button class="tool-btn" :class="{ active: activeTool === 'link-points' }" @click="selectTool('link-points')"
         @contextmenu.prevent>link-points</button>
-        <button class="tool-btn" :class="{ active: activeTool === 'remove-points' }" @click="selectTool('remove-points')"
+      <button class="tool-btn" :class="{ active: activeTool === 'delete-edge' }" @click="selectTool('delete-edge')"
+        @contextmenu.prevent>delete-edge</button>
+      <button class="tool-btn" :class="{ active: activeTool === 'remove-points' }" @click="selectTool('remove-points')"
         @contextmenu.prevent>remove-points</button>
-        <button class="tool-btn" :class="{ active: activeTool === 'remove-all-points' }" @click="selectTool('remove-all-points')"
-        @contextmenu.prevent>remove-all-points</button>
+      <button class="tool-btn" :class="{ active: activeTool === 'remove-all-points' }"
+        @click="selectTool('remove-all-points')" @contextmenu.prevent>remove-all-points</button>
     </div>
     <div class="canvas-area" @contextmenu.prevent>
       <div class="image-container" ref="imageContainer" @contextmenu.prevent>
@@ -25,27 +27,39 @@
       </div>
     </div>
 
-    <div class="panel-section layers-section" style="height:200px; flex: 0 0 200px;">
-      <div class="panel-title">圖層</div>
-      <div class="layers-content">
-        <div class="layers-container">
-          <div id="layerContainer"></div>
-          <span>{{ showLayers?.length }}</span>
-
-          <div v-for="(layer, index) in showLayers" :key="index" class="layer-item">
-            <!-- 勾選控制顯示/隱藏 -->
-            <input type="checkbox" :value="index" v-model="selectedLayers" />
-
-            <!-- 點擊名稱選擇圖層 -->
-            <span class="layer-name" :class="{ active: chosenLayers.includes(index) }"
-              @click="toggleLayerSelection(index)">
-              圖層 {{ layer.name }}
-            </span>
+    <div style="display: flex; flex-direction: column;">
+      <!-- 圖層面板 -->
+      <div class="panel-section layers-section" style="height:200px; flex: 0 0 200px;">
+        <div class="panel-title">圖層</div>
+        <div class="layers-content">
+          <div class="layers-container">
+            <div id="layerContainer"></div>
+            <span>{{ showLayers?.length }}</span>
+            <div v-for="(layer, index) in showLayers" :key="index" class="layer-item">
+              <!-- 勾選控制顯示/隱藏 -->
+              <input type="checkbox" :value="index" v-model="selectedLayers" />
+              <!-- 點擊名稱選擇圖層 -->
+              <span class="layer-name" :class="{ active: chosenLayers.includes(index) }"
+                @click="toggleLayerSelection(index)">
+                圖層 {{ layer.name }}
+              </span>
+            </div>
           </div>
+        </div>
+      </div>
 
-
+      <!-- Mesh Attachments 面板 -->
+      <div class="panel-section mesh-section" style="height:100px; flex: 0 0 100px;">
+        <div class="panel-title">Mesh Attachments</div>
+        <div class="mesh-content">
+          <div class="mesh-container">
+            Mesh attachments 內容
+            <br>  something here!
+          </div>
         </div>
       </div>
     </div>
+
+
   </div>
 </div>
