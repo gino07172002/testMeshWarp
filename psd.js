@@ -173,11 +173,6 @@ function processPSDFile(file) {
   });
 }
 
-// 如果你想保留原來的事件監聽器，可以這樣使用新函數：
-document.getElementById('psdFile').addEventListener('change', function () {
-  processPSDFile(this.files[0]);
-});
-
 // 導出函數，使它可以在別的文件中使用
 // 如果使用 ES6 模塊:
 // export { processPSDFile, allLayers, width, height, drawSelectedLayers };

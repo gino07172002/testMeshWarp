@@ -400,6 +400,17 @@ export const meshEditor = defineComponent({
       await initAnything();
 
       await bindGl(selectedLayers);
+
+      const beforePasses = [];
+
+      // 權重繪製模式
+      beforePasses.push(
+        makeRenderPass(
+          render,
+          gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.refLayers, selectedLayers)
+      )
+
+
       const passes = [];
 
       // 根據模式動態加入 pass
@@ -421,7 +432,8 @@ export const meshEditor = defineComponent({
             weightPaintProgram.value,
             selectedGroups.value[0],
             glsInstance.layers[currentChosedLayer.value]
-          )
+          ),
+
         );
       }
 
@@ -442,7 +454,7 @@ export const meshEditor = defineComponent({
         bonesInstance.updatePoseMesh(gl.value);
       }
       setCurrentJobName('edit');
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers, passes, "edit");
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers, passes, "edit", beforePasses);
 
     });
     onUnmounted(() => {
