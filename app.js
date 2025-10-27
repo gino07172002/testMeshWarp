@@ -967,6 +967,7 @@ const app = Vue.createApp({
       //check layer's parameter key name
       console.log(" layer parameter key name : ", Object.keys(glsInstance.layers[index] || {}));
 
+      console.log(" also checking select laysers : ", selectedLayers.value);
     }
 
     const onVertexGroupChange = (event) => {

@@ -1,10 +1,12 @@
 //allEditor.js
 import { useCounterStore } from './mesh.js';
-const { defineComponent, ref, onMounted, onUnmounted, h, nextTick, inject, computed } = Vue;
+const { defineComponent, ref, onMounted, onUnmounted, h, nextTick, inject, computed, watch } = Vue;
 import {
-  globalVars as v, triggerRefresh, loadHtmlPage, convertToNDC, selectedLayers, mousePressed, isShiftPressed, forceUpdate, initGlAlready,
+  globalVars as v, triggerRefresh, loadHtmlPage, convertToNDC, mousePressed, isShiftPressed, forceUpdate, initGlAlready,
   wholeImageWidth,
-  wholeImageHeight
+  wholeImageHeight,
+  lastLoadedImageType,
+  selectedLayers
 } from './globalVars.js'  // 引入全局變數
 import {
   //initBone,
@@ -39,13 +41,15 @@ import {
   renderGridOnly,
   pngRender,
   psdRender,
+  psdRenderAgain,
+  pngRenderAgain,
   renderMeshSkeleton,
   renderWeightPaint,
   makeRenderPass,
   bindGl,
   clearTexture,
   pngLoadTexture,
-layerForTextureWebgl,
+  layerForTextureWebgl,
 } from './useWebGL.js';
 
 import glsInstance from './useWebGL.js';
@@ -67,7 +71,6 @@ export const allEditor = defineComponent({
     const skeletons = inject('skeletons', ref([]));
     const selectedItem = inject('selectedItem', ref(null));
     const showLayers = inject('showLayers', ref([]));
-    const selectedLayers = inject('selectedLayers', ref([]));
     const chosenLayers = inject('chosenLayers', ref([]));
     const selectedGroups = inject('selectedGroups', ref([]));
     const lastSelectedBone = inject('lastSelectedBone', ref(null));
@@ -94,7 +97,7 @@ export const allEditor = defineComponent({
     const removeTimeline = inject('removeTimeline', () => { console.log('removeTimeline not provided'); });
     const addKeyframe = inject('addKeyframe', () => { console.log('addKeyframe not provided'); });
     const removeKeyframe = inject('removeKeyframe', () => { console.log('removeKeyframe not provided'); });
-   // const handlePSDUpload = inject('handlePSDUpload', () => { console.log('handlePSDUpload not provided'); });
+    // const handlePSDUpload = inject('handlePSDUpload', () => { console.log('handlePSDUpload not provided'); });
     // const psdImage = inject('psdImage', () => { console.log('psdImage not provided'); });
     const playAnimation = inject('playAnimation', () => { console.log('playAnimation not provided'); });
     const exportSkeletonToSpineJson = inject('exportSkeletonToSpineJson', () => { console.log('exportSkeletonToSpineJson not provided'); });
@@ -109,7 +112,6 @@ export const allEditor = defineComponent({
 
     const selectedVertex = ref(-1);
     const isCtrlPressed = ref(false);
-    let currentJobName = null;
     const drawGlCanvas = async () => {
       const canvas = document.getElementById('webgl2');
       const webglContext = canvas.getContext('webgl2');
@@ -326,15 +328,17 @@ export const allEditor = defineComponent({
       //   canvas.removeEventListener('wheel', handleWheel);
       // };
     }
-     function syncLayers() {
+    function syncLayers() {
       //forceUpdate();
       showLayers.value = glsInstance.layers;
     }
     const currentTimeline = inject('currentTimeline', computed(() => timelineList.value[selectedTimelineId.value]));
     const psdImage = async () => {
       if (!gl.value) return;
+      lastLoadedImageType.value = 'psd';
       console.log(" checking psd image width height: ", wholeImageWidth.value, wholeImageHeight.value);
       await psdRender(selectedLayers, wholeImageHeight.value, wholeImageWidth.value);
+      await bindGl(selectedLayers);
       syncLayers();
       showLayers.value = glsInstance.layers;
       console.log("checking layers: ", showLayers.value.length);
@@ -354,7 +358,7 @@ export const allEditor = defineComponent({
             glsInstance.layers,
             glsInstance.getLayerSize(),
             currentChosedLayer,
-            selectedVertices.value
+            selectedVertices
           ),
           makeRenderPass(
             renderWeightPaint,
@@ -383,9 +387,9 @@ export const allEditor = defineComponent({
       setCurrentJobName("psd");
       console.log(" selectedLayers value in allEditor psdImage(): ", selectedLayers.value);
 
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers.value, passes, "psd");
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers, passes, "psd");
     };
-    const  createLayerTexture =(gl, layer)=> {
+    const createLayerTexture = (gl, layer) => {
       if (!layer || !layer.imageData) {
         console.error("Layer or layer.imageData is undefined:", layer);
         return null;
@@ -426,18 +430,18 @@ export const allEditor = defineComponent({
       return texture;
     };
     let layersForTexture = [];
- const handlePSDUpload = (async (event) => {
+    const handlePSDUpload = (async (event) => {
       try {
         const file = event.target.files[0];
         if (file) {
           layersForTexture = [];
           const psdInfo = await processPSDFile(file);
-           let psdLayers = psdInfo.layers;
+          let psdLayers = psdInfo.layers;
 
           let imageWidth = psdInfo.width;
           let imageHeight = psdInfo.height;
           wholeImageHeight.value = imageHeight;
-          
+
           wholeImageWidth.value = imageWidth;
           console.log(" processed psd image width height: ", wholeImageHeight.value, wholeImageWidth.value);
           const glContext = gl.value; // WebGL context from useWebGL.js
@@ -467,6 +471,7 @@ export const allEditor = defineComponent({
               ndcLeft, ndcTop, 0, 1       // Top-left
             ];
 
+            console.log("checking layerVertices: ",layerVertices)
             // Create and populate vertex buffer object (VBO)
             layer.vbo = glContext.createBuffer();
             glContext.bindBuffer(glContext.ARRAY_BUFFER, layer.vbo);
@@ -509,14 +514,43 @@ export const allEditor = defineComponent({
     });
     const initAnything = (async () => {
 
+      //  if( !texture.value)
+      if (lastLoadedImageType.value == 'png') {
+        //if no texture render first time
+        if (!texture.value)
+          await pngRender();
 
-    //  if( !texture.value)
-      await pngRender();
+        else {
+          await pngRenderAgain();
+        }
+      }
+      else if (lastLoadedImageType.value === 'psd') {
+        await psdRenderAgain(selectedLayers, wholeImageHeight.value, wholeImageWidth.value);
+      }
 
       showLayers.value = glsInstance.layers;
 
     });
 
+    const onLayerCheckChange = (index, event) => {
+      if (event.target.checked) {
+        if (!selectedLayers.value.includes(index)) {
+          selectedLayers.value.push(index);
+        }
+      } else {
+        const idx = selectedLayers.value.indexOf(index);
+        if (idx > -1) {
+          selectedLayers.value.splice(idx, 1);
+        }
+      }
+    };
+    const testCountQQ = ref(0);
+    const onLayerCheckChange2 = (event) => {
+      console.log('✅ 勾選變更:', JSON.stringify(selectedLayers2.value))
+      testCountQQ.value += 1;
+      console.log(" testCount value: ", testCountQQ.value);
+      // 這裡可以執行你想做的任何邏輯
+    }
     onMounted(async () => {
       console.log("mount edit page! .. ");
 
@@ -526,6 +560,7 @@ export const allEditor = defineComponent({
       drawGlCanvas();
       console.log("is gl already init? ", initGlAlready.value);
       if (!initGlAlready.value) {
+        lastLoadedImageType.value = 'png';
         clearTexture(selectedLayers);
         await pngLoadTexture('./png3.png')
         initGlAlready.value = true;
@@ -546,7 +581,7 @@ export const allEditor = defineComponent({
             glsInstance.layers,
             glsInstance.getLayerSize(),
             currentChosedLayer,
-            selectedVertices.value
+            selectedVertices
           ),
           makeRenderPass(
             renderWeightPaint,
@@ -571,9 +606,13 @@ export const allEditor = defineComponent({
           activeTool
         )
       );
-
+      if (activeTool.value === 'bone-animate') { //update pose if in animate mode
+        bonesInstance.updatePoseMesh(gl.value);
+      }
       setCurrentJobName('edit');
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers.value, passes, "edit");
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers, passes, "edit");
+
+
 
 
     });
@@ -639,7 +678,10 @@ export const allEditor = defineComponent({
           handleNameClick,
           toggleLayerSelection,
           toggleSelect,
-          firstImage
+          firstImage,
+          onLayerCheckChange,
+          onLayerCheckChange2,
+          testCountQQ
         })
         : h('div', '載入中...');
   },

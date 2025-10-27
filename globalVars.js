@@ -10,8 +10,9 @@ export const mousePressed = ref(); // e event of mouse down , ex: 0:left, 2:righ
 export const isShiftPressed = ref(false);
 export const initGlAlready = ref(false);
 export const refreshKey = ref(0);
-export const  wholeImageWidth = ref(0);;
-export const  wholeImageHeight = ref(0);;
+export const wholeImageWidth = ref(0);;
+export const wholeImageHeight = ref(0);;
+export const lastLoadedImageType = ref('png'); // 'png' or 'psd'
 export const globalVars = {
   testWordQQ: ref("Hello QQ"),
   counter: ref(0),
@@ -41,7 +42,7 @@ export const globalVars = {
     console.log('All shallowRefs triggered');
   },
 };
-export const forceUpdate = ()=> {
+export const forceUpdate = () => {
   refreshKey.value++;
 };
 export const convertToNDC = (e, canvas, container) => {
@@ -145,19 +146,25 @@ export async function loadHtmlPage(url) {
     const { code } = compile(html);
     const compiledRender = new Function('Vue', `${code}; return render`)(Vue);
 
+    /*
     const renderFn = function (ctx) {
       // 🔥 創建深度 Proxy,自動解開多層嵌套的 ref
       const proxyCtx = createDeepProxy(ctx);
 
-      // 🐛 Debug: 看看解開後的結果
-      /*
-      console.log('proxyCtx:', proxyCtx);
-      console.log('proxyCtx.v:', proxyCtx.v);
-      console.log('proxyCtx.v.glsInstance:', proxyCtx.v?.glsInstance);
-      console.log('proxyCtx.v.glsInstance.layers:', proxyCtx.v?.glsInstance?.layers);
-*/
       return compiledRender.call(this, proxyCtx);
     };
+    */
+    const renderFn = function (ctx) {
+      const proxyCtx = new Proxy(ctx, {
+        get(target, prop, receiver) {
+          const value = Reflect.get(target, prop, receiver)
+          // 🔥 只解開一層 ref，不遞迴、不覆蓋 Proxy 結構
+          return isRef(value) ? value.value : value
+        }
+      })
+
+      return compiledRender.call(this, proxyCtx)
+    }
 
     cache.set(url, renderFn);
     return renderFn;

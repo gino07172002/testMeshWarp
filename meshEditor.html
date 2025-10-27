@@ -1,11 +1,51 @@
 <!-- editor.html -->
 <div>
   <h1>mesh editor</h1>
-  <div class="canvas-area" @contextmenu.prevent>
-    <div class="image-container" @contextmenu.prevent>
+  <div class="main-container">
+    <div class="toolbar">
+      <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')"
+        @contextmenu.prevent>grab-point</button>
+      <button class="tool-btn" :class="{ active: activeTool === 'select-points' }" @click="selectTool('select-points')"
+        @contextmenu.prevent>select-points</button>
+        <button class="tool-btn" :class="{ active: activeTool === 'add-points' }" @click="selectTool('add-points')"
+        @contextmenu.prevent>add-points</button>
+        <button class="tool-btn" :class="{ active: activeTool === 'edit-points' }" @click="selectTool('edit-points')"
+        @contextmenu.prevent>edit-points</button>
+        <button class="tool-btn" :class="{ active: activeTool === 'link-points' }" @click="selectTool('link-points')"
+        @contextmenu.prevent>link-points</button>
+        <button class="tool-btn" :class="{ active: activeTool === 'remove-points' }" @click="selectTool('remove-points')"
+        @contextmenu.prevent>remove-points</button>
+        <button class="tool-btn" :class="{ active: activeTool === 'remove-all-points' }" @click="selectTool('remove-all-points')"
+        @contextmenu.prevent>remove-all-points</button>
+    </div>
+    <div class="canvas-area" @contextmenu.prevent>
+      <div class="image-container" ref="imageContainer" @contextmenu.prevent>
 
-      <canvas class="image-canvas" id="webgl" width="640" height="480" @contextmenu.prevent></canvas>
+        <canvas class="image-canvas" id="webgl2" width="640" height="480" @contextmenu.prevent></canvas>
+      </div>
+    </div>
 
+    <div class="panel-section layers-section" style="height:200px; flex: 0 0 200px;">
+      <div class="panel-title">圖層</div>
+      <div class="layers-content">
+        <div class="layers-container">
+          <div id="layerContainer"></div>
+          <span>{{ showLayers?.length }}</span>
+
+          <div v-for="(layer, index) in showLayers" :key="index" class="layer-item">
+            <!-- 勾選控制顯示/隱藏 -->
+            <input type="checkbox" :value="index" v-model="selectedLayers" />
+
+            <!-- 點擊名稱選擇圖層 -->
+            <span class="layer-name" :class="{ active: chosenLayers.includes(index) }"
+              @click="toggleLayerSelection(index)">
+              圖層 {{ layer.name }}
+            </span>
+          </div>
+
+
+        </div>
+      </div>
     </div>
   </div>
 </div>

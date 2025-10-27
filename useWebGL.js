@@ -310,7 +310,6 @@ class gls {
     if (customVertexFunc) {
       // 如果有自訂函數，直接使用它產生頂點資料
 
-
       /*
       //customGrid example
       const customGrid = ({ rows, cols }) => {
@@ -451,9 +450,10 @@ class gls {
   }
 
   // 原始入口，組合
-  createLayerBuffers(gl, image, width, height, top, left, canvasWidth, canvasHeight, outputLayer, customVertexFunc = null) {
+  createLayerBuffers(gl, image, width, height, top, left, canvasWidth, canvasHeight, outputLayer, inputLayer) {
+
     const { vertices, indices, linesIndices } = this.generateGridVertices(
-      image, width, height, top, left, canvasWidth, canvasHeight, 10, 10, customVertexFunc
+      image, width, height, top, left, canvasWidth, canvasHeight, 10, 10
     );
 
     const { vbo, ebo, eboLines } = this.createWebGLBuffers(gl, vertices, indices, linesIndices);
@@ -466,10 +466,116 @@ class gls {
     outputLayer.eboLines = eboLines;
     outputLayer.indices = indices;
     outputLayer.linesIndices = linesIndices;
+    outputLayer.transformParams2 = { left: left, top: top, width: width, height: height, canvasWidth, canvasHeight };
+
   }
 
-  // Modified createBuffers to populate transparentCells
+  createLayerBuffersByInputLayers(gl, image, width, height, top, left, canvasWidth, canvasHeight, outputLayer, inputLayer) {
 
+    console.log("checking I have vertices in input layer:", inputLayer.vertices.value.length);
+    //use inputLayer's vertices to create buffers
+    const vertices = [...inputLayer.vertices.value];
+    const indices = [...inputLayer.indices];
+    const linesIndices = [...inputLayer.linesIndices];
+
+
+    const { vbo, ebo, eboLines } = this.createWebGLBuffers(gl, vertices, indices, linesIndices);
+
+    outputLayer.vertices.value = [...vertices];
+    outputLayer.poseVertices.value = [...vertices];
+    outputLayer.transformParams = { left: -1, top: 1, width: canvasWidth, height: canvasHeight, canvasWidth, canvasHeight };
+    outputLayer.vbo = vbo;
+    outputLayer.ebo = ebo;
+    outputLayer.eboLines = eboLines;
+    outputLayer.indices = indices;
+    outputLayer.linesIndices = linesIndices;
+    outputLayer.transformParams2 = { left: left, top: top, width: width, height: height, canvasWidth, canvasHeight}
+  }
+
+
+
+  updateLayerVertices(gl, layer, options = {}) {
+    const { update = [], add = [], delete: del = [] } = options;
+
+    let vertices = [...layer.vertices.value];
+    let indices = [...layer.indices];
+    let linesIndices = [...layer.linesIndices];
+    const vertexSize = 4; // [glX, glY, texX, texY]
+
+    // === 基本變形參數 (由 createLayerBuffers 設定) ===
+    const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams2;
+    console.log(" layer transform params check : ", layer.transformParams);
+    const sx = (width / canvasWidth);
+    const sy = (height / canvasHeight);
+
+    const toTexCoord = (glX, glY) => {
+      // 反算標準化座標
+      const standardX = (glX - (left + sx)) / sx;
+      const standardY = (glY - (top - sy)) / sy;
+      // 再轉回紋理座標
+      const texX = (standardX + 1) / 2;
+      const texY = (1 - standardY) / 2;
+      return [texX, texY];
+    };
+
+    // 1️⃣ 修改頂點位置 + 同步 texcoord
+    for (const { index, x, y } of update) {
+      const i = index * vertexSize;
+      if (i + 1 < vertices.length) {
+        vertices[i] = x;
+        vertices[i + 1] = y;
+
+        const [texX, texY] = toTexCoord(x, y);
+        vertices[i + 2] = texX;
+        vertices[i + 3] = texY;
+      }
+    }
+
+    // 2️⃣ 刪除頂點
+    if (del.length > 0) {
+      const sortedDel = [...del].sort((a, b) => b - a);
+      for (const index of sortedDel) {
+        vertices.splice(index * vertexSize, vertexSize);
+      }
+
+      const shiftIndex = (arr) =>
+        arr
+          .filter(i => !del.includes(i))
+          .map(i => i - del.filter(d => d < i).length);
+
+      indices = shiftIndex(indices);
+      linesIndices = shiftIndex(linesIndices);
+    }
+
+    // 3️⃣ 新增頂點
+    if (add.length > 0) {
+      for (const { x, y, texX = null, texY = null } of add) {
+        const [tx, ty] = texX != null ? [texX, texY] : toTexCoord(x, y);
+        vertices.push(x, y, tx, ty);
+      }
+    }
+
+    // 4️⃣ 更新 Buffer 資料
+    gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.eboLines);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+    // 5️⃣ 更新 Layer 狀態
+    layer.vertices.value = [...vertices];
+    layer.poseVertices.value = [...vertices];
+    layer.indices = indices;
+    layer.linesIndices = linesIndices;
+
+    console.log("✅ Vertices updated with refreshed texture mapping");
+  }
 }
 export const setCurrentJobName = (jobName) => {
   currentJobName.value = jobName;
@@ -480,10 +586,10 @@ export const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer,
     console.log("stop running ");
     return;
   }
-  console.log("running");
+
   // console.log("selectedLayers.value, in render2: ", selectedLayers);
   time += 0.016;
-  let res = render(gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers);
+  let res = render(gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers.value);
 
   if (res === false) {
     return;
@@ -521,6 +627,7 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
 
   // let layerIndices = [0, 1, 2, 3, 4];
   let layerIndices = selectedLayers;
+  //console.log("layerIndices :  ",layerIndices)
   layerIndices.sort((a, b) => a - b); // 數字由小到大排序
 
   if (layerIndices.length == 0)
@@ -947,9 +1054,11 @@ function weightToColor(weight) {
   return { r, g, b };
 }
 // 辅助函数：只渲染网格
-export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChosedLayerRef, selectedVertices = []) {
+export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChosedLayerRef, selectedVertices) {
+
+  if (!selectedVertices)
+    selectedVertices.value = [];
   let currentChosedLayer = currentChosedLayerRef.value;
-  console.log(" drawing chosed layer grid : ", currentChosedLayer);
 
   var baseLayer = layers[currentChosedLayer];
   if (layerSize === 0) return;
@@ -989,12 +1098,12 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
     gl.drawArrays(gl.POINTS, 0, baseLayer.vertices.value.length / 4);
 
     // 再畫選取的點 (大綠點)
-    if (selectedVertices && selectedVertices.length > 0) {
+    if (selectedVertices.value && selectedVertices.value.length > 0) {
       if (pointSizeLocation !== null) {
         gl.uniform1f(pointSizeLocation, 6.0);
       }
       gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 0, 1, 0, 1);
-      for (let idx of selectedVertices) {
+      for (let idx of selectedVertices.value) {
         gl.drawArrays(gl.POINTS, idx, 1);
       }
     }
@@ -1089,6 +1198,8 @@ const loadTexture = (gl, url) => {
     image.src = url;
   });
 };
+
+
 export const clearTexture = (selectedLayers) => {
   // 清空之前的圖層
   glsInstance.clearAllLayer();
@@ -1105,6 +1216,7 @@ export const pngLoadTexture = async (path) => {
 }
 export const pngRender = async () => {
   console.log("load first image...");
+
   texture.value = [];
 
   // 加载纹理
@@ -1139,6 +1251,46 @@ export const pngRender = async () => {
   }
 }
 
+export const pngRenderAgain = async () => {
+  console.log("load first image...");
+
+  console.log("checking layer size : ", glsInstance.getLayerSize());
+  texture.value = [];
+
+  // 加载纹理
+  let result = loadedImage.value;
+  let layer = {
+    imageData: result.data,
+    width: result.width,
+    height: result.height,
+    top: 0,   // 預設居中顯示
+    left: 0
+  };
+
+  texture.value.push(await layerToTexture(gl.value, layer));
+  console.log(" hi texture in load png: ", texture.value.length);
+
+  console.log("rebind gl layers...");
+
+  let canvasHeight = texture.value[0].height;
+  let canvasWidth = texture.value[0].width;
+  for (let i = 0; i < texture.value.length; i++) {
+
+
+    glsInstance.createLayerBuffersByInputLayers(
+      gl.value,
+      texture.value[i].image,
+      texture.value[i].width,
+      texture.value[i].height,
+      1,
+      -1,
+      canvasWidth,
+      canvasHeight,
+      glsInstance.layers[i],
+      glsInstance.layers[i]
+    );
+  }
+}
 export const bindGl = async (selectedLayers) => {
 
 
@@ -1232,7 +1384,46 @@ export const psdRender = async (selectedLayers, wholeImageHeight, wholeImageWidt
       layer
     );
   }
-  await bindGl(selectedLayers);
+  //await bindGl(selectedLayers);
+  console.log("WebGL initialization complete");
+
+}
+
+export const psdRenderAgain = async (selectedLayers, wholeImageHeight, wholeImageWidth) => {
+
+  //glsInstance.clearAllLayer();
+  texture.value = [];
+
+  let canvasHeight = wholeImageWidth;
+  let canvasWidth = wholeImageHeight;
+
+  for (const layerData of layerForTextureWebgl.value) {
+    // === 1. 建立 WebGL 紋理 ===
+    const texInfo = await layerToTexture(gl.value, layerData);
+    texture.value.push(texInfo);
+  }
+  //syncLayers();
+
+  // === 同步/初始化 ===
+
+  for (let i = 0; i < texture.value.length; i++) {
+
+    const layer = glsInstance.layers[i];
+
+    // === 使用 layer.attachment 的資料代替 layerData ===
+
+    const att = layer.attachment;
+    glsInstance.createLayerBuffersByInputLayers
+      (
+        gl.value,
+        att.image, att.width, att.height,
+        att.top, att.left,
+        canvasWidth, canvasHeight,
+        layer,
+        layer
+      );
+  }
+  //await bindGl(selectedLayers);
   console.log("WebGL initialization complete");
 
 }
