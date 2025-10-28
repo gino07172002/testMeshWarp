@@ -528,6 +528,8 @@ class gls {
       top: top,
       width: width,
       height: height,
+      right: left + width / canvasWidth * 2,
+      bottom: top - height / canvasHeight * 2,
       canvasWidth,
       canvasHeight,
     };
@@ -552,7 +554,16 @@ class gls {
     outputLayer.eboLines = eboLines;
     outputLayer.indices.value = indices;
     outputLayer.linesIndices.value = linesIndices;
-    outputLayer.transformParams2 = { left: left, top: top, width: width, height: height, canvasWidth, canvasHeight }
+    outputLayer.transformParams2 = {
+      left: left,
+      top: top,
+      width: width,
+      height: height,
+      right: left + width / canvasWidth * 2,
+      bottom: top - height / canvasHeight * 2,
+      canvasWidth,
+      canvasHeight,
+    };
   }
 
 
@@ -1424,6 +1435,130 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
     }
   }
 }
+function fitTransformToVertices(layer) {
+  const vertices = layer.vertices.value;
+  
+  if (!vertices || vertices.length < 2) {
+    console.warn('Not enough vertices to calculate bounding box');
+    return;
+  }
+  
+  // 初始化邊界值
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  
+  // 遍歷所有頂點找出邊界 (假設 vertices 是 [x, y, x, y, ...] 格式)
+  for (let i = 0; i < vertices.length; i += 2) {
+    const x = vertices[i];
+    const y = vertices[i + 1];
+    
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  
+  // 計算新的 transformParams2
+  const { canvasWidth, canvasHeight } = layer.transformParams2;
+  
+  const newLeft = minX;
+  const newTop = maxY; // WebGL 座標系 Y 軸向上
+  const newWidth = (maxX - minX) * canvasWidth / 2;
+  const newHeight = (maxY - minY) * canvasHeight / 2;
+  
+  // 更新 transformParams2
+  layer.transformParams2 = {
+    left: newLeft,
+    top: newTop,
+    width: newWidth,
+    height: newHeight,
+    right: newLeft + newWidth / canvasWidth * 2,
+    bottom: newTop - newHeight / canvasHeight * 2,
+    canvasWidth,
+    canvasHeight,
+  };
+  
+  return layer.transformParams2;
+}
+
+
+export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentChosedLayerRef, selectedVertices) {
+  if (!selectedVertices) selectedVertices = { value: [] };
+
+  const currentChosedLayer = currentChosedLayerRef.value;
+  const baseLayer = layers[currentChosedLayer];
+  if (!baseLayer || !baseLayer.vbo || layerSize === 0) return;
+fitTransformToVertices(baseLayer);
+  const { left, top, right, bottom } = baseLayer.transformParams2;
+
+  gl.useProgram(colorProgram);
+
+  // === 1️⃣ 建立邊界四角頂點 ===
+  const boundaryVertices = new Float32Array([
+    left, top, 0, 0,   // 左上
+    right, top, 0, 0,   // 右上
+    right, bottom, 0, 0,   // 右下
+    left, bottom, 0, 0    // 左下
+  ]);
+
+  const boundaryVBO = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, boundaryVBO);
+  gl.bufferData(gl.ARRAY_BUFFER, boundaryVertices, gl.STATIC_DRAW);
+
+  const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
+  if (colorPosAttrib !== -1) {
+    gl.enableVertexAttribArray(colorPosAttrib);
+    gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
+  }
+
+  const uColor = gl.getUniformLocation(colorProgram, 'uColor');
+  const uPointSize = gl.getUniformLocation(colorProgram, 'uPointSize');
+
+  // === 2️⃣ 畫邊界線 ===
+  const lineIndices = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0]);
+  const lineEBO = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineEBO);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, lineIndices, gl.STATIC_DRAW);
+  gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0); // 綠色邊線
+  gl.drawElements(gl.LINES, lineIndices.length, gl.UNSIGNED_SHORT, 0);
+  console.log('Drawing 4 points at:', boundaryVertices.slice(0, 8));
+  console.log('Point size uniform location:', uPointSize);
+  // === 3️⃣ 畫四角大點（綠色）===
+  if (uPointSize) gl.uniform1f(uPointSize, 20.0);
+  gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0);
+  gl.drawArrays(gl.POINTS, 0, 4);
+
+  // === 4️⃣ 畫中心點 ===
+
+  const centerX = (left + right) / 2;
+  const centerY = (top + bottom) / 2;
+  const centerVertex = new Float32Array([centerX, centerY, 0, 0]);
+
+  const centerVBO = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, centerVBO);
+  gl.bufferData(gl.ARRAY_BUFFER, centerVertex, gl.STATIC_DRAW);
+  gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
+  gl.enableVertexAttribArray(colorPosAttrib);
+
+  // 外圈黃點
+  if (uPointSize) gl.uniform1f(uPointSize, 20.0);
+  gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0);
+  gl.drawArrays(gl.POINTS, 0, 1);
+
+  // 內圈黑點
+  if (uPointSize) gl.uniform1f(uPointSize, 10.0);
+  gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0);
+  gl.drawArrays(gl.POINTS, 0, 1);
+
+  // === 5️⃣ 清理暫時的 buffer ===
+  gl.deleteBuffer(boundaryVBO);
+  gl.deleteBuffer(lineEBO);
+  gl.deleteBuffer(centerVBO);
+}
+
+
 export const layerToTexture = (gl, layer) => {
   return new Promise((resolve, reject) => {
     // 從圖層中提取必要資料

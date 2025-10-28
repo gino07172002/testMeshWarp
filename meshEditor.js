@@ -53,7 +53,8 @@ import {
   pngLoadTexture,
   layerForTextureWebgl,
   getClosestVertex,
-  loadedImage
+  renderOutBoundary,
+  loadedImage,
 } from './useWebGL.js';
 
 
@@ -464,12 +465,23 @@ export const meshEditor = defineComponent({
             currentChosedLayer,
             selectedVertices
           ),
+            
+
           makeRenderPass(
             renderWeightPaint,
             gl.value,
             weightPaintProgram.value,
             selectedGroups.value[0],
             glsInstance.layers[currentChosedLayer.value]
+          ),
+          makeRenderPass(
+            renderOutBoundary,
+            gl.value,
+            colorProgram.value,
+            glsInstance.layers,
+            glsInstance.getLayerSize(),
+            currentChosedLayer,
+            selectedVertices
           ),
 
         );
