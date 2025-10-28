@@ -1,6 +1,7 @@
 // globalVars.js
 const { ref, shallowRef, triggerRef, isRef, unref, toRaw, isReactive } = Vue;
 const { compile } = VueCompilerDOM;
+import { useCounterStore, Mesh2D } from './mesh.js';
 
 
 export const selectedLayers = ref([]);
@@ -13,6 +14,7 @@ export const refreshKey = ref(0);
 export const wholeImageWidth = ref(0);;
 export const wholeImageHeight = ref(0);;
 export const lastLoadedImageType = ref('png'); // 'png' or 'psd'
+export const meshs = ref([]); // array of Mesh2D
 export const globalVars = {
   testWordQQ: ref("Hello QQ"),
   counter: ref(0),

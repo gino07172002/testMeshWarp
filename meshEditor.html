@@ -49,12 +49,20 @@
       </div>
 
       <!-- Mesh Attachments 面板 -->
-      <div class="panel-section mesh-section" style="height:100px; flex: 0 0 100px;">
+      <div class="panel-section mesh-section" style="height:100px; flex: 0 0 400px;">
         <div class="panel-title">Mesh Attachments</div>
         <div class="mesh-content">
           <div class="mesh-container">
-            Mesh attachments 內容
-            <br>  something here!
+            <div class="vertex-btn-group">
+              <button @click="addMesh">+</button>
+            </div>
+            Mesh attachments 內容 {{meshs.length}}
+            <div v-for="(mesh, index) in meshs" :key="index + '_mesh'" class="layer-item">
+                <input type="checkbox" :value="index" v-model="selectedMesh" />
+              <span  class="layer-name"   :class="{ active:  chosenMesh.includes(index) }"
+                @click="toggleMeshSelection(index)">Mesh {{ index + 1 }}: {{ mesh.name }} -name: {{ mesh.image.name }} </span>
+            </div>
+            <br> something here!
           </div>
         </div>
       </div>

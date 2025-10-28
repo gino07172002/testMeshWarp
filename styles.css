@@ -236,7 +236,17 @@ body {
     font-weight: bold;
     border-bottom: 1px solid #3a3a3a;
 }
+.layer-name {
+  cursor: pointer;
+  padding: 4px 8px;
+  display: inline-block;
+}
 
+.layer-name.active {
+  background-color: #4CAF50; /* 高亮背景色 */
+  color: white;
+  border-radius: 4px;
+}
 .layer-item {
     display: flex;
     align-items: center;

@@ -1472,13 +1472,21 @@ export function getAllBonesAtClick(skeleton, clickX, clickY, headTailRadius = 8,
 export class Mesh2D {
   constructor(name = "") {
     this.name = name;
-    this.visible = true;
+
     this.vertices = [];
     this.groups = {}; // { groupName: VertexGroup }
-    this.layers = []; // 圖層系統
+
     this.indices = []; // 三角形索引
 
-    // WebGL 相關
+
+    this.image =null;
+    this.atlas_region = { "x": 100, "y": 200, "w": 256, "h": 128 },
+
+
+      //should be move to slots later
+      this.visible = true;
+    this.layers = []; // 圖層系統
+    // WebGL 相關 ,之後會移到render器去
     this.vbo = null; // 頂點緩衝
     this.ebo = null; // 三角形元素緩衝
     this.eboLines = null; // 線條元素緩衝

@@ -1,5 +1,5 @@
 //Editor.js
-import { useCounterStore } from './mesh.js';
+import { useCounterStore, Mesh2D } from './mesh.js';
 const { defineComponent, ref, onMounted, onUnmounted, h, nextTick, inject, computed } = Vue;
 import {
   globalVars as v,
@@ -13,7 +13,8 @@ import {
   initGlAlready,
   wholeImageWidth,
   wholeImageHeight,
-  lastLoadedImageType
+  lastLoadedImageType,
+  meshs
 } from './globalVars.js'  // 引入全局變數
 import {
   //initBone,
@@ -51,7 +52,8 @@ import {
   clearTexture,
   pngLoadTexture,
   layerForTextureWebgl,
-  getClosestVertex
+  getClosestVertex,
+  loadedImage
 } from './useWebGL.js';
 
 
@@ -68,6 +70,10 @@ export const meshEditor = defineComponent({
     const chosenLayers = inject('chosenLayers', ref([]));
     const selectedGroups = inject('selectedGroups', ref([]));
     const toggleLayerSelection = inject('toggleLayerSelection', () => { console.log('toggleLayerSelection not provided'); });
+
+    const selectedMesh = ref(null);
+
+    const chosenMesh = ref([]);
 
     const selectedVertex = ref(-1);
 
@@ -362,7 +368,7 @@ export const meshEditor = defineComponent({
       //   canvas.removeEventListener('wheel', handleWheel);
       // };
     };
-
+   
     const initAnything = (async () => {
 
       //  if( !texture.value)
@@ -385,6 +391,38 @@ export const meshEditor = defineComponent({
 
     });
 
+    const toggleMeshSelection = (index) => {
+      console.log(" toggle layer selection : ", index);
+      if (chosenMesh.value.includes(index)) {
+        chosenMesh.value = chosenMesh.value.filter(i => i !== index)
+      } else {
+        chosenMesh.value.push(index)
+      }
+      console.log(" chosenMesh.value : ", chosenMesh.value);
+
+
+      // checking chosenMesh.includes(index)
+      console.log(" chosenMesh includes index? ", chosenMesh.value.includes(index));
+    }
+ const addMesh = () => {
+      console.log(" hi add addMesh ");
+
+      //copy layers[currentChosedLayer]'s vertices, indices, linesIndices to new mesh
+      if (glsInstance.layers.length > 0 && currentChosedLayer.value < glsInstance.layers.length) {
+        const layer = glsInstance.layers[currentChosedLayer.value];
+        const newMesh = new Mesh2D();
+       // console.log(" layer vertices : ", JSON.stringify(layer.vertices.value));
+
+       // console.log(" layer indices : ", JSON.stringify(layer.indices.value));
+        newMesh.name = "mesh_" + (meshs.value.length + 1);
+        newMesh.image=loadedImage;
+        newMesh.vertices = [...layer.vertices.value];
+
+        newMesh.indices= [...layer.indices.value];
+        newMesh.linesIndices= [...layer.linesIndices.value];
+        meshs.value.push(newMesh);
+      }
+    }
     onMounted(async () => {
       renderFn.value = await loadHtmlPage('./meshEditor.html');
 
@@ -457,6 +495,7 @@ export const meshEditor = defineComponent({
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers, passes, "edit", beforePasses);
 
     });
+
     onUnmounted(() => {
       console.log("unmount edit page, cleaning up gl context...");
       if (gl.value) {
@@ -478,17 +517,14 @@ export const meshEditor = defineComponent({
           showLayers,
           selectedLayers,
           chosenLayers,
-          toggleLayerSelection
+          toggleLayerSelection,
+          addMesh,
+          meshs,
+          chosenMesh,
+          toggleMeshSelection,
+          selectedMesh
         })
         : h('div', '載入中...');
 
   },
 });
-
-
-const doRender = () => {
-  console.log("hi do Render!");
-}
-const doRenderAgain = () => {
-  console.log("hi do Render Again=!");
-}
