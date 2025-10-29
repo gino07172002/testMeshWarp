@@ -1,6 +1,6 @@
 const { ref, reactive, toRaw } = Vue;
 import glsInstance from './useWebGL.js';
-import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick,Attachment } from './mesh.js';
+import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick, Attachment } from './mesh.js';
 
 console.log("Creating spine with", MeshBone);
 const meshSkeleton = reactive(new Skeleton("HumanSkeleton"));
@@ -37,14 +37,14 @@ const minBoneLength = 0.1;
 
 
 
- class Bones {
+class Bones {
   constructor(options = {}) {
 
     this.loadBones = this.loadBones.bind(this);
     this.saveBones = this.saveBones.bind(this);
 
     this.selectedBone = options.selectedBone;
-    
+
     this.parentBoneIndex = -1;
   }
 
@@ -139,11 +139,11 @@ const minBoneLength = 0.1;
       const allSaveData = {
         skeletons: serializedBones,
         selectedBoneId: this.selectedBone?.id || null,
-       
+
         layers: vertexGroupObjects
       };
 
-       console.log("checking all save data: ", JSON.stringify(allSaveData));
+      console.log("checking all save data: ", JSON.stringify(allSaveData));
       localStorage.setItem('allSaveData', JSON.stringify(allSaveData));
       console.log('✅ Bones saved successfully');
     } catch (err) {
@@ -179,18 +179,18 @@ const minBoneLength = 0.1;
 
       // ✅ 還原選中與索引
       this.selectedBone = this.findBoneByIdInSkeletons(allBones, parsed.selectedBoneId);
-     
+
       console.log('glsInstance:', glsInstance);
       console.log('glsInstance.layers:', glsInstance.layers);
       console.log('glsInstance.layers.value:', glsInstance.layers?.value);
       console.log('parsed:', parsed);
       console.log(" hello vertex group objects: ", parsed.layers);
       glsInstance.layers.forEach((layer, i) => {
-       layer.vertexGroup.value = parsed.layers[i]?.vertexGroup
+        layer.vertexGroup.value = parsed.layers[i]?.vertexGroup
       })
 
 
-     // console.log("hi layer vertex group: ", JSON.stringify(this.glsInstance.layers));
+      // console.log("hi layer vertex group: ", JSON.stringify(this.glsInstance.layers));
       console.log('✅ Bones loaded successfully');
     } catch (err) {
       console.error('❌ Error loading bones:', err);
@@ -205,7 +205,7 @@ const minBoneLength = 0.1;
 
   // 🧭 遞迴搜尋 bone（跨多個 skeleton）
   findBoneById(bone, id) {
-   console.log("bone?", bone, "id?", id, "this?", this);
+    console.log("bone?", bone, "id?", id, "this?", this);
     if (!bone || !id) return null;
     if (bone.id === id) return bone;
     for (const child of bone.children) {
@@ -463,7 +463,7 @@ const minBoneLength = 0.1;
   }
   searchBoneRecursive(bone, boneId) {
     if (bone.id === boneId) {
-      console.log(" found bone: ", bone.id," bone name ", bone.name);
+      console.log(" found bone: ", bone.id, " bone name ", bone.name);
       return bone;
     }
     if (bone.children) {
@@ -557,6 +557,12 @@ const minBoneLength = 0.1;
   moveSelectedVertex(currentChosedLayer, useMultiSelect, localSelectedVertex, gl, xNDC, yNDC, dragStartX, dragStartY) {
     const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
 
+    //backup original vertices (if backup not exist)
+    if (!glsInstance.layers[currentChosedLayer.value].originalVertices) {
+      glsInstance.layers[currentChosedLayer.value].originalVertices = [...vertices];
+    }
+
+
     if (!useMultiSelect && localSelectedVertex !== -1) {
       // ===== 單點移動 =====
       const index = localSelectedVertex * 4;
@@ -586,9 +592,9 @@ const minBoneLength = 0.1;
   }
   updatePoseMesh(gl) {
     console.log(" update pose mesh ... ");
-  
+
     //simple test : just move all vertices  with root bone's head position , maybe would be more complex later
-    const layers = glsInstance.layers; 
+    const layers = glsInstance.layers;
     if (!meshSkeleton || meshSkeleton.rootBones.length === 0) return;
 
     // === 預先建立一個骨頭名稱對應表 ===
@@ -714,6 +720,28 @@ const minBoneLength = 0.1;
 
 
   }
+  recoverSelectedVertex(currentChosedLayer) {
+    console.log("recover selected vertex ...");
+
+    const layer = glsInstance.layers[currentChosedLayer.value];
+    const vertices = layer.vertices.value;
+
+    if (!layer.originalVertices) return;
+
+    const originalVertices = layer.originalVertices;
+
+    // 還原每個被選取的 vertex
+    for (let idx of selectedVertices.value) {
+      const index = idx * 4;
+      vertices[index] = originalVertices[index];
+      vertices[index + 1] = originalVertices[index + 1];
+      vertices[index + 2] = originalVertices[index + 2];
+      vertices[index + 3] = originalVertices[index + 3];
+    }
+
+    // ✅ 強制觸發 Vue reactivity
+    layer.vertices.value = new Float32Array(vertices);
+  }
 
 }
 
@@ -728,7 +756,7 @@ export {
   selectedBoneForEditing,
   editingBoneEnd,
   boneEndBeingDragged,
- 
+
   Bones,
   meshSkeleton,
   skeletons,

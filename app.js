@@ -270,7 +270,7 @@ const app = Vue.createApp({
           let imageWidth = psdInfo.width;
           let imageHeight = psdInfo.height;
           wholeImageHeight.value = imageHeight;
-          
+
           wholeImageWidth.value = imageWidth;
           console.log(" processed psd image width height: ", wholeImageHeight.value, wholeImageWidth.value);
           const glContext = gl.value; // WebGL context from useWebGL.js
@@ -510,6 +510,11 @@ const app = Vue.createApp({
         // glsInstance.resetMeshToOriginal();
         // bonesInstance.resetSkeletonToOriginal();
       }
+      else if (tool === 'edit-points') {
+
+        bonesInstance.recoverSelectedVertex(currentChosedLayer)
+        // restore vertices to original
+      }
       else if (tool === 'bone-clear') {
         bonesInstance.clearBones();
       } else if (tool === 'bone-save') {
@@ -518,7 +523,7 @@ const app = Vue.createApp({
       } else if (tool === 'bone-load') {
         bonesInstance.loadBones();
       }
-
+      forceUpdate();
     };
 
     const resetPose = () => {

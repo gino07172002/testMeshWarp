@@ -186,6 +186,8 @@ export const meshEditor = defineComponent({
             }
           }
           else if (activeTool.value === 'edit-points') {
+
+            
             if (e.button === 2) {
 
             }
