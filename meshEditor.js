@@ -187,7 +187,7 @@ export const meshEditor = defineComponent({
           }
           else if (activeTool.value === 'edit-points') {
 
-            
+
             if (e.button === 2) {
 
             }
@@ -241,7 +241,9 @@ export const meshEditor = defineComponent({
         if (!isDragging) {
           const isCreatMode = (activeTool.value === 'bone-create');
           bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC, isCreatMode);
-
+          if (activeTool.value === 'edit-points') {
+            glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value]);
+          }
           return;
         }
 
@@ -267,6 +269,7 @@ export const meshEditor = defineComponent({
             glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { update: [{ index: vertexIndex, x: xNDC, y: yNDC }] });
             forceUpdate();
           }
+
         }
         else if (activeTool.value === 'link-points') {
 
@@ -371,7 +374,7 @@ export const meshEditor = defineComponent({
       //   canvas.removeEventListener('wheel', handleWheel);
       // };
     };
-   
+
     const initAnything = (async () => {
 
       //  if( !texture.value)
@@ -407,22 +410,22 @@ export const meshEditor = defineComponent({
       // checking chosenMesh.includes(index)
       console.log(" chosenMesh includes index? ", chosenMesh.value.includes(index));
     }
- const addMesh = () => {
+    const addMesh = () => {
       console.log(" hi add addMesh ");
 
       //copy layers[currentChosedLayer]'s vertices, indices, linesIndices to new mesh
       if (glsInstance.layers.length > 0 && currentChosedLayer.value < glsInstance.layers.length) {
         const layer = glsInstance.layers[currentChosedLayer.value];
         const newMesh = new Mesh2D();
-       // console.log(" layer vertices : ", JSON.stringify(layer.vertices.value));
+        // console.log(" layer vertices : ", JSON.stringify(layer.vertices.value));
 
-       // console.log(" layer indices : ", JSON.stringify(layer.indices.value));
+        // console.log(" layer indices : ", JSON.stringify(layer.indices.value));
         newMesh.name = "mesh_" + (meshs.value.length + 1);
-        newMesh.image=loadedImage;
+        newMesh.image = loadedImage;
         newMesh.vertices = [...layer.vertices.value];
 
-        newMesh.indices= [...layer.indices.value];
-        newMesh.linesIndices= [...layer.linesIndices.value];
+        newMesh.indices = [...layer.indices.value];
+        newMesh.linesIndices = [...layer.linesIndices.value];
         meshs.value.push(newMesh);
       }
     }
@@ -467,7 +470,7 @@ export const meshEditor = defineComponent({
             currentChosedLayer,
             selectedVertices
           ),
-            
+
 
           makeRenderPass(
             renderWeightPaint,

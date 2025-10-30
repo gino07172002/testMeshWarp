@@ -513,6 +513,7 @@ const app = Vue.createApp({
       else if (tool === 'edit-points') {
 
         bonesInstance.recoverSelectedVertex(currentChosedLayer)
+        
         // restore vertices to original
       }
       else if (tool === 'bone-clear') {

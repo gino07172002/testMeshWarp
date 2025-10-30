@@ -1,7 +1,21 @@
 const { ref, reactive, toRaw } = Vue;
 import glsInstance from './useWebGL.js';
 import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick, Attachment } from './mesh.js';
-
+import {
+  globalVars as v,
+  triggerRefresh,
+  loadHtmlPage,
+  convertToNDC,
+  selectedLayers,
+  mousePressed,
+  isShiftPressed,
+  forceUpdate,
+  initGlAlready,
+  wholeImageWidth,
+  wholeImageHeight,
+  lastLoadedImageType,
+  meshs
+} from './globalVars.js'  // 引入全局變數
 console.log("Creating spine with", MeshBone);
 const meshSkeleton = reactive(new Skeleton("HumanSkeleton"));
 const skeletons = reactive([meshSkeleton]);
@@ -741,6 +755,7 @@ class Bones {
 
     // ✅ 強制觸發 Vue reactivity
     layer.vertices.value = new Float32Array(vertices);
+    forceUpdate();
   }
 
 }

@@ -614,7 +614,7 @@ class gls {
 
     // === 基本變形參數 (由 createLayerBuffers 設定) ===
     const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams2;
-    console.log(" layer transform params check : ", layer.transformParams);
+    //console.log(" layer transform params check : ", layer.transformParams);
     const sx = (width / canvasWidth);
     const sy = (height / canvasHeight);
 
@@ -794,7 +794,7 @@ class gls {
         const triKey = [v1, v2, v3].sort((a, b) => a - b).join('-');
         if (!existingTriangles.has(triKey)) {
           indices.push(v1, v2, v3);
-          console.log(`🔺 New triangle formed: ${v1}-${v2}-${v3}`);
+       //   console.log(`🔺 New triangle formed: ${v1}-${v2}-${v3}`);
         }
       }
     }
@@ -840,7 +840,7 @@ class gls {
           newOriginalTriangles.add(triKey);
           allValidTriangles.add(triKey);
         } else {
-          console.log(`🗑️ Original triangle permanently removed: ${triKey}`);
+       //   console.log(`🗑️ Original triangle permanently removed: ${triKey}`);
         }
       }
       layer.originalTriangles = newOriginalTriangles; // 永久更新
@@ -880,8 +880,8 @@ class gls {
     layer.indices.value = indices;
     layer.linesIndices.value = linesIndices;
 
-    console.log("✅ Vertices updated with refreshed texture mapping");
-    console.log(`📊 Edges: ${layer.edges.size}, Triangles: ${indices.length / 3} (Original: ${layer.originalTriangles.size})`);
+ //   console.log("✅ Vertices updated with refreshed texture mapping");
+ //   console.log(`📊 Edges: ${layer.edges.size}, Triangles: ${indices.length / 3} (Original: ${layer.originalTriangles.size})`);
   }
 
 }
