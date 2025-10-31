@@ -55,6 +55,7 @@ import {
   getClosestVertex,
   renderOutBoundary,
   loadedImage,
+  fitTransformToVertices
 } from './useWebGL.js';
 
 
@@ -429,6 +430,9 @@ export const meshEditor = defineComponent({
         meshs.value.push(newMesh);
       }
     }
+    const fitLayerBoundary = () => {
+      fitTransformToVertices(glsInstance.layers[currentChosedLayer.value]);
+    }
     onMounted(async () => {
       renderFn.value = await loadHtmlPage('./meshEditor.html');
 
@@ -539,7 +543,8 @@ export const meshEditor = defineComponent({
           meshs,
           chosenMesh,
           toggleMeshSelection,
-          selectedMesh
+          selectedMesh,
+          fitLayerBoundary
         })
         : h('div', '載入中...');
 

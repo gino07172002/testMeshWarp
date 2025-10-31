@@ -1435,7 +1435,7 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
     }
   }
 }
-function fitTransformToVertices(layer) {
+export function fitTransformToVertices(layer) {
   const vertices = layer.vertices.value;
 
   if (!vertices || vertices.length < 2) {
@@ -1493,8 +1493,8 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
   const baseLayer = layers[currentChosedLayer];
   if (!baseLayer || !baseLayer.vbo || layerSize === 0) return;
 
-  fitTransformToVertices(baseLayer);
-  const { left, top, right, bottom } = baseLayer.transformParams3;
+  
+  const { left, top, right, bottom } = baseLayer.transformParams3 || baseLayer.transformParams2;
 
   gl.useProgram(colorProgram);
 
