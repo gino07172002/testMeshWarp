@@ -55,7 +55,8 @@ import {
   getClosestVertex,
   renderOutBoundary,
   loadedImage,
-  fitTransformToVertices
+  fitTransformToVertices,
+  fitTransformToVertices2
 } from './useWebGL.js';
 
 
@@ -112,6 +113,7 @@ export const meshEditor = defineComponent({
       let startPosY = 0;
       let useMultiSelect = true;
       let dragStartX = 0, dragStartY = 0; // 記錄滑鼠起始點
+      let selectedBoundaryIndex = -1;
 
       const handleMouseDown = (e) => {
         mousePressed.value = e.button;
@@ -227,10 +229,22 @@ export const meshEditor = defineComponent({
 
               selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
               console.log("delete edge  select first vertex at  ", selectedVertex.value);
-              isDragging = true;
+
             }
           }
+          else if (activeTool.value === 'edit-boundary') {
+            if (e.button === 0) {
+              console.log("doing boundary interact");
 
+              selectedBoundaryIndex = glsInstance.handleBoundaryInteraction(
+                xNDC,
+                yNDC,
+                glsInstance.layers,
+                currentChosedLayer
+              );
+            }
+          }
+          isDragging = true;
 
         }
       };
@@ -296,6 +310,14 @@ export const meshEditor = defineComponent({
           // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
           //   startPosX = xNDC;
           //    startPosY = yNDC;
+        } else if (activeTool.value === 'edit-boundary') {
+          if (e.button === 0) {
+            console.log("doing boundary interact mouse moving ..", selectedBoundaryIndex);
+
+            if (selectedBoundaryIndex !== -1)
+              glsInstance.updateBoundary(xNDC, yNDC, selectedBoundaryIndex, glsInstance.layers[currentChosedLayer.value],isShiftPressed.value,
+              );
+          }
         }
       };
 
@@ -348,6 +370,10 @@ export const meshEditor = defineComponent({
               glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { deleteEdge: [{ v1: selectedVertex.value, v2: vertex2 }] });
             }
           }
+        } else if (activeTool.value === 'edit-boundary') {
+
+          selectedBoundaryIndex = -1;
+          glsInstance.resetMouseState( glsInstance.layers[currentChosedLayer.value]);
         }
         isDragging = false;
         selectedVertex.value = -1;
@@ -432,6 +458,9 @@ export const meshEditor = defineComponent({
     }
     const fitLayerBoundary = () => {
       fitTransformToVertices(glsInstance.layers[currentChosedLayer.value]);
+    }
+    const fitLayerBoundary2 = () => {
+      fitTransformToVertices2(glsInstance.layers[currentChosedLayer.value]);
     }
     onMounted(async () => {
       renderFn.value = await loadHtmlPage('./meshEditor.html');
@@ -544,7 +573,8 @@ export const meshEditor = defineComponent({
           chosenMesh,
           toggleMeshSelection,
           selectedMesh,
-          fitLayerBoundary
+          fitLayerBoundary,
+          fitLayerBoundary2
         })
         : h('div', '載入中...');
 

@@ -19,6 +19,8 @@
         @contextmenu.prevent>remove-points</button>
       <button class="tool-btn" :class="{ active: activeTool === 'remove-all-points' }"
         @click="selectTool('remove-all-points')" @contextmenu.prevent>remove-all-points</button>
+      <button class="tool-btn" :class="{ active: activeTool === 'edit-boundary' }" @click="selectTool('edit-boundary')"
+        @contextmenu.prevent>edit-boundarys</button>
     </div>
     <div class="canvas-area" @contextmenu.prevent>
       <div class="image-container" ref="imageContainer" @contextmenu.prevent>
@@ -58,13 +60,15 @@
             </div>
             Mesh attachments 內容 {{meshs.length}}
             <div v-for="(mesh, index) in meshs" :key="index + '_mesh'" class="layer-item">
-                <input type="checkbox" :value="index" v-model="selectedMesh" />
-              <span  class="layer-name"   :class="{ active:  chosenMesh.includes(index) }"
-                @click="toggleMeshSelection(index)">Mesh {{ index + 1 }}: {{ mesh.name }} -name: {{ mesh.image.name }} </span>
+              <input type="checkbox" :value="index" v-model="selectedMesh" />
+              <span class="layer-name" :class="{ active:  chosenMesh.includes(index) }"
+                @click="toggleMeshSelection(index)">Mesh {{ index + 1 }}: {{ mesh.name }} -name: {{ mesh.image.name }}
+              </span>
             </div>
             <br> something here!
           </div>
           <button @click="fitLayerBoundary">fit Layer Boundary</button>
+          <button @click="fitLayerBoundary2">fit Layer Boundary test</button>
         </div>
       </div>
     </div>

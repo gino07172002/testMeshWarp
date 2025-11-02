@@ -794,7 +794,7 @@ class gls {
         const triKey = [v1, v2, v3].sort((a, b) => a - b).join('-');
         if (!existingTriangles.has(triKey)) {
           indices.push(v1, v2, v3);
-       //   console.log(`🔺 New triangle formed: ${v1}-${v2}-${v3}`);
+          //   console.log(`🔺 New triangle formed: ${v1}-${v2}-${v3}`);
         }
       }
     }
@@ -840,7 +840,7 @@ class gls {
           newOriginalTriangles.add(triKey);
           allValidTriangles.add(triKey);
         } else {
-       //   console.log(`🗑️ Original triangle permanently removed: ${triKey}`);
+          //   console.log(`🗑️ Original triangle permanently removed: ${triKey}`);
         }
       }
       layer.originalTriangles = newOriginalTriangles; // 永久更新
@@ -880,9 +880,320 @@ class gls {
     layer.indices.value = indices;
     layer.linesIndices.value = linesIndices;
 
- //   console.log("✅ Vertices updated with refreshed texture mapping");
- //   console.log(`📊 Edges: ${layer.edges.size}, Triangles: ${indices.length / 3} (Original: ${layer.originalTriangles.size})`);
+    //   console.log("✅ Vertices updated with refreshed texture mapping");
+    //   console.log(`📊 Edges: ${layer.edges.size}, Triangles: ${indices.length / 3} (Original: ${layer.originalTriangles.size})`);
   }
+
+  handleBoundaryInteraction(
+    xNDC,
+    yNDC,
+    layers,
+    currentChosedLayerRef,
+  ) {
+    const currentChosedLayer = currentChosedLayerRef.value;
+    const baseLayer = layers[currentChosedLayer];
+    if (!baseLayer) return -1;
+
+    //  const params = baseLayer.transformParams3 || baseLayer.transformParams2;
+    const params = baseLayer.transformParams3 || baseLayer.transformParams2;
+    if (!params) return -1;
+
+    // === 取得 canvas 尺寸用於座標轉換 ===
+    const { canvasWidth, canvasHeight } = baseLayer.transformParams;
+
+    console.log(" boundary check params : ", params);
+    // === 1️⃣ 取矩形資訊（世界座標）===
+    let rect = {};
+    const { left, top, right, bottom } = params;
+
+    const x = (left + right) / 2;
+    const y = (top + bottom) / 2;
+    const width = right - left;
+    const height = bottom - top;
+    const rotation = 0;
+
+    console.log(" boundary check NDC rect : ", { x, y, width, height });
+
+    // 直接使用這些 NDC 座標進行後續計算
+    const hw = width / 2;
+    const hh = height / 2;
+    const cosR = Math.cos(rotation);
+    const sinR = Math.sin(rotation);
+
+    // === 2️⃣ 計算旋轉後的四角頂點座標（NDC）===
+    const corners = [
+      [-hw, -hh], // 左上
+      [hw, -hh], // 右上
+      [hw, hh], // 右下
+      [-hw, hh], // 左下
+    ].map(([cx, cy]) => [
+      x + cx * cosR - cy * sinR,
+      y + cx * sinR + cy * cosR,
+    ]);
+
+    // === 3️⃣ 計算點距離四角點的距離（找 vertex 點擊）===
+    const minDistSq = 0.03 * 0.03;
+    let localSelectedVertex = -1;
+    let minVertexDist = Infinity;
+
+    for (let i = 0; i < corners.length; i++) {
+      const [vx, vy] = corners[i];
+      const dx = vx - xNDC;
+      const dy = vy - yNDC;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < minVertexDist && distSq < minDistSq) {
+        minVertexDist = distSq;
+        localSelectedVertex = i;
+      }
+    }
+
+    if (localSelectedVertex !== -1) {
+      console.log("clickVertex:", localSelectedVertex);
+      // 🔥 儲存初始狀態（NDC 座標）
+      baseLayer.initialMouseX = xNDC;
+      baseLayer.initialMouseY = yNDC;
+      baseLayer.initialX = x;
+      baseLayer.initialY = y;
+      baseLayer.initialWidth = width;
+      baseLayer.initialHeight = height;
+      baseLayer.initialRotation = rotation;
+      return localSelectedVertex;
+    }
+
+    // === 4️⃣ 檢查邊緣（4 條線）===
+    const edges = [[0, 1], [1, 2], [2, 3], [3, 0]];
+    let selectedEdge = -1;
+    let minEdgeDist = Infinity;
+
+    for (let e = 0; e < edges.length; e++) {
+      const [i1, i2] = edges[e];
+      const [ax, ay] = corners[i1];
+      const [bx, by] = corners[i2];
+
+      const dx = bx - ax;
+      const dy = by - ay;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq === 0) continue;
+
+      let t = ((xNDC - ax) * dx + (yNDC - ay) * dy) / lenSq;
+      t = Math.max(0, Math.min(1, t));
+      const cx = ax + t * dx;
+      const cy = ay + t * dy;
+
+      const pdx = xNDC - cx;
+      const pdy = yNDC - cy;
+      const distSq = pdx * pdx + pdy * pdy;
+
+      if (distSq < minEdgeDist && distSq < minDistSq) {
+        minEdgeDist = distSq;
+        selectedEdge = e;
+      }
+    }
+
+    if (selectedEdge !== -1) {
+      console.log("clickEdge:", selectedEdge);
+      // 🔥 儲存初始狀態（NDC 座標）
+      baseLayer.initialMouseX = xNDC;
+      baseLayer.initialMouseY = yNDC;
+      baseLayer.initialX = x;
+      baseLayer.initialY = y;
+      baseLayer.initialWidth = width;
+      baseLayer.initialHeight = height;
+      baseLayer.initialRotation = rotation;
+      return selectedEdge + 4;
+    }
+
+    // === 5️⃣ 檢查是否在旋轉矩形內 ===
+    const relX = (xNDC - x) * cosR + (yNDC - y) * sinR;
+    const relY = -(xNDC - x) * sinR + (yNDC - y) * cosR;
+    const inside = Math.abs(relX) <= hw && Math.abs(relY) <= hh;
+
+    if (inside) {
+      console.log("clickInside");
+      // 🔥 儲存初始狀態（NDC 座標）
+      baseLayer.initialMouseX = xNDC;
+      baseLayer.initialMouseY = yNDC;
+      baseLayer.initialX = x;
+      baseLayer.initialY = y;
+      baseLayer.initialWidth = width;
+      baseLayer.initialHeight = height;
+      baseLayer.initialRotation = rotation;
+      return 8;
+    }
+
+    return -1;
+  }
+
+  updateBoundary(xNDC, yNDC, selected, layer, isShiftPressed) {
+    if (selected === -1) return;
+    let { canvasWidth, canvasHeight } = layer.transformParams;
+    const params = layer.transformParams3 || layer.transformParams2;
+    if (!params) {
+      console.log("No transformParams found in layer");
+      return;
+    }
+
+    // === 1️⃣ 初始化矩形參數 ===
+    let { x, y, width, height, rotation } = params;
+
+    if (x === undefined || width === undefined) {
+      const { left, top, right, bottom } = params;
+      x = (left + right) / 2;
+      y = (top + bottom) / 2;
+      width = right - left;
+      height = top - bottom;
+      rotation = 0;
+    }
+
+    // 🔥 移除這段 - 初始狀態應該已經在 handleBoundaryInteraction 設定好了
+    // if (layer.initialMouseX === undefined) { ... }
+
+    // === 2️⃣ 基本設定 ===
+    const hw = width / 2;
+    const hh = height / 2;
+    const cosR = Math.cos(rotation);
+    const sinR = Math.sin(rotation);
+
+    const corners = [
+      [-hw, -hh], // 左上
+      [hw, -hh], // 右上
+      [hw, hh], // 右下
+      [-hw, hh], // 左下
+    ].map(([cx, cy]) => [
+      x + cx * cosR - cy * sinR,
+      y + cx * sinR + cy * cosR
+    ]);
+
+    // === 3️⃣ 操作行為 ===
+    if (selected === 8) {
+      const deltaX = xNDC - layer.initialMouseX;
+      const deltaY = yNDC - layer.initialMouseY;
+      x = layer.initialX + deltaX;
+      y = layer.initialY + deltaY;
+      console.log("Moved rectangle:", { x, y });
+    }
+    else if (selected < 4 && isShiftPressed) {
+      const cx = layer.initialX;
+      const cy = layer.initialY;
+
+      const initialAngle = Math.atan2(
+        layer.initialMouseY - cy,
+        layer.initialMouseX - cx
+      );
+      const currentAngle = Math.atan2(
+        yNDC - cy,
+        xNDC - cx
+      );
+
+      const deltaAngle = currentAngle - initialAngle;
+      rotation = (layer.initialRotation || 0) + deltaAngle;
+
+      console.log("Rotation:", rotation * 180 / Math.PI, "degrees");
+    }
+    else if (selected < 4) {
+      const relX = (xNDC - x) * cosR + (yNDC - y) * sinR;
+      const relY = -(xNDC - x) * sinR + (yNDC - y) * cosR;
+
+      let initHW = layer.initialWidth / 2;
+      let initHH = layer.initialHeight / 2;
+      let newHW = initHW;
+      let newHH = initHH;
+
+      let newX = x;
+      let newY = y;
+      switch (selected) {
+        case 0:  //左上
+          newHW = Math.abs(relX);
+          newHH = Math.abs(relY);
+          break;
+        case 1: //右上
+          newHW = Math.abs(relX);
+          newHH = Math.abs(relY);
+          break;
+        case 2:   //右下
+          newHW = Math.abs(relX);
+          newHH = Math.abs(relY);
+          break;
+        case 3:   //左下
+          newHW = Math.abs(relX);
+          newHH = Math.abs(relY);
+          break;
+      }
+      x = newX;
+      y = newY;
+      width = Math.max(0.01, newHW * 2);
+      height = Math.max(0.01, newHH * 2);
+      console.log("Resized:", { width, height });
+    }
+    else {
+      const edgeIdx = selected - 4;
+      const relX = (xNDC - x) * cosR + (yNDC - y) * sinR;
+      const relY = -(xNDC - x) * sinR + (yNDC - y) * cosR;
+
+      let initHW = layer.initialWidth / 2;
+      let initHH = layer.initialHeight / 2;
+
+      switch (edgeIdx) {
+        case 0:
+          initHH = Math.abs(relY);
+          height = Math.max(0.01, initHH * 2);
+          break;
+        case 1:
+          initHW = Math.abs(relX);
+          width = Math.max(0.01, initHW * 2);
+          break;
+        case 2:
+          initHH = Math.abs(relY);
+          height = Math.max(0.01, initHH * 2);
+          break;
+        case 3:
+          initHW = Math.abs(relX);
+          width = Math.max(0.01, initHW * 2);
+          break;
+      }
+    }
+
+    // === 4️⃣ 更新 layer transformParams3 === use world coordinates
+
+    layer.transformParams3 = {
+      x,
+      y,
+      width,
+      height,
+      rotation,
+      left: x - width / 2,
+      top: y - height / 2,
+      right: x + width / 2,
+      bottom: y + height / 2,
+    };
+
+    layer.transformParams2.x = x;
+    layer.transformParams2.y = y;
+
+    layer.transformParams2.width = width * canvasWidth / 2;
+    layer.transformParams2.height = height * canvasHeight / 2;
+
+    layer.rotation = rotation; // 同步更新 rotation 屬性
+
+
+    layer.transformParams.width = width * canvasWidth / 2;
+    layer.transformParams.height = height * canvasHeight / 2;
+
+    console.log("width*canvasWidth/2; ", layer.transformParams.width, layer.transformParams.height, canvasWidth, canvasHeight);
+    return layer.transformParams;
+    console.log("Updated transformParams3:", layer.transformParams3);
+  }
+  resetMouseState(layer) {
+    layer.initialMouseX = undefined;
+    layer.initialMouseY = undefined;
+    layer.initialX = undefined;
+    layer.initialY = undefined;
+    layer.initialWidth = undefined;
+    layer.initialHeight = undefined;
+    layer.initialRotation = undefined;
+  }
+
+
 
 }
 export const setCurrentJobName = (jobName) => {
@@ -924,22 +1235,18 @@ export const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer,
 export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers) => {
 
   if (gl.isContextLost()) {
-
     return false;
   }
   if (!program || !gl.isProgram(program)) {
-
     return false;
   }
 
   if (!selectedLayers)
     selectedLayers.value = [];
-  // 啟用混合，但不要用深度測試（透明圖層會出問題）
+
+  // 啟用混合,但不要用深度測試(透明圖層會出問題)
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-  // 不要清掉畫布，不然會只剩最後一層
-  // gl.clear(gl.COLOR_BUFFER_BIT);
 
   if (!texture.value || !Array.isArray(texture.value) || texture.value.length === 0) {
     console.log(" nothing here, stop loop");
@@ -947,13 +1254,10 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
   }
 
   const textures = texture.value;
-
   gl.useProgram(program);
 
-  // let layerIndices = [0, 1, 2, 3, 4];
   let layerIndices = selectedLayers.value;
-  //console.log("layerIndices :  ",layerIndices)
-  layerIndices.sort((a, b) => a - b); // 數字由小到大排序
+  layerIndices.sort((a, b) => a - b);
 
   if (layerIndices.length == 0)
     layerIndices = [0];
@@ -993,28 +1297,77 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
     }
 
     // === 計算轉換矩陣 ===
-    const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
-    //console.log("what's my top left : ", top, " , ", left);
-    // const glLeft = (left / canvasWidth) * 2 - 1;
-    const glLeft = left;  // -1
-    const glRight = left + (width / canvasWidth) * 2; //1
-    const glTop = top;   // 1
-    const glBottom = top - (height / canvasHeight) * 2; //-1
-    // console.log(" what's my top :",top," left: ",left);
+    let transformMatrix;
 
-    //  console.log(" checking width : ",width," canvas widith : ",canvasWidth);
-    const sx = (glRight - glLeft) / 2;
-    const sy = (glTop - glBottom) / 2;
-    const tx = glLeft + sx;
-    const ty = glBottom + sy;
+    // 檢查是否有 transformParams3
+    /*
+    if (layer.transformParams3 &&
+      typeof layer.transformParams3.x !== 'undefined' &&
+      typeof layer.transformParams3.y !== 'undefined' &&
+      typeof layer.transformParams3.width !== 'undefined' &&
+      typeof layer.transformParams3.height !== 'undefined' &&
+      typeof layer.transformParams3.rotation !== 'undefined') {
+
+      // === 使用 transformParams3 的旋轉矩形方式 ===
+      const { x, y, width, height, rotation } = layer.transformParams3;
+
+      const { left, top, canvasWidth, canvasHeight } = layer.transformParams;
 
 
-    const transformMatrix = new Float32Array([
-      sx, 0, 0, 0,
-      0, sy, 0, 0,
-      0, 0, 1, 0,
-      tx, ty, 0, 1
-    ]);
+      console.log("checking width height: ", width, height);
+      // 計算在 NDC 空間中的比例與位置
+      const glLeft = left;
+      const glRight = left + (width / canvasWidth) * 2;
+      const glTop = top;
+      const glBottom = top - (height / canvasHeight) * 2;
+
+      const sx = (glRight - glLeft) / 2;
+      const sy = (glTop - glBottom) / 2;
+      const tx = glLeft + sx;
+      const ty = glBottom + sy;
+
+      // 計算旋轉矩陣分量
+      const cosR = Math.cos(rotation);
+      const sinR = Math.sin(rotation);
+
+      // 組合矩陣: Translation * Rotation * Scale
+      transformMatrix = new Float32Array([
+        sx * cosR, sx * sinR, 0, 0,
+        -sy * sinR, sy * cosR, 0, 0,
+        0, 0, 1, 0,
+        tx, ty, 0, 1
+      ]);
+
+
+    } else 
+      */{
+      // === 使用 transformParams 轉換到旋轉座標 ===
+      const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
+      const rotation = layer.rotation || 0; // 弧度
+
+      // 計算在 NDC 空間中的比例與位置
+      const glLeft = left;
+      const glRight = left + (width / canvasWidth) * 2;
+      const glTop = top;
+      const glBottom = top - (height / canvasHeight) * 2;
+
+      const sx = (glRight - glLeft) / 2;
+      const sy = (glTop - glBottom) / 2;
+      const tx = glLeft + sx;
+      const ty = glBottom + sy;
+
+      // 計算旋轉矩陣分量
+      const cosR = Math.cos(rotation);
+      const sinR = Math.sin(rotation);
+
+      // 組合矩陣: Translation * Rotation * Scale
+      transformMatrix = new Float32Array([
+        sx * cosR, sx * sinR, 0, 0,
+        -sy * sinR, sy * cosR, 0, 0,
+        0, 0, 1, 0,
+        tx, ty, 0, 1
+      ]);
+    }
 
     const transformLocation = gl.getUniformLocation(program, 'uTransform');
     if (transformLocation) {
@@ -1023,7 +1376,6 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
 
     // === 設定透明度 ===
     const opacity = layer.opacity?.value ?? 1.0;
-
     const opacityLocation = gl.getUniformLocation(program, 'uOpacity');
     if (opacityLocation !== null) {
       gl.uniform1f(opacityLocation, opacity);
@@ -1036,9 +1388,7 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
 
     // === 繪製圖層 ===
     gl.drawElements(gl.TRIANGLES, layer.indices.value.length, gl.UNSIGNED_SHORT, 0);
-    // gl.drawElements(gl.TRIANGLES, layer.indices.value.length, gl.UNSIGNED_SHORT, 0);
   }
-
 };
 export const makeRenderPass = (fn, ...args) => {
   return () => fn(...args);
@@ -1484,7 +1834,55 @@ export function fitTransformToVertices(layer) {
 
   return layer.transformParams3;
 }
+export function fitTransformToVertices2(layer) {
+  const vertices = layer.vertices.value;
 
+  if (!vertices || vertices.length < 2) {
+    console.warn('Not enough vertices to calculate bounding box');
+    return;
+  }
+
+  // 初始化邊界值
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  // 遍歷所有頂點找出邊界 (假設 vertices 是 [x, y, x, y, ...] 格式)
+  for (let i = 0; i < vertices.length; i += 4) {
+    const x = vertices[i];
+    const y = vertices[i + 1];
+
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+
+  // 計算新的 transformParams2
+  const { canvasWidth, canvasHeight } = layer.transformParams2;
+
+  const newLeft = minX;
+  const newTop = maxY; // WebGL 座標系 Y 軸向上
+  const newRight = maxX;
+  const newBottom = minY;
+  const newWidth = (maxX - minX) * canvasWidth / 2;
+  const newHeight = (maxY - minY) * canvasHeight / 2;
+
+  // 更新 transformParams2
+  layer.transformParams = {
+    left: newLeft,
+    top: newTop,
+    width: newWidth,
+    height: newHeight,
+    right: newRight,
+    bottom: newBottom,
+    canvasWidth,
+    canvasHeight,
+  };
+
+  return layer.transformParams;
+}
 
 export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentChosedLayerRef, selectedVertices) {
   if (!selectedVertices) selectedVertices = { value: [] };
@@ -1493,17 +1891,59 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
   const baseLayer = layers[currentChosedLayer];
   if (!baseLayer || !baseLayer.vbo || layerSize === 0) return;
 
-  
-  const { left, top, right, bottom } = baseLayer.transformParams3 || baseLayer.transformParams2;
-
   gl.useProgram(colorProgram);
 
-  // === 1️⃣ 建立邊界四角頂點 ===
+  // === 1️⃣ 取得矩形資訊 ===
+  // 若有 transformParams3: { x, y, width, height, rotation } 則使用
+  // 否則從 left/top/right/bottom 推算
+  let rect = {};
+  /*
+  if (baseLayer.transformParams3 && typeof baseLayer.transformParams3.rotation === "number") {
+    rect = baseLayer.transformParams3;
+ 
+  } else 
+    */{
+    const { left, top, right, bottom, canvasHeight, canvasWidth, width, height } = baseLayer.transformParams2;
+    rect.x = 0;
+    rect.y = 0;
+    rect.width = (width * 2) / canvasWidth;///2
+    rect.height = (height * 2) / canvasHeight; //2
+    rect.rotation = 0;
+    //console.log("what's width height: ", width, height);
+    /*
+    rect.x = (left + right) / 2;
+    rect.y = (top + bottom) / 2;
+    rect.width = (right - left);
+    rect.height = (bottom - top);
+    rect.rotation = 0; // 沒有提供 rotation 就不旋轉
+    console.log(" calculated rect: ", rect);
+    */
+  }
+
+  const { x, y, width, height, rotation } = rect;
+
+  //console.log(" draw out boundary: ", x, y, width, height, rotation);
+  // === 2️⃣ 計算四個角的座標（考慮旋轉）===
+  const hw = width / 2;
+  const hh = height / 2;
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+
+  const corners = [
+    [-hw, -hh], // 左上
+    [hw, -hh], // 右上
+    [hw, hh], // 右下
+    [-hw, hh], // 左下
+  ].map(([cx, cy]) => [
+    x + cx * cosR - cy * sinR,
+    y + cx * sinR + cy * cosR
+  ]);
+
   const boundaryVertices = new Float32Array([
-    left, top, 0, 0,   // 左上
-    right, top, 0, 0,   // 右上
-    right, bottom, 0, 0,   // 右下
-    left, bottom, 0, 0    // 左下
+    corners[0][0], corners[0][1], 0, 0,
+    corners[1][0], corners[1][1], 0, 0,
+    corners[2][0], corners[2][1], 0, 0,
+    corners[3][0], corners[3][1], 0, 0
   ]);
 
   const boundaryVBO = gl.createBuffer();
@@ -1519,43 +1959,38 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
   const uColor = gl.getUniformLocation(colorProgram, 'uColor');
   const uPointSize = gl.getUniformLocation(colorProgram, 'uPointSize');
 
-  // === 2️⃣ 畫邊界線 ===
+  // === 3️⃣ 畫邊界線 ===
   const lineIndices = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0]);
   const lineEBO = gl.createBuffer();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineEBO);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, lineIndices, gl.STATIC_DRAW);
   gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0); // 綠色邊線
   gl.drawElements(gl.LINES, lineIndices.length, gl.UNSIGNED_SHORT, 0);
-  
-  // === 3️⃣ 畫四角大點（綠色）===
+
+  // === 4️⃣ 畫四角大點 ===
   if (uPointSize) gl.uniform1f(uPointSize, 20.0);
   gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0);
   gl.drawArrays(gl.POINTS, 0, 4);
 
-  // === 4️⃣ 畫中心點 ===
-
-  const centerX = (left + right) / 2;
-  const centerY = (top + bottom) / 2;
-  const centerVertex = new Float32Array([centerX, centerY, 0, 0]);
-
+  // === 5️⃣ 畫中心點 ===
+  const centerVertex = new Float32Array([x, y, 0, 0]);
   const centerVBO = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, centerVBO);
   gl.bufferData(gl.ARRAY_BUFFER, centerVertex, gl.STATIC_DRAW);
   gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
   gl.enableVertexAttribArray(colorPosAttrib);
 
-  // 外圈黃點
+  // 外圈點
   if (uPointSize) gl.uniform1f(uPointSize, 20.0);
-  gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0);
+  gl.uniform4f(uColor, 1.0, 1.0, 0.0, 1.0); // 黃點
   gl.drawArrays(gl.POINTS, 0, 1);
 
-  // 內圈黑點
+  // 內圈點
   if (uPointSize) gl.uniform1f(uPointSize, 10.0);
-  gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0);
+  gl.uniform4f(uColor, 0.0, 0.0, 0.0, 1.0); // 黑點
   gl.drawArrays(gl.POINTS, 0, 1);
 
-
-  //draw all vertex points in green
+  // === 6️⃣ 畫圖層頂點（綠色）===
   if (baseLayer.vertices.value && baseLayer.vertices.value.length > 0) {
     const pointSizeLocation = gl.getUniformLocation(colorProgram, 'uPointSize');
     if (pointSizeLocation !== null) {
@@ -1568,13 +2003,12 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
     gl.drawArrays(gl.POINTS, 0, baseLayer.vertices.value.length / 4);
   }
 
-
-  // === 5️⃣ 清理暫時的 buffer ===
+  // === 7️⃣ 清理 ===
   gl.deleteBuffer(boundaryVBO);
   gl.deleteBuffer(lineEBO);
   gl.deleteBuffer(centerVBO);
-
 }
+
 
 
 export const layerToTexture = (gl, layer) => {
