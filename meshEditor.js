@@ -512,6 +512,7 @@ export const meshEditor = defineComponent({
             selectedGroups.value[0],
             glsInstance.layers[currentChosedLayer.value]
           ),
+         
           makeRenderPass(
             renderOutBoundary,
             gl.value,
@@ -521,6 +522,7 @@ export const meshEditor = defineComponent({
             currentChosedLayer,
             selectedVertices
           ),
+          
 
         );
       }

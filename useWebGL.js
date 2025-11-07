@@ -532,6 +532,9 @@ class gls {
       bottom: top - height / canvasHeight * 2,
       canvasWidth,
       canvasHeight,
+      x:left+width / canvasWidth,
+      y:top - height / canvasHeight,
+      rotation:0
     };
   }
 
@@ -563,6 +566,9 @@ class gls {
       bottom: top - height / canvasHeight * 2,
       canvasWidth,
       canvasHeight,
+      x:left+width / canvasWidth,
+      y:top - height / canvasHeight,
+      rotation:0
     };
   }
 
@@ -904,13 +910,15 @@ class gls {
     console.log(" boundary check params : ", params);
     // === 1️⃣ 取矩形資訊（世界座標）===
     let rect = {};
-    const { left, top, right, bottom } = params;
+    const { left, top, right, bottom,rotation } = params;
 
     const x = (left + right) / 2;
     const y = (top + bottom) / 2;
     const width = right - left;
     const height = bottom - top;
-    const rotation = 0;
+    if(rotation===undefined){
+      rotation=0;
+    }
 
     console.log(" boundary check NDC rect : ", { x, y, width, height });
 
@@ -1034,14 +1042,18 @@ class gls {
     }
 
     // === 1️⃣ 初始化矩形參數 ===
-    let { x, y, width, height, rotation } = params;
+    let { rotation } = params;
 
-    if (x === undefined || width === undefined) {
+    //if (x === undefined || width === undefined)
+    {
       const { left, top, right, bottom } = params;
-      x = (left + right) / 2;
-      y = (top + bottom) / 2;
-      width = right - left;
-      height = top - bottom;
+      var x = (left + right) / 2;
+      var y = (top + bottom) / 2;
+      var width =Math.abs( right - left);
+      var height =Math.abs (top - bottom);
+     //rotation = 0;
+    }
+    if(rotation === undefined){
       rotation = 0;
     }
 
@@ -1065,7 +1077,7 @@ class gls {
     ]);
 
     // === 3️⃣ 操作行為 ===
-    if (selected === 8) {
+    if (selected === 8) {  //mouse click inside rectangle
       const deltaX = xNDC - layer.initialMouseX;
       const deltaY = yNDC - layer.initialMouseY;
       x = layer.initialX + deltaX;
@@ -1156,11 +1168,11 @@ class gls {
     // === 4️⃣ 更新 layer transformParams3 === use world coordinates
 
     layer.transformParams3 = {
-      x,
-      y,
+      x:  x,
+      y: y,
       width,
       height,
-      rotation,
+      rotation: rotation,
       left: x - width / 2,
       top: y - height / 2,
       right: x + width / 2,
@@ -1172,14 +1184,17 @@ class gls {
 
     layer.transformParams2.width = width * canvasWidth / 2;
     layer.transformParams2.height = height * canvasHeight / 2;
+    layer.transformParams2.rotation = rotation;
 
     layer.rotation = rotation; // 同步更新 rotation 屬性
 
+    layer.transformParams.left = x - (width / 2);
+    layer.transformParams.top = y + (height / 2);
 
     layer.transformParams.width = width * canvasWidth / 2;
     layer.transformParams.height = height * canvasHeight / 2;
 
-    console.log("width*canvasWidth/2; ", layer.transformParams.width, layer.transformParams.height, canvasWidth, canvasHeight);
+    console.log("checking x y", layer.transformParams2.x, layer.transformParams2.y);
     return layer.transformParams;
     console.log("Updated transformParams3:", layer.transformParams3);
   }
@@ -1903,26 +1918,20 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
  
   } else 
     */{
-    const { left, top, right, bottom, canvasHeight, canvasWidth, width, height } = baseLayer.transformParams2;
-    rect.x = 0;
-    rect.y = 0;
+    const { left, top, right, bottom, canvasHeight, canvasWidth, width, height, x, y,rotation } = baseLayer.transformParams2;
+    rect.x = x;
+    rect.y = y;
     rect.width = (width * 2) / canvasWidth;///2
     rect.height = (height * 2) / canvasHeight; //2
-    rect.rotation = 0;
-    //console.log("what's width height: ", width, height);
-    /*
-    rect.x = (left + right) / 2;
-    rect.y = (top + bottom) / 2;
-    rect.width = (right - left);
-    rect.height = (bottom - top);
-    rect.rotation = 0; // 沒有提供 rotation 就不旋轉
-    console.log(" calculated rect: ", rect);
-    */
+    rect.rotation = rotation;
+  
   }
+
 
   const { x, y, width, height, rotation } = rect;
 
-  //console.log(" draw out boundary: ", x, y, width, height, rotation);
+  
+  console.log(" draw out boundary: ", x, y, width, height, rotation);
   // === 2️⃣ 計算四個角的座標（考慮旋轉）===
   const hw = width / 2;
   const hh = height / 2;
@@ -1991,6 +2000,7 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
   gl.drawArrays(gl.POINTS, 0, 1);
 
   // === 6️⃣ 畫圖層頂點（綠色）===
+  /*
   if (baseLayer.vertices.value && baseLayer.vertices.value.length > 0) {
     const pointSizeLocation = gl.getUniformLocation(colorProgram, 'uPointSize');
     if (pointSizeLocation !== null) {
@@ -2002,6 +2012,7 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
     gl.enableVertexAttribArray(colorPosAttrib);
     gl.drawArrays(gl.POINTS, 0, baseLayer.vertices.value.length / 4);
   }
+    */
 
   // === 7️⃣ 清理 ===
   gl.deleteBuffer(boundaryVBO);
