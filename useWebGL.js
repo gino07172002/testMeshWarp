@@ -511,10 +511,18 @@ class gls {
     outputLayer.vertices.value = [...vertices];
     outputLayer.poseVertices.value = [...vertices];
     outputLayer.transformParams = {
+
+      left: left,
+      top: top,
+      width: width,
+
+      height: height,
+      /*
       left: -1,
       top: 1,
       width: canvasWidth,
       height: canvasHeight,
+     */
       canvasWidth,
       canvasHeight,
     };
@@ -532,9 +540,9 @@ class gls {
       bottom: top - height / canvasHeight * 2,
       canvasWidth,
       canvasHeight,
-      x:left+width / canvasWidth,
-      y:top - height / canvasHeight,
-      rotation:0
+      x: left + width / canvasWidth,
+      y: top - height / canvasHeight,
+      rotation: 0
     };
   }
 
@@ -551,7 +559,12 @@ class gls {
 
     outputLayer.vertices.value = [...vertices];
     outputLayer.poseVertices.value = [...vertices];
-    outputLayer.transformParams = { left: -1, top: 1, width: canvasWidth, height: canvasHeight, canvasWidth, canvasHeight };
+
+    // set layer sub-image to whole size 
+    // outputLayer.transformParams = { left: -1, top: 1, width: canvasWidth, height: canvasHeight, canvasWidth, canvasHeight };
+    outputLayer.transformParams = { left: left, top: top, width: width, height: height, canvasWidth, canvasHeight };
+
+
     outputLayer.vbo = vbo;
     outputLayer.ebo = ebo;
     outputLayer.eboLines = eboLines;
@@ -566,9 +579,9 @@ class gls {
       bottom: top - height / canvasHeight * 2,
       canvasWidth,
       canvasHeight,
-      x:left+width / canvasWidth,
-      y:top - height / canvasHeight,
-      rotation:0
+      x: left + width / canvasWidth,
+      y: top - height / canvasHeight,
+      rotation: 0
     };
   }
 
@@ -619,7 +632,7 @@ class gls {
     }
 
     // === 基本變形參數 (由 createLayerBuffers 設定) ===
-    const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams2;
+    const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
     //console.log(" layer transform params check : ", layer.transformParams);
     const sx = (width / canvasWidth);
     const sy = (height / canvasHeight);
@@ -900,8 +913,8 @@ class gls {
     const baseLayer = layers[currentChosedLayer];
     if (!baseLayer) return -1;
 
-    //  const params = baseLayer.transformParams3 || baseLayer.transformParams2;
-    const params = baseLayer.transformParams3 || baseLayer.transformParams2;
+    const params = baseLayer.transformParams2;
+    console.log("param2 check:", baseLayer.transformParams2);
     if (!params) return -1;
 
     // === 取得 canvas 尺寸用於座標轉換 ===
@@ -910,14 +923,14 @@ class gls {
     console.log(" boundary check params : ", params);
     // === 1️⃣ 取矩形資訊（世界座標）===
     let rect = {};
-    const { left, top, right, bottom,rotation } = params;
+    const { left, top, right, bottom, rotation } = params;
 
     const x = (left + right) / 2;
     const y = (top + bottom) / 2;
     const width = right - left;
     const height = bottom - top;
-    if(rotation===undefined){
-      rotation=0;
+    if (rotation === undefined) {
+      rotation = 0;
     }
 
     console.log(" boundary check NDC rect : ", { x, y, width, height });
@@ -1014,8 +1027,8 @@ class gls {
     // === 5️⃣ 檢查是否在旋轉矩形內 ===
     const relX = (xNDC - x) * cosR + (yNDC - y) * sinR;
     const relY = -(xNDC - x) * sinR + (yNDC - y) * cosR;
-    const inside = Math.abs(relX) <= hw && Math.abs(relY) <= hh;
-
+    const inside = Math.abs(relX) <= Math.abs(hw) && Math.abs(relY) <= Math.abs(hh);
+    console.log("inside check:", inside, relX, relY, hw, hh);
     if (inside) {
       console.log("clickInside");
       // 🔥 儲存初始狀態（NDC 座標）
@@ -1035,12 +1048,17 @@ class gls {
   updateBoundary(xNDC, yNDC, selected, layer, isShiftPressed) {
     if (selected === -1) return;
     let { canvasWidth, canvasHeight } = layer.transformParams;
-    const params = layer.transformParams3 || layer.transformParams2;
+    const params = layer.transformParams2;
+
+    console.log("checking layer.transformParams", layer.transformParams);
+
+    console.log("checking layer.transformParams2", layer.transformParams2);
     if (!params) {
       console.log("No transformParams found in layer");
       return;
     }
 
+    console.log("before update:", JSON.stringify(layer.transformParams));
     // === 1️⃣ 初始化矩形參數 ===
     let { rotation } = params;
 
@@ -1049,11 +1067,11 @@ class gls {
       const { left, top, right, bottom } = params;
       var x = (left + right) / 2;
       var y = (top + bottom) / 2;
-      var width =Math.abs( right - left);
-      var height =Math.abs (top - bottom);
-     //rotation = 0;
+      var width = Math.abs(right - left);
+      var height = Math.abs(top - bottom);
+      //rotation = 0;
     }
-    if(rotation === undefined){
+    if (rotation === undefined) {
       rotation = 0;
     }
 
@@ -1167,36 +1185,59 @@ class gls {
 
     // === 4️⃣ 更新 layer transformParams3 === use world coordinates
 
-    layer.transformParams3 = {
-      x:  x,
-      y: y,
-      width,
-      height,
-      rotation: rotation,
-      left: x - width / 2,
-      top: y - height / 2,
-      right: x + width / 2,
-      bottom: y + height / 2,
-    };
 
     layer.transformParams2.x = x;
     layer.transformParams2.y = y;
 
     layer.transformParams2.width = width * canvasWidth / 2;
     layer.transformParams2.height = height * canvasHeight / 2;
+
+    layer.transformParams2.left = x - width / 2;
+    layer.transformParams2.top = y + height / 2;
+    layer.transformParams2.right = x + width / 2;
+    layer.transformParams2.bottom = y - height / 2;
+
     layer.transformParams2.rotation = rotation;
 
-    layer.rotation = rotation; // 同步更新 rotation 屬性
+
+    //layer.rotation = rotation; // 同步更新 rotation 屬性
+
+
+   
+    layer.transformParams.x = x;
+    layer.transformParams.y = y;
 
     layer.transformParams.left = x - (width / 2);
     layer.transformParams.top = y + (height / 2);
+    layer.transformParams.right = x + width / 2;
+    layer.transformParams.bottom = y - height / 2;
+
+    layer.transformParams.rotation = rotation;
 
     layer.transformParams.width = width * canvasWidth / 2;
     layer.transformParams.height = height * canvasHeight / 2;
 
-    console.log("checking x y", layer.transformParams2.x, layer.transformParams2.y);
+    
+
+    layer.innerTransformParams = {
+      left: x - (width / 2),
+      top: y + (height / 2),
+      right: x + width / 2,
+      bottom: y - height / 2,
+      width: width * canvasWidth / 2,
+      height: height * canvasHeight / 2,
+      rotation: rotation,
+    };
+
+
+    //  layer.transformParams.width = width * canvasWidth / 2;
+    // layer.transformParams.height = height * canvasHeight / 2;
+    console.log("after update:", JSON.stringify(layer.transformParams));
+    //layer.transformParams.width = width * canvasWidth / 2;
+    //layer.transformParams.height = height * canvasHeight / 2;
+    console.log("updated layer.transformParams:", layer.transformParams);
+
     return layer.transformParams;
-    console.log("Updated transformParams3:", layer.transformParams3);
   }
   resetMouseState(layer) {
     layer.initialMouseX = undefined;
@@ -1246,7 +1287,6 @@ export const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer,
   );
 };
 
-//webgl function to render image
 export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers) => {
 
   if (gl.isContextLost()) {
@@ -1314,58 +1354,35 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
     // === 計算轉換矩陣 ===
     let transformMatrix;
 
-    // 檢查是否有 transformParams3
-    /*
-    if (layer.transformParams3 &&
-      typeof layer.transformParams3.x !== 'undefined' &&
-      typeof layer.transformParams3.y !== 'undefined' &&
-      typeof layer.transformParams3.width !== 'undefined' &&
-      typeof layer.transformParams3.height !== 'undefined' &&
-      typeof layer.transformParams3.rotation !== 'undefined') {
-
-      // === 使用 transformParams3 的旋轉矩形方式 ===
-      const { x, y, width, height, rotation } = layer.transformParams3;
-
-      const { left, top, canvasWidth, canvasHeight } = layer.transformParams;
-
-
-      console.log("checking width height: ", width, height);
-      // 計算在 NDC 空間中的比例與位置
-      const glLeft = left;
-      const glRight = left + (width / canvasWidth) * 2;
-      const glTop = top;
-      const glBottom = top - (height / canvasHeight) * 2;
-
-      const sx = (glRight - glLeft) / 2;
-      const sy = (glTop - glBottom) / 2;
-      const tx = glLeft + sx;
-      const ty = glBottom + sy;
-
-      // 計算旋轉矩陣分量
-      const cosR = Math.cos(rotation);
-      const sinR = Math.sin(rotation);
-
-      // 組合矩陣: Translation * Rotation * Scale
-      transformMatrix = new Float32Array([
-        sx * cosR, sx * sinR, 0, 0,
-        -sy * sinR, sy * cosR, 0, 0,
-        0, 0, 1, 0,
-        tx, ty, 0, 1
-      ]);
-
-
-    } else 
-      */{
+    {
       // === 使用 transformParams 轉換到旋轉座標 ===
-      const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
-      const rotation = layer.rotation || 0; // 弧度
+      const { left, top, width, height, canvasWidth, canvasHeight ,rotat } = layer.transformParams;
+      const rotation = layer.transformParams.rotation || 0; // 弧度
 
       // 計算在 NDC 空間中的比例與位置
-      const glLeft = left;
-      const glRight = left + (width / canvasWidth) * 2;
-      const glTop = top;
-      const glBottom = top - (height / canvasHeight) * 2;
+ 
+      
+      //shoulder always -1 to 1 in NDC
+      let glLeft = left;  //-1
+      let glRight = left + (width / canvasWidth) * 2; //1
+      let glTop = top; //1
+      let glBottom = top - (height / canvasHeight) * 2; //-1
+   
 
+      let glLeftInner = glLeft;
+      let glRightInner = glRight;
+      let glTopInner = glTop;
+      let glBottomInner = glBottom;
+      if(layer.innerTransformParams) // roi region transform
+      {
+        glLeftInner = layer.innerTransformParams.left;
+        glRightInner = layer.innerTransformParams.right;
+        glTopInner = layer.innerTransformParams.top;
+        glBottomInner = layer.innerTransformParams.bottom; 
+
+      }
+
+      
       const sx = (glRight - glLeft) / 2;
       const sy = (glTop - glBottom) / 2;
       const tx = glLeft + sx;
@@ -1405,6 +1422,171 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
     gl.drawElements(gl.TRIANGLES, layer.indices.value.length, gl.UNSIGNED_SHORT, 0);
   }
 };
+
+//webgl function to render image
+/*
+export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers) => {
+
+  if (gl.isContextLost()) {
+    return false;
+  }
+  if (!program || !gl.isProgram(program)) {
+    return false;
+  }
+
+  if (!selectedLayers)
+    selectedLayers.value = [];
+
+  // 啟用混合,但不要用深度測試(透明圖層會出問題)
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  if (!texture.value || !Array.isArray(texture.value) || texture.value.length === 0) {
+    console.log(" nothing here, stop loop");
+    return false;
+  }
+
+  const textures = texture.value;
+  gl.useProgram(program);
+
+  let layerIndices = selectedLayers.value;
+  layerIndices.sort((a, b) => a - b);
+
+  if (layerIndices.length == 0)
+    layerIndices = [0];
+
+  for (const layerIndex of layerIndices) {
+    if (layerIndex >= textures.length)
+      continue;
+    const tex = textures[layerIndex];
+    const layer = renderLayer[layerIndex];
+
+    if (!tex || !tex.tex || !layer || !layer.vbo || !layer.ebo) {
+      console.warn(`Skipping layer ${layerIndex}: missing resources`);
+      continue;
+    }
+
+    if (layer.visible === false) {
+      console.log(`Layer ${layerIndex} is hidden`);
+      continue;
+    }
+
+    // === 綁定當前圖層的緩衝區 ===
+    gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
+
+    // === 設定頂點屬性 ===
+    const positionAttrib = gl.getAttribLocation(program, 'aPosition');
+    const texCoordAttrib = gl.getAttribLocation(program, 'aTexCoord');
+
+    if (positionAttrib !== -1) {
+      gl.enableVertexAttribArray(positionAttrib);
+      gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 16, 0);
+    }
+
+    if (texCoordAttrib !== -1) {
+      gl.enableVertexAttribArray(texCoordAttrib);
+      gl.vertexAttribPointer(texCoordAttrib, 2, gl.FLOAT, false, 16, 8);
+    }
+
+    // === 計算轉換矩陣 ===
+    let transformMatrix;
+
+
+    {
+      // === 使用 transformParams 轉換到旋轉座標 ===
+      const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
+      const rotation = layer.rotation || 0; // 弧度
+
+      // 外部畫布的 NDC 座標
+      let glLeft = left;
+      let glRight = left + (width / canvasWidth) * 2;
+      let glTop = top;
+      let glBottom = top - (height / canvasHeight) * 2;
+
+      // 內部 ROI 區域的 NDC 座標 (相對於外部畫布的局部座標)
+      let glLeftInner = -1;    // 預設填滿整個外部區域
+      let glRightInner = 1;
+      let glTopInner = 1;
+      let glBottomInner = -1;
+      let glRotationInner = 0;
+      let glCanvasWidthInner = canvasWidth;
+      let glCanvasHeightInner = canvasHeight;
+
+      if (layer.innerTransformParams) {
+        // 如果有 innerTransformParams,使用它定義的 ROI 區域
+        glLeftInner = layer.innerTransformParams.left;
+        glRightInner = layer.innerTransformParams.right;
+        glTopInner = layer.innerTransformParams.top;
+        glBottomInner = layer.innerTransformParams.bottom;
+        glRotationInner = layer.innerTransformParams.rotation || 0;
+        glCanvasWidthInner = layer.innerTransformParams.canvasWidth || canvasWidth;
+        glCanvasHeightInner = layer.innerTransformParams.canvasHeight || canvasHeight;
+      }
+
+      // 外部畫布的尺寸和中心
+      const outerWidth = glRight - glLeft;
+      const outerHeight = glTop - glBottom;
+      const outerCenterX = glLeft + outerWidth / 2;
+      const outerCenterY = glBottom + outerHeight / 2;
+
+      // 內部 ROI 的尺寸 (在局部座標系中)
+      // const innerWidth = glRight - glLeft;
+      //  const innerHeight = glTop - glBottom;
+
+      const innerWidth = glRightInner - glLeftInner;
+      const innerHeight = glTopInner - glBottomInner;
+
+
+      // 計算從局部座標 [-1,1] 映射到外部畫布區域的縮放
+      const sx = (outerWidth / 2) * (innerWidth / 2);
+      const sy = (outerHeight / 2) * (innerHeight / 2);
+
+      // 計算 ROI 在局部座標系中的中心
+      const innerCenterX = (glLeftInner + glRightInner) / 2;
+      const innerCenterY = (glBottomInner + glTopInner) / 2;
+
+      // 計算最終的平移量 (先考慮 ROI 偏移,再加上外部畫布中心)
+      const tx = outerCenterX + innerCenterX * (outerWidth / 2);
+      const ty = outerCenterY + innerCenterY * (outerHeight / 2);
+
+
+      // 計算旋轉矩陣分量
+      const cosR = Math.cos(glRotationInner);
+      const sinR = Math.sin(glRotationInner);
+
+      // 組合矩陣: Translation * Rotation * Scale
+      // 這會將頂點從 [-1,1] 局部空間 -> 旋轉 -> 縮放到 ROI 大小 -> 平移到最終位置
+      transformMatrix = new Float32Array([
+        sx * cosR, sx * sinR, 0, 0,
+        -sy * sinR, sy * cosR, 0, 0,
+        0, 0, 1, 0,
+        tx, ty, 0, 1
+      ]);
+    }
+
+    const transformLocation = gl.getUniformLocation(program, 'uTransform');
+    if (transformLocation) {
+      gl.uniformMatrix4fv(transformLocation, false, transformMatrix);
+    }
+
+    // === 設定透明度 ===
+    const opacity = layer.opacity?.value ?? 1.0;
+    const opacityLocation = gl.getUniformLocation(program, 'uOpacity');
+    if (opacityLocation !== null) {
+      gl.uniform1f(opacityLocation, opacity);
+    }
+
+    // === 綁定紋理 ===
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex.tex);
+    gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
+
+    // === 繪製圖層 ===
+    gl.drawElements(gl.TRIANGLES, layer.indices.value.length, gl.UNSIGNED_SHORT, 0);
+  }
+};
+*/
 export const makeRenderPass = (fn, ...args) => {
   return () => fn(...args);
 };
@@ -1909,29 +2091,25 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
   gl.useProgram(colorProgram);
 
   // === 1️⃣ 取得矩形資訊 ===
-  // 若有 transformParams3: { x, y, width, height, rotation } 則使用
-  // 否則從 left/top/right/bottom 推算
+
   let rect = {};
   /*
-  if (baseLayer.transformParams3 && typeof baseLayer.transformParams3.rotation === "number") {
-    rect = baseLayer.transformParams3;
  
-  } else 
+
     */{
-    const { left, top, right, bottom, canvasHeight, canvasWidth, width, height, x, y,rotation } = baseLayer.transformParams2;
+    const { left, top, right, bottom, canvasHeight, canvasWidth, width, height, x, y, rotation } = baseLayer.transformParams2;
     rect.x = x;
     rect.y = y;
     rect.width = (width * 2) / canvasWidth;///2
     rect.height = (height * 2) / canvasHeight; //2
     rect.rotation = rotation;
-  
+
   }
 
 
   const { x, y, width, height, rotation } = rect;
 
-  
-  console.log(" draw out boundary: ", x, y, width, height, rotation);
+
   // === 2️⃣ 計算四個角的座標（考慮旋轉）===
   const hw = width / 2;
   const hh = height / 2;
@@ -2288,7 +2466,7 @@ export const psdRender = async (selectedLayers, wholeImageHeight, wholeImageWidt
       width: attachment.width,
       height: attachment.height,
       verticesLength: attachment.vertices.length,
-      indicesLength: attachment.indices.value.length,
+      indicesLength: attachment.indices.length,
       visible: attachment.visible,
       coords: attachment.coords
     });
