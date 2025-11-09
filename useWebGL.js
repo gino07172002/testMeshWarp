@@ -47,12 +47,15 @@ export const shaders = {
         }
       `,
   colorVertex: `
-        attribute vec2 aPosition;
-        uniform float uPointSize;
-        void main() {
-          gl_Position = vec4(aPosition, 0.0, 1.0);
-          gl_PointSize = uPointSize;
-        }
+    attribute vec2 aPosition;
+    uniform float uPointSize;
+    uniform mat4 uTransform;  // 添加變換矩陣
+    
+    void main() {
+      // 應用變換矩陣到頂點位置
+      gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
+      gl_PointSize = uPointSize;
+    }
       `,
   colorFragment: `
         precision mediump float;
@@ -375,14 +378,16 @@ class gls {
 
         vertexMapping.set(originalIndex, newIndex++);
 
+        // 直接使用標準 NDC 座標 (-1 到 1)
         const standardX = -1 + x * xStep;
         const standardY = 1 - y * yStep;
-        const glX = standardX * sx + tx;
-        const glY = standardY * sy + ty;
+
+        // 紋理座標
         const texX = (standardX + 1) / 2;
         const texY = (1 - standardY) / 2;
 
-        vertices.push(glX, glY, texX, texY);
+        // VBO 存儲標準座標
+        vertices.push(standardX, standardY, texX, texY);
       }
     }
 
@@ -1203,7 +1208,7 @@ class gls {
     //layer.rotation = rotation; // 同步更新 rotation 屬性
 
 
-   
+
     layer.transformParams.x = x;
     layer.transformParams.y = y;
 
@@ -1217,7 +1222,7 @@ class gls {
     layer.transformParams.width = width * canvasWidth / 2;
     layer.transformParams.height = height * canvasHeight / 2;
 
-    
+
 
     layer.innerTransformParams = {
       left: x - (width / 2),
@@ -1353,51 +1358,36 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
 
     // === 計算轉換矩陣 ===
     let transformMatrix;
-
     {
-      // === 使用 transformParams 轉換到旋轉座標 ===
-      const { left, top, width, height, canvasWidth, canvasHeight ,rotat } = layer.transformParams;
-      const rotation = layer.transformParams.rotation || 0; // 弧度
+      const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
+      const rotation = layer.transformParams.rotation || 0;
 
-      // 計算在 NDC 空間中的比例與位置
- 
-      
-      //shoulder always -1 to 1 in NDC
-      let glLeft = left;  //-1
-      let glRight = left + (width / canvasWidth) * 2; //1
-      let glTop = top; //1
-      let glBottom = top - (height / canvasHeight) * 2; //-1
-   
+      // 計算目標區域的 NDC 邊界
+      const glLeft = left;
+      const glTop = top;
+      const ndcWidth = (width / canvasWidth) * 2;
+      const ndcHeight = (height / canvasHeight) * 2;
+      const glRight = glLeft + ndcWidth;
+      const glBottom = glTop - ndcHeight;
 
-      let glLeftInner = glLeft;
-      let glRightInner = glRight;
-      let glTopInner = glTop;
-      let glBottomInner = glBottom;
-      if(layer.innerTransformParams) // roi region transform
-      {
-        glLeftInner = layer.innerTransformParams.left;
-        glRightInner = layer.innerTransformParams.right;
-        glTopInner = layer.innerTransformParams.top;
-        glBottomInner = layer.innerTransformParams.bottom; 
-
-      }
-
-      
+      // 縮放：從標準 2x2 正方形到目標矩形
       const sx = (glRight - glLeft) / 2;
       const sy = (glTop - glBottom) / 2;
-      const tx = glLeft + sx;
-      const ty = glBottom + sy;
 
-      // 計算旋轉矩陣分量
+      // 中心點
+      const centerX = (glLeft + glRight) / 2;
+      const centerY = (glTop + glBottom) / 2;
+
+      // 旋轉
       const cosR = Math.cos(rotation);
       const sinR = Math.sin(rotation);
 
-      // 組合矩陣: Translation * Rotation * Scale
+      // 變換矩陣：縮放 → 旋轉 → 平移
       transformMatrix = new Float32Array([
         sx * cosR, sx * sinR, 0, 0,
         -sy * sinR, sy * cosR, 0, 0,
         0, 0, 1, 0,
-        tx, ty, 0, 1
+        centerX, centerY, 0, 1
       ]);
     }
 
@@ -1935,7 +1925,6 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
 
   var baseLayer = layers[currentChosedLayer];
   if (layerSize === 0) return;
-  //console.log(" draw selectde vertices : ",selectedVertices);
 
   let layerIndex = currentChosedLayer;
   if (layerIndex >= layerSize)
@@ -1943,8 +1932,49 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
 
   if (!baseLayer || !baseLayer.vbo) return;
 
-  // === 渲染网格线 ===
+  // === 使用 colorProgram 並設置變換矩陣 ===
   gl.useProgram(colorProgram);
+
+  // === 計算並設置變換矩陣（與主渲染函數相同） ===
+  if (baseLayer.transformParams) {
+    const { left, top, width, height, canvasWidth, canvasHeight } = baseLayer.transformParams;
+    const rotation = baseLayer.transformParams.rotation || 0;
+
+    // 計算目標區域的 NDC 邊界
+    const glLeft = left;
+    const glTop = top;
+    const ndcWidth = (width / canvasWidth) * 2;
+    const ndcHeight = (height / canvasHeight) * 2;
+    const glRight = glLeft + ndcWidth;
+    const glBottom = glTop - ndcHeight;
+
+    // 縮放：從標準 2x2 正方形到目標矩形
+    const sx = (glRight - glLeft) / 2;
+    const sy = (glTop - glBottom) / 2;
+
+    // 中心點
+    const centerX = (glLeft + glRight) / 2;
+    const centerY = (glTop + glBottom) / 2;
+
+    // 旋轉
+    const cosR = Math.cos(rotation);
+    const sinR = Math.sin(rotation);
+
+    // 變換矩陣
+    const transformMatrix = new Float32Array([
+      sx * cosR, sx * sinR, 0, 0,
+      -sy * sinR, sy * cosR, 0, 0,
+      0, 0, 1, 0,
+      centerX, centerY, 0, 1
+    ]);
+
+    // 設置變換矩陣 uniform
+    const transformLocation = gl.getUniformLocation(colorProgram, 'uTransform');
+    if (transformLocation) {
+      gl.uniformMatrix4fv(transformLocation, false, transformMatrix);
+    }
+  }
+
   gl.bindBuffer(gl.ARRAY_BUFFER, baseLayer.vbo);
 
   const colorPosAttrib = gl.getAttribLocation(colorProgram, 'aPosition');
@@ -1953,14 +1983,14 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
     gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
   }
 
-  // 渲染网格线
+  // === 渲染網格線 ===
   if (baseLayer.eboLines && baseLayer.linesIndices.value && baseLayer.linesIndices.value.length > 0) {
     gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 1, 1, 1, 0.3);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, baseLayer.eboLines);
     gl.drawElements(gl.LINES, baseLayer.linesIndices.value.length, gl.UNSIGNED_SHORT, 0);
   }
 
-  // 渲染顶点
+  // === 渲染頂點 ===
   if (baseLayer.vertices.value && baseLayer.vertices.value.length > 0) {
     const pointSizeLocation = gl.getUniformLocation(colorProgram, 'uPointSize');
     if (pointSizeLocation !== null) {
@@ -2090,47 +2120,46 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
 
   gl.useProgram(colorProgram);
 
-  // === 1️⃣ 取得矩形資訊 ===
-
-  let rect = {};
-  /*
- 
-
-    */{
-    const { left, top, right, bottom, canvasHeight, canvasWidth, width, height, x, y, rotation } = baseLayer.transformParams2;
-    rect.x = x;
-    rect.y = y;
-    rect.width = (width * 2) / canvasWidth;///2
-    rect.height = (height * 2) / canvasHeight; //2
-    rect.rotation = rotation;
-
+  // === 設置變換矩陣（與主渲染相同）===
+  if (baseLayer.transformParams) {
+    const { left, top, width, height, canvasWidth, canvasHeight } = baseLayer.transformParams;
+    const rotation = baseLayer.transformParams.rotation || 0;
+    
+    const glLeft = left;
+    const glTop = top;
+    const ndcWidth = (width / canvasWidth) * 2;
+    const ndcHeight = (height / canvasHeight) * 2;
+    const glRight = glLeft + ndcWidth;
+    const glBottom = glTop - ndcHeight;
+    
+    const sx = (glRight - glLeft) / 2;
+    const sy = (glTop - glBottom) / 2;
+    const centerX = (glLeft + glRight) / 2;
+    const centerY = (glTop + glBottom) / 2;
+    
+    const cosR = Math.cos(rotation);
+    const sinR = Math.sin(rotation);
+    
+    const transformMatrix = new Float32Array([
+      sx * cosR,  sx * sinR,  0, 0,
+      -sy * sinR, sy * cosR,  0, 0,
+      0,          0,          1, 0,
+      centerX,    centerY,    0, 1
+    ]);
+    
+    const transformLocation = gl.getUniformLocation(colorProgram, 'uTransform');
+    if (transformLocation) {
+      gl.uniformMatrix4fv(transformLocation, false, transformMatrix);
+    }
   }
 
-
-  const { x, y, width, height, rotation } = rect;
-
-
-  // === 2️⃣ 計算四個角的座標（考慮旋轉）===
-  const hw = width / 2;
-  const hh = height / 2;
-  const cosR = Math.cos(rotation);
-  const sinR = Math.sin(rotation);
-
-  const corners = [
-    [-hw, -hh], // 左上
-    [hw, -hh], // 右上
-    [hw, hh], // 右下
-    [-hw, hh], // 左下
-  ].map(([cx, cy]) => [
-    x + cx * cosR - cy * sinR,
-    y + cx * sinR + cy * cosR
-  ]);
-
+  // === 標準矩形頂點（-1 到 1 的標準空間）===
+  // shader 會自動應用 uTransform 變換到正確位置
   const boundaryVertices = new Float32Array([
-    corners[0][0], corners[0][1], 0, 0,
-    corners[1][0], corners[1][1], 0, 0,
-    corners[2][0], corners[2][1], 0, 0,
-    corners[3][0], corners[3][1], 0, 0
+    -1, -1, 0, 0,  // 左下
+     1, -1, 0, 0,  // 右下
+     1,  1, 0, 0,  // 右上
+    -1,  1, 0, 0   // 左上
   ]);
 
   const boundaryVBO = gl.createBuffer();
@@ -2146,7 +2175,7 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
   const uColor = gl.getUniformLocation(colorProgram, 'uColor');
   const uPointSize = gl.getUniformLocation(colorProgram, 'uPointSize');
 
-  // === 3️⃣ 畫邊界線 ===
+  // === 畫邊界線 ===
   const lineIndices = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0]);
   const lineEBO = gl.createBuffer();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineEBO);
@@ -2154,45 +2183,30 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
   gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0); // 綠色邊線
   gl.drawElements(gl.LINES, lineIndices.length, gl.UNSIGNED_SHORT, 0);
 
-  // === 4️⃣ 畫四角大點 ===
+  // === 畫四角大點 ===
   if (uPointSize) gl.uniform1f(uPointSize, 20.0);
   gl.uniform4f(uColor, 0.1, 1.0, 0.3, 1.0);
   gl.drawArrays(gl.POINTS, 0, 4);
 
-  // === 5️⃣ 畫中心點 ===
-  const centerVertex = new Float32Array([x, y, 0, 0]);
+  // === 畫中心點（標準空間的原點 0,0）===
+  const centerVertex = new Float32Array([0, 0, 0, 0]);
   const centerVBO = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, centerVBO);
   gl.bufferData(gl.ARRAY_BUFFER, centerVertex, gl.STATIC_DRAW);
   gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
   gl.enableVertexAttribArray(colorPosAttrib);
 
-  // 外圈點
+  // 外圈點（黃色）
   if (uPointSize) gl.uniform1f(uPointSize, 20.0);
-  gl.uniform4f(uColor, 1.0, 1.0, 0.0, 1.0); // 黃點
+  gl.uniform4f(uColor, 1.0, 1.0, 0.0, 1.0);
   gl.drawArrays(gl.POINTS, 0, 1);
 
-  // 內圈點
+  // 內圈點（黑色）
   if (uPointSize) gl.uniform1f(uPointSize, 10.0);
-  gl.uniform4f(uColor, 0.0, 0.0, 0.0, 1.0); // 黑點
+  gl.uniform4f(uColor, 0.0, 0.0, 0.0, 1.0);
   gl.drawArrays(gl.POINTS, 0, 1);
 
-  // === 6️⃣ 畫圖層頂點（綠色）===
-  /*
-  if (baseLayer.vertices.value && baseLayer.vertices.value.length > 0) {
-    const pointSizeLocation = gl.getUniformLocation(colorProgram, 'uPointSize');
-    if (pointSizeLocation !== null) {
-      gl.uniform1f(pointSizeLocation, 3.0);
-    }
-    gl.uniform4f(gl.getUniformLocation(colorProgram, 'uColor'), 0, 1, 0, 1);
-    gl.bindBuffer(gl.ARRAY_BUFFER, baseLayer.vbo);
-    gl.vertexAttribPointer(colorPosAttrib, 2, gl.FLOAT, false, 16, 0);
-    gl.enableVertexAttribArray(colorPosAttrib);
-    gl.drawArrays(gl.POINTS, 0, baseLayer.vertices.value.length / 4);
-  }
-    */
-
-  // === 7️⃣ 清理 ===
+  // === 清理 ===
   gl.deleteBuffer(boundaryVBO);
   gl.deleteBuffer(lineEBO);
   gl.deleteBuffer(centerVBO);
