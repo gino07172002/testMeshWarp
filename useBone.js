@@ -624,56 +624,191 @@ class Bones {
     for (const rootBone of meshSkeleton.rootBones) {
       collectBones(rootBone);
     }
-
-    // 處理單一 bone 對 vertex 的影響
-    function deformVertexByBone(vx, vy, vz, vw, bone, weight) {
-      const poseTransform = bone.getGlobalPoseTransform();
-      const head = poseTransform.head;
-      const originalHead = bone.getGlobalHead();
-
-      // 旋轉差值
-      const rotationDelta = poseTransform.rotation - bone.globalRotation;
-      const cosR = Math.cos(rotationDelta);
-      const sinR = Math.sin(rotationDelta);
-
-      // 軸向縮放比例
-      const scale = bone.length > 1e-6
+/* somehow correct rotation
+function deformVertexByBone(vx, vy, vz, vw, bone, weight, width, height, canvasWidth, canvasHeight, top, left) {
+    // ----------------------------------------------------
+    // 1. 計算變形所需的參數 (與原始碼相同)
+    // ----------------------------------------------------
+    const poseTransform = bone.getGlobalPoseTransform();
+    const head = poseTransform.head;
+    const originalHead = bone.getGlobalHead();
+    const rotationDelta = poseTransform.rotation - bone.globalRotation;
+    const cosR = Math.cos(rotationDelta);
+    const sinR = Math.sin(rotationDelta);
+    const scale = bone.length > 1e-6
         ? poseTransform.length / bone.length
         : 1.0;
+    const dirX = Math.cos(bone.globalRotation);
+    const dirY = Math.sin(bone.globalRotation);
 
-      // 骨骼方向
-      const dirX = Math.cos(bone.globalRotation);
-      const dirY = Math.sin(bone.globalRotation);
+    // ----------------------------------------------------
+    // 2. [!! 修正 !!] 將頂點從 ROI 座標轉換到 Canvas 座標
+    // ----------------------------------------------------
+    // 假設 ROI(0,0) 對應 Canvas(0,0) 並縮放。
+    // (注意：這裡暫時忽略了 top/left，請見下方說明)
+    const vcx = vx * (canvasWidth / width);
+    const vcy = vy * (canvasHeight / height);
 
-      // === 開始變形 ===
-      const lx = vx - originalHead.x;
-      const ly = vy - originalHead.y;
+    // ----------------------------------------------------
+    // 3. [!! 修正 !!] 在 Canvas 座標系中，計算到綁定頭部的相對向量
+    // ----------------------------------------------------
+    // (VertexInCanvas) - (BindHeadInCanvas)
+    // 這才是頂點相對於「旋轉中心」的真正向量
+    const lx = vcx - originalHead.x;
+    const ly = vcy - originalHead.y;
 
-      const along = lx * dirX + ly * dirY;
-      const perpX = lx - along * dirX;
-      const perpY = ly - along * dirY;
+    // ----------------------------------------------------
+    // 4. 應用軸向縮放 (現在 lx, ly 是在一致的 Canvas 座標系中)
+    // ----------------------------------------------------
+    const along = lx * dirX + ly * dirY;
+    const perpX = lx - along * dirX;
+    const perpY = ly - along * dirY;
 
-      const sx = along * scale * dirX + perpX;
-      const sy = along * scale * dirY + perpY;
+    const scaledAlongX = along * scale * dirX;
+    const scaledAlongY = along * scale * dirY;
 
-      const rx = sx * cosR - sy * sinR;
-      const ry = sx * sinR + sy * cosR;
+    const sx = scaledAlongX + perpX;
+    const sy = scaledAlongY + perpY;
 
-      const px = rx + head.x;
-      const py = ry + head.y;
+    // ----------------------------------------------------
+    // 5. 應用旋轉差值 (在 Canvas 座標系中)
+    // ----------------------------------------------------
+    const rx = sx * cosR - sy * sinR;
+    const ry = sx * sinR + sy * cosR;
 
-      return {
+    // ----------------------------------------------------
+    // 6. [!! 修正 !!] 轉換回世界空間 (在 Canvas 座標系中)
+    // ----------------------------------------------------
+    // (RotatedVectorInCanvas) + (PoseHeadInCanvas)
+    const pcx = rx + head.x;
+    const pcy = ry + head.y;
+
+    // ----------------------------------------------------
+    // 7. [!! 新增 !!] 將最終的 Canvas 座標轉換回 ROI 座標
+    // ----------------------------------------------------
+    // 為了讓輸出的 (px, py) 與輸入的 (vx, vy) 座標系一致
+    const px = pcx * (width / canvasWidth);
+    const py = pcy * (height / canvasHeight);
+
+    // ----------------------------------------------------
+    // 8. 應用權重 (與原始碼相同)
+    // ----------------------------------------------------
+    return {
         x: px * weight,
         y: py * weight,
-        z: vz * weight,
+        z: vz * weight, // 假設 z/w 座標不需要空間轉換
         w: vw * weight
-      };
-    }
+    };
+}
+ */
+    // 處理單一 bone 對 vertex 的影響
+    /**
+ * deformVertexByBone
+ *
+ * 根據單一骨骼的姿勢變換來變形頂點。
+ * 此函式假設 vx, vy 是在一個與 ROI 相關的座標系統中，
+ * 且骨骼的世界座標（originalHead, head）需要透過 canvasWidth/width 等比例轉換到此座標系。
+ *
+ * @param {number} vx - 頂點 X 座標 (ROI 空間)
+ * @param {number} vy - 頂點 Y 座標 (ROI 空間)
+ * @param {number} vz - 頂點 Z 座標
+ * @param {number} vw - 頂點 W 座標
+ * @param {object} bone - 骨骼物件
+ * @param {number} weight - 骨骼權重
+ * @param {number} width - ROI 寬度 (像素)
+ * @param {number} height - ROI 高度 (像素)
+ * @param {number} canvasWidth - Canvas 總寬度 (像素)
+ * @param {number} canvasHeight - Canvas 總高度 (像素)
+ * @param {number} top - ROI 頂部偏移 (未使用，但保留參數)
+ * @param {number} left - ROI 左側偏移 (未使用，但保留參數)
+ * @returns {{x: number, y: number, z: number, w: number}} - 變形後的頂點加權座標
+ */
+function deformVertexByBone(
+  vx, vy, vz, vw,
+  bone, weight,
+  width, height,
+  canvasWidth, canvasHeight,
+  top, left
+) {
+  // 取得骨骼的當前姿勢（Pose）世界變換
+  const poseTransform = bone.getGlobalPoseTransform();
+  const head = poseTransform.head;           // 姿勢骨頭頭部位置 (世界/Canvas 座標)
+  const originalHead = bone.getGlobalHead(); // 綁定骨頭頭部位置 (世界/Canvas 座標)
+
+  // ----------------------------------------------------
+  // 1. 計算變形所需的參數
+  // ----------------------------------------------------
+
+  // 旋轉差值 (Rotation Delta)
+  const rotationDelta = poseTransform.rotation - bone.globalRotation;
+  const cosR = Math.cos(rotationDelta);
+  const sinR = Math.sin(rotationDelta);
+
+  // 軸向縮放比例 (Axial Scaling Factor)
+  // const scale = bone.length > 1e-6
+  //   ? poseTransform.length / bone.length
+  //   : 1.0;
+
+  // 綁定姿勢下的骨骼方向
+  const dirX = Math.cos(bone.globalRotation);
+  const dirY = Math.sin(bone.globalRotation);
+
+  // ----------------------------------------------------
+  // 2. 轉換頂點到骨骼的綁定空間 (Localize to Bind Head)
+  // ----------------------------------------------------
+  const lx = (vx - (originalHead.x) * canvasWidth / width);
+  const ly = (vy - (originalHead.y) * canvasHeight / height);
+
+  // ----------------------------------------------------
+  // 3. （停用縮放）直接使用原始相對座標
+  // ----------------------------------------------------
+
+  // // 原本的縮放處理：
+  // const along = lx * dirX + ly * dirY;
+  // const perpX = lx - along * dirX;
+  // const perpY = ly - along * dirY;
+  // const scaledAlongX = along * scale * dirX;
+  // const scaledAlongY = along * scale * dirY;
+  // const sx = scaledAlongX + perpX;
+  // const sy = scaledAlongY + perpY;
+
+  // 改為不進行軸向縮放，直接使用 lx, ly
+
+  const sx = (lx );
+  const sy =  (ly  );
+  //const sx = vx;
+  //const sy = vy;
+
+  // ----------------------------------------------------
+  // 4. 應用旋轉差值 (Rotation)
+  // ----------------------------------------------------
+  const rx = sx * cosR - sy * sinR;
+  const ry = sx * sinR + sy * cosR;
+
+  // ----------------------------------------------------
+  // 5. 轉換回世界空間 (Translate to Pose Head)
+  // ----------------------------------------------------
+  //const px = (rx + head.x * canvasWidth / width);
+  //const py = (ry + head.y * canvasHeight / height);
+const px = (lx + head.x * canvasWidth / width);
+  const py = (ly + head.y * canvasHeight / height);
+
+  // ----------------------------------------------------
+  // 6. 應用權重
+  // ----------------------------------------------------
+  return {
+    x: px * weight,
+    y: py * weight,
+    z: vz * weight,
+    w: vw * weight
+  };
+}
 
     for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
       const layer = layers[layerIndex];
       const vertices = layer.vertices.value;
       if (!vertices || vertices.length === 0) continue;
+
 
       const vertexGroups = layer.vertexGroup.value; // [{name, vertices:[{id, weight},...]}]
       const newVertices = new Float32Array(vertices.length);
@@ -688,6 +823,7 @@ class Bones {
         gl.bufferData(gl.ARRAY_BUFFER, newVertices, gl.STATIC_DRAW);
         continue;
       }
+      const { canvasWidth, canvasHeight, width, height, top, left } = layer.transformParams;
 
       // 用於追蹤哪些頂點已經被處理過
       const processedVertices = new Set();
@@ -714,7 +850,7 @@ class Bones {
           const vz = vertices[idx + 2];
           const vw = vertices[idx + 3];
 
-          const d = deformVertexByBone(vx, vy, vz, vw, bone, v.weight);
+          const d = deformVertexByBone(vx, vy, vz, vw, bone, v.weight, width, height, canvasWidth, canvasHeight, top, left);
 
           // 累加 (因為可能多個bone影響同一個vertex)
           newVertices[idx] += d.x;
