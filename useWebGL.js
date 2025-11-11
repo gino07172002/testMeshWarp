@@ -190,6 +190,7 @@ const isAreaTransparent = (x, y, w, h, imageData, imageWidth, imageHeight) => {
 
 
 
+
 export function Layer() {  //maybe layer would become spine2d's slot later
   const image = ref(null);
   const name = ref('');
@@ -320,11 +321,13 @@ class gls {
     if (customVertexFunc) {
       return customVertexFunc({ image, width, height, top, left, canvasWidth, canvasHeight, rows, cols });
     }
-    const glLeft = left;
-    const glRight = left + (width / canvasWidth) * 2;
-    const glTop = top;
-    const glBottom = top - (height / canvasHeight) * 2;
+    const glLeft = (left / canvasWidth) * 2 - 1; //-1
+    const glRight = ((left + width) / canvasWidth) * 2 - 1;//1
+    const glTop = (top / canvasHeight) * 2 - 1;//1
+    const glBottom = ((top - height) / canvasHeight) * 2 - 1;//-1
 
+
+    console.log(" hi glLeft", glLeft, glRight, glTop, glBottom)
     const sx = (glRight - glLeft) / 2;
     const sy = (glTop - glBottom) / 2;
     const tx = glLeft + sx;
@@ -343,7 +346,9 @@ class gls {
       const cellY = y / (rows - 1);
       const cellW = 1 / (cols - 1);
       const cellH = 1 / (rows - 1);
+      //console.log("celling x: ",cellX," celling y: ",cellY);
       const result = isAreaTransparent(cellX, cellY, cellW, cellH, image, width, height);
+      //  const result = false;
       transparencyCache.set(key, result);
       return result;
     };
@@ -364,6 +369,7 @@ class gls {
       usedVertices.add((y + 1) * cols + x);
       usedVertices.add((y + 1) * cols + x + 1);
     });
+    console.log("test..");
 
     const vertexMapping = new Map();
     let newIndex = 0;
@@ -386,6 +392,7 @@ class gls {
         const texX = (standardX + 1) / 2;
         const texY = (1 - standardY) / 2;
 
+      
         // VBO 存儲標準座標
         vertices.push(standardX, standardY, texX, texY);
       }
@@ -520,7 +527,6 @@ class gls {
       left: left,
       top: top,
       width: width,
-
       height: height,
       /*
       left: -1,
@@ -541,12 +547,12 @@ class gls {
       top: top,
       width: width,
       height: height,
-      right: left + width / canvasWidth * 2,
-      bottom: top - height / canvasHeight * 2,
+      right: left + width,
+      bottom: top - height,
       canvasWidth,
       canvasHeight,
-      x: left + width / canvasWidth,
-      y: top - height / canvasHeight,
+      x: left + width / 2,
+      y: top - height / 2,
       rotation: 0
     };
   }
@@ -909,179 +915,185 @@ class gls {
   }
 
   handleBoundaryInteraction(
-    xNDC,
-    yNDC,
-    layers,
-    currentChosedLayerRef,
-  ) {
-    const currentChosedLayer = currentChosedLayerRef.value;
-    const baseLayer = layers[currentChosedLayer];
-    if (!baseLayer) return -1;
+  xNDC,
+  yNDC,
+  layers,
+  currentChosedLayerRef,
+) {
+  const currentChosedLayer = currentChosedLayerRef.value;
+  const baseLayer = layers[currentChosedLayer];
+  if (!baseLayer) return -1;
 
-    const params = baseLayer.transformParams2;
-    console.log("param2 check:", baseLayer.transformParams2);
-    if (!params) return -1;
+  const params = baseLayer.transformParams2;
+  console.log("param2 check:", baseLayer.transformParams2);
+  if (!params) return -1;
 
-    // === 取得 canvas 尺寸用於座標轉換 ===
-    const { canvasWidth, canvasHeight } = baseLayer.transformParams;
+  // === 取得 canvas 尺寸用於座標轉換 ===
+  const { canvasWidth, canvasHeight } = baseLayer.transformParams;
 
-    console.log(" boundary check params : ", params);
-    // === 1️⃣ 取矩形資訊（世界座標）===
-    let rect = {};
-    const { left, top, right, bottom, rotation } = params;
+  console.log(" boundary check params : ", params);
+  
+  // === 1️⃣ 取矩形資訊（世界座標）===
+  const { left, top, right, bottom, rotation = 0 } = params;
 
-    const x = (left + right) / 2;
-    const y = (top + bottom) / 2;
-    const width = right - left;
-    const height = bottom - top;
-    if (rotation === undefined) {
-      rotation = 0;
+  // 計算中心點和尺寸（世界座標）
+  const x = (left + right) / 2;
+  const y = (top + bottom) / 2;
+  const width = right - left;
+  const height = top - bottom;
+
+  console.log(" boundary check world rect : ", { x, y, width, height });
+
+  console.log(" clieck xNDC: ",xNDC,yNDC);
+  // === 🔥 將滑鼠 NDC 座標轉換為世界座標 ===
+  const mouseWorldX = (xNDC + 1) * canvasWidth / 2;
+  const mouseWorldY = (1 -yNDC ) * canvasHeight / 2;
+  console.log(" clieck  mouseWorldX: ", mouseWorldX,mouseWorldY);
+
+
+  // === 2️⃣ 計算旋轉後的四角頂點座標（世界座標）===
+  const hw = width / 2;
+  const hh = height / 2;
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+
+  console.log("hw: ",hw,hh,rotation);
+  const corners = [
+    [-hw, -hh], // 左上
+    [hw, -hh],  // 右上
+    [hw, hh],   // 右下
+    [-hw, hh],  // 左下
+  ].map(([cx, cy]) => [
+    x + cx * cosR - cy * sinR,
+    y + cx * sinR + cy * cosR,
+  ]);
+  console.log("corner: ",corners[0],corners[1],corners[2],corners[3])
+
+  // === 3️⃣ 計算點距離四角點的距離（找 vertex 點擊）===
+  // 🔥 閾值需要轉換為世界座標單位
+  const threshold = 0.05 * canvasWidth / 2; // 假設以寬度為基準
+  const minDistSq = threshold * threshold;
+  let localSelectedVertex = -1;
+  let minVertexDist = Infinity;
+
+  for (let i = 0; i < corners.length; i++) {
+    const [vx, vy] = corners[i];
+    const dx = vx - mouseWorldX;
+    const dy = vy - mouseWorldY;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < minVertexDist && distSq < minDistSq) {
+      minVertexDist = distSq;
+      localSelectedVertex = i;
     }
-
-    console.log(" boundary check NDC rect : ", { x, y, width, height });
-
-    // 直接使用這些 NDC 座標進行後續計算
-    const hw = width / 2;
-    const hh = height / 2;
-    const cosR = Math.cos(rotation);
-    const sinR = Math.sin(rotation);
-
-    // === 2️⃣ 計算旋轉後的四角頂點座標（NDC）===
-    const corners = [
-      [-hw, -hh], // 左上
-      [hw, -hh], // 右上
-      [hw, hh], // 右下
-      [-hw, hh], // 左下
-    ].map(([cx, cy]) => [
-      x + cx * cosR - cy * sinR,
-      y + cx * sinR + cy * cosR,
-    ]);
-
-    // === 3️⃣ 計算點距離四角點的距離（找 vertex 點擊）===
-    const minDistSq = 0.03 * 0.03;
-    let localSelectedVertex = -1;
-    let minVertexDist = Infinity;
-
-    for (let i = 0; i < corners.length; i++) {
-      const [vx, vy] = corners[i];
-      const dx = vx - xNDC;
-      const dy = vy - yNDC;
-      const distSq = dx * dx + dy * dy;
-      if (distSq < minVertexDist && distSq < minDistSq) {
-        minVertexDist = distSq;
-        localSelectedVertex = i;
-      }
-    }
-
-    if (localSelectedVertex !== -1) {
-      console.log("clickVertex:", localSelectedVertex);
-      // 🔥 儲存初始狀態（NDC 座標）
-      baseLayer.initialMouseX = xNDC;
-      baseLayer.initialMouseY = yNDC;
-      baseLayer.initialX = x;
-      baseLayer.initialY = y;
-      baseLayer.initialWidth = width;
-      baseLayer.initialHeight = height;
-      baseLayer.initialRotation = rotation;
-      return localSelectedVertex;
-    }
-
-    // === 4️⃣ 檢查邊緣（4 條線）===
-    const edges = [[0, 1], [1, 2], [2, 3], [3, 0]];
-    let selectedEdge = -1;
-    let minEdgeDist = Infinity;
-
-    for (let e = 0; e < edges.length; e++) {
-      const [i1, i2] = edges[e];
-      const [ax, ay] = corners[i1];
-      const [bx, by] = corners[i2];
-
-      const dx = bx - ax;
-      const dy = by - ay;
-      const lenSq = dx * dx + dy * dy;
-      if (lenSq === 0) continue;
-
-      let t = ((xNDC - ax) * dx + (yNDC - ay) * dy) / lenSq;
-      t = Math.max(0, Math.min(1, t));
-      const cx = ax + t * dx;
-      const cy = ay + t * dy;
-
-      const pdx = xNDC - cx;
-      const pdy = yNDC - cy;
-      const distSq = pdx * pdx + pdy * pdy;
-
-      if (distSq < minEdgeDist && distSq < minDistSq) {
-        minEdgeDist = distSq;
-        selectedEdge = e;
-      }
-    }
-
-    if (selectedEdge !== -1) {
-      console.log("clickEdge:", selectedEdge);
-      // 🔥 儲存初始狀態（NDC 座標）
-      baseLayer.initialMouseX = xNDC;
-      baseLayer.initialMouseY = yNDC;
-      baseLayer.initialX = x;
-      baseLayer.initialY = y;
-      baseLayer.initialWidth = width;
-      baseLayer.initialHeight = height;
-      baseLayer.initialRotation = rotation;
-      return selectedEdge + 4;
-    }
-
-    // === 5️⃣ 檢查是否在旋轉矩形內 ===
-    const relX = (xNDC - x) * cosR + (yNDC - y) * sinR;
-    const relY = -(xNDC - x) * sinR + (yNDC - y) * cosR;
-    const inside = Math.abs(relX) <= Math.abs(hw) && Math.abs(relY) <= Math.abs(hh);
-    console.log("inside check:", inside, relX, relY, hw, hh);
-    if (inside) {
-      console.log("clickInside");
-      // 🔥 儲存初始狀態（NDC 座標）
-      baseLayer.initialMouseX = xNDC;
-      baseLayer.initialMouseY = yNDC;
-      baseLayer.initialX = x;
-      baseLayer.initialY = y;
-      baseLayer.initialWidth = width;
-      baseLayer.initialHeight = height;
-      baseLayer.initialRotation = rotation;
-      return 8;
-    }
-
-    return -1;
   }
 
-  updateBoundary(xNDC, yNDC, selected, layer, isShiftPressed) {
+  if (localSelectedVertex !== -1) {
+    console.log("clickVertex:", localSelectedVertex);
+    // 🔥 儲存初始狀態（世界座標）
+    baseLayer.initialMouseX = mouseWorldX;
+    baseLayer.initialMouseY = mouseWorldY;
+    baseLayer.initialX = x;
+    baseLayer.initialY = y;
+    baseLayer.initialWidth = width;
+    baseLayer.initialHeight = height;
+    baseLayer.initialRotation = rotation;
+    return localSelectedVertex;
+  }
+
+  // === 4️⃣ 檢查邊緣（4 條線）===
+  const edges = [[0, 1], [1, 2], [2, 3], [3, 0]];
+  let selectedEdge = -1;
+  let minEdgeDist = Infinity;
+
+  for (let e = 0; e < edges.length; e++) {
+    const [i1, i2] = edges[e];
+    const [ax, ay] = corners[i1];
+    const [bx, by] = corners[i2];
+
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) continue;
+
+    let t = ((mouseWorldX - ax) * dx + (mouseWorldY - ay) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + t * dx;
+    const cy = ay + t * dy;
+
+    const pdx = mouseWorldX - cx;
+    const pdy = mouseWorldY - cy;
+    const distSq = pdx * pdx + pdy * pdy;
+
+    if (distSq < minEdgeDist && distSq < minDistSq) {
+      minEdgeDist = distSq;
+      selectedEdge = e;
+    }
+  }
+
+  if (selectedEdge !== -1) {
+    console.log("clickEdge:", selectedEdge);
+    // 🔥 儲存初始狀態（世界座標）
+    baseLayer.initialMouseX = mouseWorldX;
+    baseLayer.initialMouseY = mouseWorldY;
+    baseLayer.initialX = x;
+    baseLayer.initialY = y;
+    baseLayer.initialWidth = width;
+    baseLayer.initialHeight = height;
+    baseLayer.initialRotation = rotation;
+    return selectedEdge + 4;
+  }
+
+  // === 5️⃣ 檢查是否在旋轉矩形內 ===
+  const relX = (mouseWorldX - x) * cosR + (mouseWorldY - y) * sinR;
+  const relY = -(mouseWorldX - x) * sinR + (mouseWorldY - y) * cosR;
+  const inside = Math.abs(relX) <= Math.abs(hw) && Math.abs(relY) <= Math.abs(hh);
+  console.log("inside check:", inside, relX, relY, hw, hh);
+  
+  if (inside) {
+    console.log("clickInside");
+    // 🔥 儲存初始狀態（世界座標）
+    baseLayer.initialMouseX = mouseWorldX;
+    baseLayer.initialMouseY = mouseWorldY;
+    baseLayer.initialX = x;
+    baseLayer.initialY = y;
+    baseLayer.initialWidth = width;
+    baseLayer.initialHeight = height;
+    baseLayer.initialRotation = rotation;
+    return 8;
+  }
+
+  return -1;
+}
+
+ // 在 updateBoundary 中的轉換需要修正
+updateBoundary(xNDC, yNDC, selected, layer, isShiftPressed) {
     if (selected === -1) return;
     let { canvasWidth, canvasHeight } = layer.transformParams;
     const params = layer.transformParams2;
 
     console.log("checking layer.transformParams", layer.transformParams);
-
     console.log("checking layer.transformParams2", layer.transformParams2);
+    
     if (!params) {
       console.log("No transformParams found in layer");
       return;
     }
 
     console.log("before update:", JSON.stringify(layer.transformParams));
-    // === 1️⃣ 初始化矩形參數 ===
-    let { rotation } = params;
+    
+    // === 🔥 將滑鼠 NDC 座標轉換為世界座標 ===
+    const mouseWorldX = (xNDC + 1) * canvasWidth / 2;
+    const mouseWorldY = (1 - yNDC ) * canvasHeight / 2;
 
-    //if (x === undefined || width === undefined)
-    {
-      const { left, top, right, bottom } = params;
-      var x = (left + right) / 2;
-      var y = (top + bottom) / 2;
-      var width = Math.abs(right - left);
-      var height = Math.abs(top - bottom);
-      //rotation = 0;
-    }
-    if (rotation === undefined) {
-      rotation = 0;
-    }
-
-    // 🔥 移除這段 - 初始狀態應該已經在 handleBoundaryInteraction 設定好了
-    // if (layer.initialMouseX === undefined) { ... }
+    console.log("check mouse Y",mouseWorldY);
+    // === 1️⃣ 初始化矩形參數（世界座標）===
+    let { rotation = 0 } = params;
+    const { left, top, right, bottom } = params;
+    
+    let x = (left + right) / 2;
+    let y = (top + bottom) / 2;
+    let width = Math.abs(right - left);
+    let height = Math.abs(top - bottom);
 
     // === 2️⃣ 基本設定 ===
     const hw = width / 2;
@@ -1091,33 +1103,34 @@ class gls {
 
     const corners = [
       [-hw, -hh], // 左上
-      [hw, -hh], // 右上
-      [hw, hh], // 右下
-      [-hw, hh], // 左下
+      [hw, -hh],  // 右上
+      [hw, hh],   // 右下
+      [-hw, hh],  // 左下
     ].map(([cx, cy]) => [
       x + cx * cosR - cy * sinR,
       y + cx * sinR + cy * cosR
     ]);
 
-    // === 3️⃣ 操作行為 ===
-    if (selected === 8) {  //mouse click inside rectangle
-      const deltaX = xNDC - layer.initialMouseX;
-      const deltaY = yNDC - layer.initialMouseY;
+    // === 3️⃣ 操作行為（世界座標）===
+    if (selected === 8) {  // 移動矩形
+      const deltaX = mouseWorldX - layer.initialMouseX;
+      const deltaY = mouseWorldY - layer.initialMouseY;
       x = layer.initialX + deltaX;
-      y = layer.initialY + deltaY;
+      y = layer.initialY - deltaY;
       console.log("Moved rectangle:", { x, y });
     }
-    else if (selected < 4 && isShiftPressed) {
+    else if (selected < 4 && isShiftPressed) {  // 🔥 旋轉修正
       const cx = layer.initialX;
       const cy = layer.initialY;
 
+      // 🔥 注意：Y 軸方向需要反轉
       const initialAngle = Math.atan2(
-        layer.initialMouseY - cy,
+        -(layer.initialMouseY - cy),  // 加負號
         layer.initialMouseX - cx
       );
       const currentAngle = Math.atan2(
-        yNDC - cy,
-        xNDC - cx
+        -(mouseWorldY - cy),  // 加負號
+        mouseWorldX - cx
       );
 
       const deltaAngle = currentAngle - initialAngle;
@@ -1125,125 +1138,84 @@ class gls {
 
       console.log("Rotation:", rotation * 180 / Math.PI, "degrees");
     }
-    else if (selected < 4) {
-      const relX = (xNDC - x) * cosR + (yNDC - y) * sinR;
-      const relY = -(xNDC - x) * sinR + (yNDC - y) * cosR;
+    else if (selected < 4) {  // 縮放頂點
+      const relX = (mouseWorldX - x) * cosR + (mouseWorldY - y) * sinR;
+      const relY = -(mouseWorldX - x) * sinR + (mouseWorldY - y) * cosR;
 
-      let initHW = layer.initialWidth / 2;
-      let initHH = layer.initialHeight / 2;
-      let newHW = initHW;
-      let newHH = initHH;
+      let newHW = Math.abs(relX);
+      let newHH = Math.abs(relY);
 
-      let newX = x;
-      let newY = y;
-      switch (selected) {
-        case 0:  //左上
-          newHW = Math.abs(relX);
-          newHH = Math.abs(relY);
-          break;
-        case 1: //右上
-          newHW = Math.abs(relX);
-          newHH = Math.abs(relY);
-          break;
-        case 2:   //右下
-          newHW = Math.abs(relX);
-          newHH = Math.abs(relY);
-          break;
-        case 3:   //左下
-          newHW = Math.abs(relX);
-          newHH = Math.abs(relY);
-          break;
-      }
-      x = newX;
-      y = newY;
-      width = Math.max(0.01, newHW * 2);
-      height = Math.max(0.01, newHH * 2);
+      width = Math.max(1, newHW * 2);
+      height = Math.max(1, newHH * 2);
+      
       console.log("Resized:", { width, height });
     }
-    else {
+    else {  // 縮放邊緣
       const edgeIdx = selected - 4;
-      const relX = (xNDC - x) * cosR + (yNDC - y) * sinR;
-      const relY = -(xNDC - x) * sinR + (yNDC - y) * cosR;
-
-      let initHW = layer.initialWidth / 2;
-      let initHH = layer.initialHeight / 2;
+      const relX = (mouseWorldX - x) * cosR + (mouseWorldY - y) * sinR;
+      const relY = -(mouseWorldX - x) * sinR + (mouseWorldY - y) * cosR;
 
       switch (edgeIdx) {
-        case 0:
-          initHH = Math.abs(relY);
-          height = Math.max(0.01, initHH * 2);
+        case 0:  // 上邊
+          height = Math.max(1, Math.abs(relY) * 2);
           break;
-        case 1:
-          initHW = Math.abs(relX);
-          width = Math.max(0.01, initHW * 2);
+        case 1:  // 右邊
+          width = Math.max(1, Math.abs(relX) * 2);
           break;
-        case 2:
-          initHH = Math.abs(relY);
-          height = Math.max(0.01, initHH * 2);
+        case 2:  // 下邊
+          height = Math.max(1, Math.abs(relY) * 2);
           break;
-        case 3:
-          initHW = Math.abs(relX);
-          width = Math.max(0.01, initHW * 2);
+        case 3:  // 左邊
+          width = Math.max(1, Math.abs(relX) * 2);
           break;
       }
     }
 
-    // === 4️⃣ 更新 layer transformParams3 === use world coordinates
+    // === 4️⃣ 更新 layer transformParams（世界座標）===
+    const newLeft = x - width / 2;
+    const newTop = y + height / 2;
+    const newRight = x + width / 2;
+    const newBottom = y - height / 2;
 
-
+    console.log("newLeft:",newLeft,newTop);
+    // 更新 transformParams2
     layer.transformParams2.x = x;
     layer.transformParams2.y = y;
-
-    layer.transformParams2.width = width * canvasWidth / 2;
-    layer.transformParams2.height = height * canvasHeight / 2;
-
-    layer.transformParams2.left = x - width / 2;
-    layer.transformParams2.top = y + height / 2;
-    layer.transformParams2.right = x + width / 2;
-    layer.transformParams2.bottom = y - height / 2;
-
+    layer.transformParams2.width = width;
+    layer.transformParams2.height = height;
+    layer.transformParams2.left = newLeft;
+    layer.transformParams2.top = newTop;
+    layer.transformParams2.right = newRight;
+    layer.transformParams2.bottom = newBottom;
     layer.transformParams2.rotation = rotation;
 
-
-    //layer.rotation = rotation; // 同步更新 rotation 屬性
-
-
-
+    // 更新 transformParams
     layer.transformParams.x = x;
     layer.transformParams.y = y;
-
-    layer.transformParams.left = x - (width / 2);
-    layer.transformParams.top = y + (height / 2);
-    layer.transformParams.right = x + width / 2;
-    layer.transformParams.bottom = y - height / 2;
-
+    layer.transformParams.left = newLeft;
+    layer.transformParams.top = newTop;
+    layer.transformParams.right = newRight;
+    layer.transformParams.bottom = newBottom;
     layer.transformParams.rotation = rotation;
+    layer.transformParams.width = width;
+    layer.transformParams.height = height;
 
-    layer.transformParams.width = width * canvasWidth / 2;
-    layer.transformParams.height = height * canvasHeight / 2;
-
-
-
+    // 更新 innerTransformParams
     layer.innerTransformParams = {
-      left: x - (width / 2),
-      top: y + (height / 2),
-      right: x + width / 2,
-      bottom: y - height / 2,
-      width: width * canvasWidth / 2,
-      height: height * canvasHeight / 2,
+      left: newLeft,
+      top: newTop,
+      right: newRight,
+      bottom: newBottom,
+      width: width,
+      height: height,
       rotation: rotation,
     };
 
-
-    //  layer.transformParams.width = width * canvasWidth / 2;
-    // layer.transformParams.height = height * canvasHeight / 2;
     console.log("after update:", JSON.stringify(layer.transformParams));
-    //layer.transformParams.width = width * canvasWidth / 2;
-    //layer.transformParams.height = height * canvasHeight / 2;
     console.log("updated layer.transformParams:", layer.transformParams);
 
     return layer.transformParams;
-  }
+}
   resetMouseState(layer) {
     layer.initialMouseX = undefined;
     layer.initialMouseY = undefined;
@@ -1363,8 +1335,8 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
       const rotation = layer.transformParams.rotation || 0;
 
       // 計算目標區域的 NDC 邊界
-      const glLeft = left;
-      const glTop = top;
+      const glLeft = (left / canvasWidth) * 2 - 1;
+      const glTop = (top / canvasHeight) * 2 - 1;
       const ndcWidth = (width / canvasWidth) * 2;
       const ndcHeight = (height / canvasHeight) * 2;
       const glRight = glLeft + ndcWidth;
@@ -1816,9 +1788,9 @@ export function renderWeightPaint(gl, program, selectedGroupName, layer, isWeigh
 
   // 設定變換矩陣(與主渲染使用相同的變換)
   const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
-  const glLeft = left;
+  const glLeft = left / canvasWidth * 2 - 1;
   const glRight = left + (width / canvasWidth) * 2;
-  const glTop = top;
+  const glTop = top / canvasWidth * 2 - 1;
   const glBottom = top - (height / canvasHeight) * 2;
 
   const sx = (glRight - glLeft) / 2;
@@ -1941,8 +1913,8 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
     const rotation = baseLayer.transformParams.rotation || 0;
 
     // 計算目標區域的 NDC 邊界
-    const glLeft = left;
-    const glTop = top;
+    const glLeft = (left / canvasWidth) * 2 - 1;
+    const glTop = (top / canvasHeight) * 2 - 1;
     const ndcWidth = (width / canvasWidth) * 2;
     const ndcHeight = (height / canvasHeight) * 2;
     const glRight = glLeft + ndcWidth;
@@ -2124,29 +2096,33 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
   if (baseLayer.transformParams) {
     const { left, top, width, height, canvasWidth, canvasHeight } = baseLayer.transformParams;
     const rotation = baseLayer.transformParams.rotation || 0;
+
     
-    const glLeft = left;
-    const glTop = top;
+    const glLeft = (left/canvasWidth)*2-1;
+    const glTop = (top/canvasHeight )*2-1;
+
+   
     const ndcWidth = (width / canvasWidth) * 2;
     const ndcHeight = (height / canvasHeight) * 2;
+
     const glRight = glLeft + ndcWidth;
     const glBottom = glTop - ndcHeight;
-    
+  
     const sx = (glRight - glLeft) / 2;
     const sy = (glTop - glBottom) / 2;
     const centerX = (glLeft + glRight) / 2;
     const centerY = (glTop + glBottom) / 2;
-    
+
     const cosR = Math.cos(rotation);
     const sinR = Math.sin(rotation);
-    
+
     const transformMatrix = new Float32Array([
-      sx * cosR,  sx * sinR,  0, 0,
-      -sy * sinR, sy * cosR,  0, 0,
-      0,          0,          1, 0,
-      centerX,    centerY,    0, 1
+      sx * cosR, sx * sinR, 0, 0,
+      -sy * sinR, sy * cosR, 0, 0,
+      0, 0, 1, 0,
+      centerX, centerY, 0, 1
     ]);
-    
+
     const transformLocation = gl.getUniformLocation(colorProgram, 'uTransform');
     if (transformLocation) {
       gl.uniformMatrix4fv(transformLocation, false, transformMatrix);
@@ -2157,9 +2133,9 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
   // shader 會自動應用 uTransform 變換到正確位置
   const boundaryVertices = new Float32Array([
     -1, -1, 0, 0,  // 左下
-     1, -1, 0, 0,  // 右下
-     1,  1, 0, 0,  // 右上
-    -1,  1, 0, 0   // 左上
+    1, -1, 0, 0,  // 右下
+    1, 1, 0, 0,  // 右上
+    -1, 1, 0, 0   // 左上
   ]);
 
   const boundaryVBO = gl.createBuffer();
@@ -2333,7 +2309,7 @@ export const pngRender = async () => {
     imageData: result.data,
     width: result.width,
     height: result.height,
-    top: 0,   // 預設居中顯示
+    top: result.height,   // 預設居中顯示
     left: 0
   };
 
@@ -2344,6 +2320,33 @@ export const pngRender = async () => {
 
   let canvasHeight = texture.value[0].height;
   let canvasWidth = texture.value[0].width;
+  for (let i = 0; i < texture.value.length; i++) {
+    glsInstance.createLayerBuffers(
+      gl.value,
+      texture.value[i].image,
+      texture.value[i].width,
+      texture.value[i].height,
+      texture.value[i].height,
+      0,
+      canvasWidth,
+      canvasHeight,
+      glsInstance.layers[i]
+    );
+    glsInstance.createLayerBuffers(
+      gl.value,
+      texture.value[i].image,
+      texture.value[i].width,
+      texture.value[i].height,
+      texture.value[i].height,
+      0,
+      canvasWidth,
+      canvasHeight,
+      glsInstance.refLayers[i],
+      true
+    );
+
+  }
+  /*
   for (let i = 0; i < texture.value.length; i++) {
     glsInstance.createLayerBuffers(
       gl.value,
@@ -2368,7 +2371,9 @@ export const pngRender = async () => {
       glsInstance.refLayers[i],
       true
     );
+    
   }
+    */
 }
 
 export const pngRenderAgain = async () => {
@@ -2402,8 +2407,8 @@ export const pngRenderAgain = async () => {
       texture.value[i].image,
       texture.value[i].width,
       texture.value[i].height,
-      1,
-      -1,
+      texture.value[i].height,
+      0,
       canvasWidth,
       canvasHeight,
       glsInstance.layers[i],

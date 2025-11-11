@@ -776,8 +776,8 @@ function deformVertexByBone(
 
   const sx = (lx );
   const sy =  (ly  );
-  //const sx = vx;
-  //const sy = vy;
+ // const sx = vx;
+ // const sy = vy;
 
   // ----------------------------------------------------
   // 4. 應用旋轉差值 (Rotation)
@@ -788,10 +788,10 @@ function deformVertexByBone(
   // ----------------------------------------------------
   // 5. 轉換回世界空間 (Translate to Pose Head)
   // ----------------------------------------------------
-  //const px = (rx + head.x * canvasWidth / width);
-  //const py = (ry + head.y * canvasHeight / height);
-const px = (lx + head.x * canvasWidth / width);
-  const py = (ly + head.y * canvasHeight / height);
+  const px = (rx + head.x * canvasWidth / width);
+  const py = (ry + head.y * canvasHeight / height);
+  //const px = (lx + head.x * canvasWidth / width);
+  //const py = (ly + head.y * canvasHeight / height);
 
   // ----------------------------------------------------
   // 6. 應用權重
