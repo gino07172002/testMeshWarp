@@ -1936,9 +1936,9 @@ export function fitTransformToVertices(layer) {
   const { canvasWidth, canvasHeight } = layer.transformParams2;
 
   const newLeft = minX;
-  const newTop = maxY; // WebGL 座標系 Y 軸向上
+  const newTop = minY; // WebGL 座標系 Y 軸向上
   const newRight = maxX;
-  const newBottom = minY;
+  const newBottom = maxY;
   const newWidth = (maxX - minX) * canvasWidth / 2;
   const newHeight = (maxY - minY) * canvasHeight / 2;
 
