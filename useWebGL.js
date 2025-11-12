@@ -321,11 +321,10 @@ class gls {
     if (customVertexFunc) {
       return customVertexFunc({ image, width, height, top, left, canvasWidth, canvasHeight, rows, cols });
     }
-    const glLeft = (left / canvasWidth) * 2 - 1; //-1
-    const glRight = ((left + width) / canvasWidth) * 2 - 1;//1
-    const glTop = (top / canvasHeight) * 2 - 1;//1
-    const glBottom = ((top - height) / canvasHeight) * 2 - 1;//-1
-
+  const glLeft   = (left / canvasWidth) * 2 - 1;
+  const glRight  = ((left + width) / canvasWidth) * 2 - 1;
+  const glTop    = 1 - (top / canvasHeight) * 2;
+  const glBottom = 1 - ((top + height) / canvasHeight) * 2;
 
     console.log(" hi glLeft", glLeft, glRight, glTop, glBottom)
     const sx = (glRight - glLeft) / 2;
@@ -914,64 +913,45 @@ class gls {
     //   console.log(`📊 Edges: ${layer.edges.size}, Triangles: ${indices.length / 3} (Original: ${layer.originalTriangles.size})`);
   }
 
-  handleBoundaryInteraction(
-  xNDC,
-  yNDC,
-  layers,
-  currentChosedLayerRef,
-) {
+  handleBoundaryInteraction(xNDC, yNDC, layers, currentChosedLayerRef) {
   const currentChosedLayer = currentChosedLayerRef.value;
   const baseLayer = layers[currentChosedLayer];
   if (!baseLayer) return -1;
 
   const params = baseLayer.transformParams2;
-  console.log("param2 check:", baseLayer.transformParams2);
   if (!params) return -1;
 
-  // === 取得 canvas 尺寸用於座標轉換 ===
   const { canvasWidth, canvasHeight } = baseLayer.transformParams;
+  const { left, top, right, bottom, rotation = 0, width, height } = params;
 
-  console.log(" boundary check params : ", params);
-  
-  // === 1️⃣ 取矩形資訊（世界座標）===
-  const { left, top, right, bottom, rotation = 0 } = params;
-
-  // 計算中心點和尺寸（世界座標）
+  // === 世界矩形中心點與尺寸 ===
   const x = (left + right) / 2;
   const y = (top + bottom) / 2;
-  const width = right - left;
-  const height = top - bottom;
+  const w = right - left;
+  const h = bottom - top;
 
-  console.log(" boundary check world rect : ", { x, y, width, height });
-
-  console.log(" clieck xNDC: ",xNDC,yNDC);
-  // === 🔥 將滑鼠 NDC 座標轉換為世界座標 ===
+  // === 滑鼠從 NDC → 世界座標 (canvas 空間) ===
   const mouseWorldX = (xNDC + 1) * canvasWidth / 2;
-  const mouseWorldY = (1 -yNDC ) * canvasHeight / 2;
-  console.log(" clieck  mouseWorldX: ", mouseWorldX,mouseWorldY);
+  const mouseWorldY = (1 - yNDC) * canvasHeight / 2;
 
-
-  // === 2️⃣ 計算旋轉後的四角頂點座標（世界座標）===
-  const hw = width / 2;
-  const hh = height / 2;
+  // === 計算旋轉後的四角 (canvas y 向下座標系) ===
+  const hw = w / 2;
+  const hh = h / 2;
   const cosR = Math.cos(rotation);
   const sinR = Math.sin(rotation);
 
-  console.log("hw: ",hw,hh,rotation);
   const corners = [
-    [-hw, -hh], // 左上
-    [hw, -hh],  // 右上
-    [hw, hh],   // 右下
-    [-hw, hh],  // 左下
+    [-hw, -hh],
+    [ hw, -hh],
+    [ hw,  hh],
+    [-hw,  hh]
   ].map(([cx, cy]) => [
     x + cx * cosR - cy * sinR,
     y + cx * sinR + cy * cosR,
   ]);
-  console.log("corner: ",corners[0],corners[1],corners[2],corners[3])
 
-  // === 3️⃣ 計算點距離四角點的距離（找 vertex 點擊）===
-  // 🔥 閾值需要轉換為世界座標單位
-  const threshold = 0.05 * canvasWidth / 2; // 假設以寬度為基準
+  // === 檢查點擊頂點 ===
+  const threshold = 0.05 * canvasWidth / 2;
   const minDistSq = threshold * threshold;
   let localSelectedVertex = -1;
   let minVertexDist = Infinity;
@@ -988,19 +968,17 @@ class gls {
   }
 
   if (localSelectedVertex !== -1) {
-    console.log("clickVertex:", localSelectedVertex);
-    // 🔥 儲存初始狀態（世界座標）
     baseLayer.initialMouseX = mouseWorldX;
     baseLayer.initialMouseY = mouseWorldY;
     baseLayer.initialX = x;
     baseLayer.initialY = y;
-    baseLayer.initialWidth = width;
-    baseLayer.initialHeight = height;
+    baseLayer.initialWidth = w;
+    baseLayer.initialHeight = h;
     baseLayer.initialRotation = rotation;
     return localSelectedVertex;
   }
 
-  // === 4️⃣ 檢查邊緣（4 條線）===
+  // === 檢查邊緣 ===
   const edges = [[0, 1], [1, 2], [2, 3], [3, 0]];
   let selectedEdge = -1;
   let minEdgeDist = Infinity;
@@ -1031,35 +1009,30 @@ class gls {
   }
 
   if (selectedEdge !== -1) {
-    console.log("clickEdge:", selectedEdge);
-    // 🔥 儲存初始狀態（世界座標）
     baseLayer.initialMouseX = mouseWorldX;
     baseLayer.initialMouseY = mouseWorldY;
     baseLayer.initialX = x;
     baseLayer.initialY = y;
-    baseLayer.initialWidth = width;
-    baseLayer.initialHeight = height;
+    baseLayer.initialWidth = w;
+    baseLayer.initialHeight = h;
     baseLayer.initialRotation = rotation;
     return selectedEdge + 4;
   }
 
-  // === 5️⃣ 檢查是否在旋轉矩形內 ===
-  const relX = (mouseWorldX - x) * cosR + (mouseWorldY - y) * sinR;
-  const relY = -(mouseWorldX - x) * sinR + (mouseWorldY - y) * cosR;
-  const inside = Math.abs(relX) <= Math.abs(hw) && Math.abs(relY) <= Math.abs(hh);
-  console.log("inside check:", inside, relX, relY, hw, hh);
-  
+  // === 檢查是否點擊矩形內部 ===
+  const relX =  (mouseWorldX - x) * cosR - (mouseWorldY - y) * sinR;
+  const relY =  (mouseWorldX - x) * sinR + (mouseWorldY - y) * cosR;
+  const inside = Math.abs(relX) <= hw && Math.abs(relY) <= hh;
+
   if (inside) {
-    console.log("clickInside");
-    // 🔥 儲存初始狀態（世界座標）
     baseLayer.initialMouseX = mouseWorldX;
     baseLayer.initialMouseY = mouseWorldY;
     baseLayer.initialX = x;
     baseLayer.initialY = y;
-    baseLayer.initialWidth = width;
-    baseLayer.initialHeight = height;
+    baseLayer.initialWidth = w;
+    baseLayer.initialHeight = h;
     baseLayer.initialRotation = rotation;
-    return 8;
+    return 8; // 內部拖曳
   }
 
   return -1;
@@ -1067,154 +1040,101 @@ class gls {
 
  // 在 updateBoundary 中的轉換需要修正
 updateBoundary(xNDC, yNDC, selected, layer, isShiftPressed) {
-    if (selected === -1) return;
-    let { canvasWidth, canvasHeight } = layer.transformParams;
-    const params = layer.transformParams2;
+  if (selected === -1) return;
 
-    console.log("checking layer.transformParams", layer.transformParams);
-    console.log("checking layer.transformParams2", layer.transformParams2);
-    
-    if (!params) {
-      console.log("No transformParams found in layer");
-      return;
+  const { canvasWidth, canvasHeight } = layer.transformParams;
+  const params = layer.transformParams2;
+  if (!params) return;
+
+  // === 滑鼠轉世界座標 ===
+  const mouseWorldX = (xNDC + 1) * canvasWidth / 2;
+  const mouseWorldY = (1 - yNDC) * canvasHeight / 2;
+
+  // === 初始狀態 ===
+  let { rotation = 0 } = params;
+  const { left, top, right, bottom } = params;
+
+  let x = (left + right) / 2;
+  let y = (top + bottom) / 2;
+  let width = Math.abs(right - left);
+  let height = Math.abs(bottom - top);
+
+  const hw = width / 2;
+  const hh = height / 2;
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+
+  // === 操作行為 ===
+  if (selected === 8) {
+    // 🔹 移動矩形
+    const deltaX = mouseWorldX - layer.initialMouseX;
+    const deltaY = mouseWorldY - layer.initialMouseY;
+    x = layer.initialX + deltaX;
+    y = layer.initialY + deltaY;
+  }
+  else if (selected < 4 && isShiftPressed) {
+    // 🔹 旋轉（Shift + 頂點）
+    const cx = layer.initialX;
+    const cy = layer.initialY;
+
+    const initialAngle = Math.atan2(layer.initialMouseY - cy, layer.initialMouseX - cx);
+    const currentAngle = Math.atan2(mouseWorldY - cy, mouseWorldX - cx);
+    const deltaAngle = currentAngle - initialAngle;
+    rotation = (layer.initialRotation || 0) + deltaAngle;
+  }
+  else if (selected < 4) {
+    // 🔹 頂點縮放
+    const relX =  (mouseWorldX - x) * cosR - (mouseWorldY - y) * sinR;
+    const relY =  (mouseWorldX - x) * sinR + (mouseWorldY - y) * cosR;
+
+    const newHW = Math.abs(relX);
+    const newHH = Math.abs(relY);
+
+    width = Math.max(1, newHW * 2);
+    height = Math.max(1, newHH * 2);
+  }
+  else {
+    // 🔹 邊緣縮放
+    const edgeIdx = selected - 4;
+    const relX =  (mouseWorldX - x) * cosR - (mouseWorldY - y) * sinR;
+    const relY =  (mouseWorldX - x) * sinR + (mouseWorldY - y) * cosR;
+
+    switch (edgeIdx) {
+      case 0: // 上邊
+        height = Math.max(1, Math.abs(relY) * 2);
+        break;
+      case 1: // 右邊
+        width = Math.max(1, Math.abs(relX) * 2);
+        break;
+      case 2: // 下邊
+        height = Math.max(1, Math.abs(relY) * 2);
+        break;
+      case 3: // 左邊
+        width = Math.max(1, Math.abs(relX) * 2);
+        break;
     }
+  }
 
-    console.log("before update:", JSON.stringify(layer.transformParams));
-    
-    // === 🔥 將滑鼠 NDC 座標轉換為世界座標 ===
-    const mouseWorldX = (xNDC + 1) * canvasWidth / 2;
-    const mouseWorldY = (1 - yNDC ) * canvasHeight / 2;
+  // === 更新 transformParams ===
+  const newLeft = x - width / 2;
+  const newRight = x + width / 2;
+  const newTop = y - height / 2;
+  const newBottom = y + height / 2;
 
-    console.log("check mouse Y",mouseWorldY);
-    // === 1️⃣ 初始化矩形參數（世界座標）===
-    let { rotation = 0 } = params;
-    const { left, top, right, bottom } = params;
-    
-    let x = (left + right) / 2;
-    let y = (top + bottom) / 2;
-    let width = Math.abs(right - left);
-    let height = Math.abs(top - bottom);
+  const newParams = {
+    x, y, width, height,
+    left: newLeft,
+    top: newTop,
+    right: newRight,
+    bottom: newBottom,
+    rotation,
+  };
 
-    // === 2️⃣ 基本設定 ===
-    const hw = width / 2;
-    const hh = height / 2;
-    const cosR = Math.cos(rotation);
-    const sinR = Math.sin(rotation);
+  layer.transformParams2 = { ...layer.transformParams2, ...newParams };
+  layer.transformParams = { ...layer.transformParams, ...newParams };
+  layer.innerTransformParams = { ...newParams };
 
-    const corners = [
-      [-hw, -hh], // 左上
-      [hw, -hh],  // 右上
-      [hw, hh],   // 右下
-      [-hw, hh],  // 左下
-    ].map(([cx, cy]) => [
-      x + cx * cosR - cy * sinR,
-      y + cx * sinR + cy * cosR
-    ]);
-
-    // === 3️⃣ 操作行為（世界座標）===
-    if (selected === 8) {  // 移動矩形
-      const deltaX = mouseWorldX - layer.initialMouseX;
-      const deltaY = mouseWorldY - layer.initialMouseY;
-      x = layer.initialX + deltaX;
-      y = layer.initialY - deltaY;
-      console.log("Moved rectangle:", { x, y });
-    }
-    else if (selected < 4 && isShiftPressed) {  // 🔥 旋轉修正
-      const cx = layer.initialX;
-      const cy = layer.initialY;
-
-      // 🔥 注意：Y 軸方向需要反轉
-      const initialAngle = Math.atan2(
-        -(layer.initialMouseY - cy),  // 加負號
-        layer.initialMouseX - cx
-      );
-      const currentAngle = Math.atan2(
-        -(mouseWorldY - cy),  // 加負號
-        mouseWorldX - cx
-      );
-
-      const deltaAngle = currentAngle - initialAngle;
-      rotation = (layer.initialRotation || 0) + deltaAngle;
-
-      console.log("Rotation:", rotation * 180 / Math.PI, "degrees");
-    }
-    else if (selected < 4) {  // 縮放頂點
-      const relX = (mouseWorldX - x) * cosR + (mouseWorldY - y) * sinR;
-      const relY = -(mouseWorldX - x) * sinR + (mouseWorldY - y) * cosR;
-
-      let newHW = Math.abs(relX);
-      let newHH = Math.abs(relY);
-
-      width = Math.max(1, newHW * 2);
-      height = Math.max(1, newHH * 2);
-      
-      console.log("Resized:", { width, height });
-    }
-    else {  // 縮放邊緣
-      const edgeIdx = selected - 4;
-      const relX = (mouseWorldX - x) * cosR + (mouseWorldY - y) * sinR;
-      const relY = -(mouseWorldX - x) * sinR + (mouseWorldY - y) * cosR;
-
-      switch (edgeIdx) {
-        case 0:  // 上邊
-          height = Math.max(1, Math.abs(relY) * 2);
-          break;
-        case 1:  // 右邊
-          width = Math.max(1, Math.abs(relX) * 2);
-          break;
-        case 2:  // 下邊
-          height = Math.max(1, Math.abs(relY) * 2);
-          break;
-        case 3:  // 左邊
-          width = Math.max(1, Math.abs(relX) * 2);
-          break;
-      }
-    }
-
-    // === 4️⃣ 更新 layer transformParams（世界座標）===
-    const newLeft = x - width / 2;
-    const newTop = y + height / 2;
-    const newRight = x + width / 2;
-    const newBottom = y - height / 2;
-
-    console.log("newLeft:",newLeft,newTop);
-    // 更新 transformParams2
-    layer.transformParams2.x = x;
-    layer.transformParams2.y = y;
-    layer.transformParams2.width = width;
-    layer.transformParams2.height = height;
-    layer.transformParams2.left = newLeft;
-    layer.transformParams2.top = newTop;
-    layer.transformParams2.right = newRight;
-    layer.transformParams2.bottom = newBottom;
-    layer.transformParams2.rotation = rotation;
-
-    // 更新 transformParams
-    layer.transformParams.x = x;
-    layer.transformParams.y = y;
-    layer.transformParams.left = newLeft;
-    layer.transformParams.top = newTop;
-    layer.transformParams.right = newRight;
-    layer.transformParams.bottom = newBottom;
-    layer.transformParams.rotation = rotation;
-    layer.transformParams.width = width;
-    layer.transformParams.height = height;
-
-    // 更新 innerTransformParams
-    layer.innerTransformParams = {
-      left: newLeft,
-      top: newTop,
-      right: newRight,
-      bottom: newBottom,
-      width: width,
-      height: height,
-      rotation: rotation,
-    };
-
-    console.log("after update:", JSON.stringify(layer.transformParams));
-    console.log("updated layer.transformParams:", layer.transformParams);
-
-    return layer.transformParams;
+  return newParams;
 }
   resetMouseState(layer) {
     layer.initialMouseX = undefined;
@@ -1334,13 +1254,14 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
       const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
       const rotation = layer.transformParams.rotation || 0;
 
+  const glLeft   = (left / canvasWidth) * 2 - 1;
+  const glRight  = ((left + width) / canvasWidth) * 2 - 1;
+  const glTop    = 1 - (top / canvasHeight) * 2;
+  const glBottom = 1 - ((top + height) / canvasHeight) * 2;
+
       // 計算目標區域的 NDC 邊界
-      const glLeft = (left / canvasWidth) * 2 - 1;
-      const glTop = (top / canvasHeight) * 2 - 1;
       const ndcWidth = (width / canvasWidth) * 2;
       const ndcHeight = (height / canvasHeight) * 2;
-      const glRight = glLeft + ndcWidth;
-      const glBottom = glTop - ndcHeight;
 
       // 縮放：從標準 2x2 正方形到目標矩形
       const sx = (glRight - glLeft) / 2;
@@ -1788,10 +1709,11 @@ export function renderWeightPaint(gl, program, selectedGroupName, layer, isWeigh
 
   // 設定變換矩陣(與主渲染使用相同的變換)
   const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
-  const glLeft = left / canvasWidth * 2 - 1;
-  const glRight = left + (width / canvasWidth) * 2;
-  const glTop = top / canvasWidth * 2 - 1;
-  const glBottom = top - (height / canvasHeight) * 2;
+
+  const glLeft   = (left / canvasWidth) * 2 - 1;
+  const glRight  = ((left + width) / canvasWidth) * 2 - 1;
+  const glTop    = 1 - (top / canvasHeight) * 2;
+  const glBottom = 1 - ((top + height) / canvasHeight) * 2;
 
   const sx = (glRight - glLeft) / 2;
   const sy = (glTop - glBottom) / 2;
@@ -1913,12 +1835,13 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
     const rotation = baseLayer.transformParams.rotation || 0;
 
     // 計算目標區域的 NDC 邊界
-    const glLeft = (left / canvasWidth) * 2 - 1;
-    const glTop = (top / canvasHeight) * 2 - 1;
+  const glLeft   = (left / canvasWidth) * 2 - 1;
+  const glRight  = ((left + width) / canvasWidth) * 2 - 1;
+  const glTop    = 1 - (top / canvasHeight) * 2;
+  const glBottom = 1 - ((top + height) / canvasHeight) * 2;
     const ndcWidth = (width / canvasWidth) * 2;
     const ndcHeight = (height / canvasHeight) * 2;
-    const glRight = glLeft + ndcWidth;
-    const glBottom = glTop - ndcHeight;
+
 
     // 縮放：從標準 2x2 正方形到目標矩形
     const sx = (glRight - glLeft) / 2;
@@ -2098,15 +2021,14 @@ export function renderOutBoundary(gl, colorProgram, layers, layerSize, currentCh
     const rotation = baseLayer.transformParams.rotation || 0;
 
     
-    const glLeft = (left/canvasWidth)*2-1;
-    const glTop = (top/canvasHeight )*2-1;
-
+  const glLeft   = (left / canvasWidth) * 2 - 1;
+  const glRight  = ((left + width) / canvasWidth) * 2 - 1;
+  const glTop    = 1 - (top / canvasHeight) * 2;
+  const glBottom = 1 - ((top + height) / canvasHeight) * 2;
    
     const ndcWidth = (width / canvasWidth) * 2;
     const ndcHeight = (height / canvasHeight) * 2;
 
-    const glRight = glLeft + ndcWidth;
-    const glBottom = glTop - ndcHeight;
   
     const sx = (glRight - glLeft) / 2;
     const sy = (glTop - glBottom) / 2;
@@ -2309,7 +2231,7 @@ export const pngRender = async () => {
     imageData: result.data,
     width: result.width,
     height: result.height,
-    top: result.height,   // 預設居中顯示
+    top: 0,   // 預設居中顯示
     left: 0
   };
 
@@ -2326,7 +2248,7 @@ export const pngRender = async () => {
       texture.value[i].image,
       texture.value[i].width,
       texture.value[i].height,
-      texture.value[i].height,
+      0,
       0,
       canvasWidth,
       canvasHeight,
@@ -2337,7 +2259,7 @@ export const pngRender = async () => {
       texture.value[i].image,
       texture.value[i].width,
       texture.value[i].height,
-      texture.value[i].height,
+      0,
       0,
       canvasWidth,
       canvasHeight,
@@ -2407,7 +2329,7 @@ export const pngRenderAgain = async () => {
       texture.value[i].image,
       texture.value[i].width,
       texture.value[i].height,
-      texture.value[i].height,
+      0,
       0,
       canvasWidth,
       canvasHeight,
