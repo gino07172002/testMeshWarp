@@ -74,6 +74,7 @@ export const meshEditor = defineComponent({
     const selectedGroups = inject('selectedGroups', ref([]));
     const toggleLayerSelection = inject('toggleLayerSelection', () => { console.log('toggleLayerSelection not provided'); });
 
+    const mousePosition = ref(null);
     const selectedMesh = ref(null);
 
     const chosenMesh = ref([]);
@@ -242,6 +243,7 @@ export const meshEditor = defineComponent({
                 glsInstance.layers,
                 currentChosedLayer
               );
+              console.log("click : ", selectedBoundaryIndex);
             }
           }
           isDragging = true;
@@ -258,6 +260,10 @@ export const meshEditor = defineComponent({
           bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC, isCreatMode);
           if (activeTool.value === 'edit-points') {
             glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value]);
+          }
+          else if (activeTool.value === 'edit-boundary') {
+            mousePosition.value = glsInstance.updateMousePosition(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
+
           }
           return;
         }
@@ -315,8 +321,9 @@ export const meshEditor = defineComponent({
             console.log("doing boundary interact mouse moving ..", selectedBoundaryIndex);
 
             if (selectedBoundaryIndex !== -1)
-              glsInstance.updateBoundary(xNDC, yNDC, selectedBoundaryIndex, glsInstance.layers[currentChosedLayer.value],isShiftPressed.value,
+              glsInstance.updateBoundary(xNDC, yNDC, selectedBoundaryIndex, glsInstance.layers[currentChosedLayer.value], isShiftPressed.value,
               );
+
           }
         }
       };
@@ -373,7 +380,7 @@ export const meshEditor = defineComponent({
         } else if (activeTool.value === 'edit-boundary') {
 
           selectedBoundaryIndex = -1;
-          glsInstance.resetMouseState( glsInstance.layers[currentChosedLayer.value]);
+          // glsInstance.resetMouseState( glsInstance.layers[currentChosedLayer.value]);
         }
         isDragging = false;
         selectedVertex.value = -1;
@@ -512,7 +519,7 @@ export const meshEditor = defineComponent({
             selectedGroups.value[0],
             glsInstance.layers[currentChosedLayer.value]
           ),
-         
+
           makeRenderPass(
             renderOutBoundary,
             gl.value,
@@ -522,7 +529,7 @@ export const meshEditor = defineComponent({
             currentChosedLayer,
             selectedVertices
           ),
-          
+
 
         );
       }
@@ -576,7 +583,8 @@ export const meshEditor = defineComponent({
           toggleMeshSelection,
           selectedMesh,
           fitLayerBoundary,
-          fitLayerBoundary2
+          fitLayerBoundary2,
+          mousePosition
         })
         : h('div', '載入中...');
 

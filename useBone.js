@@ -501,28 +501,64 @@ class Bones {
     mousemove_y = yNDC;
   }
   handleSelectPointsMouseUp(xNDC, yNDC, layerIndex, isShiftPressed = false, isCtrlPressed = false) {
-    console.log(" handleSelectPointsMouseUp at : ", xNDC, ' , ', yNDC);
-
-    // 框選範圍
-    const minX = Math.min(mousedown_x, xNDC);
-    const maxX = Math.max(mousedown_x, xNDC);
-    const minY = Math.min(mousedown_y, yNDC);
-    const maxY = Math.max(mousedown_y, yNDC);
-
-    const vertices = glsInstance.layers[layerIndex].vertices.value;
-    console.log(" vertices length: ", vertices.length);
-
-    // 找出框到的點
+  console.log(" handleSelectPointsMouseUp at : ", xNDC, ' , ', yNDC);
+  // 框選範圍 (世界 NDC 空間)
+  const minX = Math.min(mousedown_x, xNDC);
+  const maxX = Math.max(mousedown_x, xNDC);
+  const minY = Math.min(mousedown_y, yNDC);
+  const maxY = Math.max(mousedown_y, yNDC);
+  const layer = glsInstance.layers[layerIndex];
+  const vertices = layer.vertices.value;
+  console.log(" vertices length: ", vertices.length);
+  // 取得變換參數
+  const params = layer.transformParams;
+   {
+    const { canvasWidth, canvasHeight, left, top, width, height } = params;
+    const rotation = params.rotation || 0;
+    // 計算變換矩陣 (與 handleBoundaryInteraction 相同)
+    const glLeft = (left / canvasWidth) * 2 - 1;
+    const glRight = ((left + width) / canvasWidth) * 2 - 1;
+    const glTop = 1 - (top / canvasHeight) * 2;
+    const glBottom = 1 - ((top + height) / canvasHeight) * 2;
+    const sx = (glRight - glLeft) / 2;
+    const sy = (glTop - glBottom) / 2;
+    const centerX_NDC = (glLeft + glRight) / 2;
+    const centerY_NDC = (glTop + glBottom) / 2;
+    const cosR = Math.cos(rotation);
+    const sinR = Math.sin(rotation);
+    const transformMatrix = new Float32Array([
+      sx * cosR, sx * sinR, 0, 0,
+      -sy * sinR, sy * cosR, 0, 0,
+      0, 0, 1, 0,
+      centerX_NDC, centerY_NDC, 0, 1
+    ]);
+    // 變換函數
+    const m = transformMatrix;
+    const transformPoint = (v) => {
+      const x = v[0], y = v[1], z = v[2], w = v[3];
+      return [
+        m[0] * x + m[4] * y + m[8] * z + m[12] * w,
+        m[1] * x + m[5] * y + m[9] * z + m[13] * w,
+        m[2] * x + m[6] * y + m[10] * z + m[14] * w
+      ];
+    };
+    // 找出框到的點 (計算每個頂點的世界 NDC 位置)
     const newlySelected = [];
     for (let i = 0; i < vertices.length; i += 4) {
-      const vx = vertices[i];     // x
-      const vy = vertices[i + 1]; // y
-
-      if (vx >= minX && vx <= maxX && vy >= minY && vy <= maxY) {
+      const localVert = [
+        vertices[i],     // x_local
+        vertices[i + 1], // y_local
+        vertices[i + 2] || 0, // z (預設 0)
+        vertices[i + 3] || 1  // w (預設 1)
+      ];
+      const ndc = transformPoint(localVert);
+      const ndcX = ndc[0];
+      const ndcY = ndc[1];
+      if (ndcX >= minX && ndcX <= maxX && ndcY >= minY && ndcY <= maxY) {
         newlySelected.push(i / 4); // push vertex index
       }
     }
-
+    // 處理選取邏輯
     if (isCtrlPressed) {
       // Ctrl → 從選取中移除
       selectedVertices.value = selectedVertices.value.filter(idx => !newlySelected.includes(idx));
@@ -535,17 +571,15 @@ class Bones {
       // 沒有修飾鍵 → 重新選取
       selectedVertices.value = newlySelected;
     }
-
     console.log(" selected vertices: ", selectedVertices.value);
-
-    // 清掉滑鼠狀態
-    mousedown_x = null;
-    mousedown_y = null;
-    mousemove_x = null;
-    mousemove_y = null;
-
-    console.log(" select points mouse up at : ", xNDC, ' , ', yNDC);
   }
+  // 清掉滑鼠狀態
+  mousedown_x = null;
+  mousedown_y = null;
+  mousemove_x = null;
+  mousemove_y = null;
+  console.log(" select points mouse up at : ", xNDC, ' , ', yNDC);
+}
 
 
 
