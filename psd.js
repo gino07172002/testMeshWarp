@@ -135,14 +135,16 @@ function readPSD(file, callback) {
         }
         layers[i].width = w;
         layers[i].height = h;
-        layers[i].x = layer.left;
-        layers[i].y = layer.top;
+        layers[i].x = (layer.left+layer.right)/2;
+        layers[i].y = (layer.top+layer.bottom)/2;
         layers[i].imageData = imageData;
         layers[i].opacity = layer.opacity;
+        /*
         layers[i].left = 2 * (layers[i].left / width) - 1;
         layers[i].right = 2 * (layers[i].right / width) - 1;
         layers[i].top = 1 - 2 * (layers[i].top / height);
         layers[i].bottom = 1 - 2 * (layers[i].bottom / height);
+        */
       }
 
       psdInfo.layers = layers;

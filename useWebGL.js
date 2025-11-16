@@ -1039,7 +1039,7 @@ class gls {
     console.log("BoundaryWorldVerts:", boundaryWorldVerts);
 
     // === 检查顶点点击 ===
-    const threshold = Math.max(20, 0.02 * canvasWidth);
+    const threshold = Math.max(5, 0.02 * canvasWidth);
     const thresholdSq = threshold * threshold;
 
     let selectedVertex = -1;
