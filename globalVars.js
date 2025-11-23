@@ -47,7 +47,7 @@ export const globalVars = {
 export const forceUpdate = () => {
   refreshKey.value++;
 };
-export const convertToNDC = (e, canvas, container) => {
+export const convertToNDC = (e, canvas) => {
   const rect = canvas.getBoundingClientRect();
 
   // 考慮 devicePixelRatio
@@ -64,6 +64,25 @@ export const convertToNDC = (e, canvas, container) => {
   return {
     x: (canvasX / canvas.width) * 2 - 1, // NDC X
     y: 1 - (canvasY / canvas.height) * 2 // NDC Y
+  };
+};
+export const getRawXY = (e, canvas) => {
+  const rect = canvas.getBoundingClientRect();
+
+  // 考慮 devicePixelRatio
+  const dpr = window.devicePixelRatio || 1;
+
+  // 取得在 canvas 內的相對位置 (CSS 像素)
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const canvasX = x * (canvas.width / rect.width);
+  const canvasY = y * (canvas.height / rect.height);
+
+
+
+  return {
+    x: (canvasX / canvas.width) * wholeImageWidth.value,
+    y: (canvasY / canvas.height) * wholeImageHeight.value
   };
 };
 

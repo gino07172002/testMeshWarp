@@ -997,181 +997,190 @@ const app = Vue.createApp({
         }
       }
     }
-    const bindingBoneWeight = (overlapFactor = 1) => {
-      console.log(" Binding bone weight ... ");
-      if (skeletons.length === 0) {
-        console.warn("No skeletons available for binding.");
-        return;
+  const bindingBoneWeight = (overlapFactor = 1) => {
+  console.log(" Binding bone weight ... ");
+  if (skeletons.length === 0) {
+    console.warn("No skeletons available for binding.");
+    return;
+  }
+  printBoneHierarchy(skeletons[0].bones);
+  const layer = glsInstance.layers[currentChosedLayer.value];
+  if (!layer) {
+    console.error("Invalid layer index for binding bone weight.");
+    return;
+  }
+  const vertices = layer.vertices.value;
+  const vertexCount = vertices.length / 4;
+
+  // 收集所有骨骼
+  const allBones = [];
+  function collectBones(bones) {
+    for (const bone of bones) {
+      allBones.push(bone);
+      if (bone.children && bone.children.length > 0) {
+        collectBones(bone.children);
       }
-      printBoneHierarchy(skeletons[0].bones);
-      const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer) {
-        console.error("Invalid layer index for binding bone weight.");
-        return;
-      }
-      const vertices = layer.vertices.value;
-      const vertexCount = vertices.length / 4;
+    }
+  }
+  collectBones(skeletons[0].bones);
+  console.log(`Found ${allBones.length} bones and ${vertexCount} vertices`);
 
-      // 收集所有骨骼
-      const allBones = [];
-      function collectBones(bones) {
-        for (const bone of bones) {
-          allBones.push(bone);
-          if (bone.children && bone.children.length > 0) {
-            collectBones(bone.children);
-          }
-        }
-      }
-      collectBones(skeletons[0].bones);
-      console.log(`Found ${allBones.length} bones and ${vertexCount} vertices`);
+  // 清空舊的 vertex group
+  console.log("some body clear vertex group ... ");
+  layer.vertexGroup.value = [];
+  const vertexGroupMap = new Map();
 
-      // 清空舊的 vertex group
-      console.log("some body clear vertex group ... ");
-      layer.vertexGroup.value = [];
-      const vertexGroupMap = new Map();
+  // **取得圖層的變換參數**
+  const { canvasWidth, canvasHeight, width, height, top, left } = layer.transformParams;
 
-      // 計算點到骨頭線段的距離（改進版：考慮骨骼的影響範圍）
-      function distanceToSegment(px, py, x1, y1, x2, y2) {
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const lengthSquared = dx * dx + dy * dy;
+  // 計算點到骨頭線段的距離
+  function distanceToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthSquared = dx * dx + dy * dy;
 
-        if (lengthSquared === 0) {
-          const distX = px - x1;
-          const distY = py - y1;
-          return Math.sqrt(distX * distX + distY * distY);
-        }
+    if (lengthSquared === 0) {
+      const distX = px - x1;
+      const distY = py - y1;
+      return {
+        distance: Math.sqrt(distX * distX + distY * distY),
+        t: 0
+      };
+    }
 
-        let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
-        t = Math.max(0, Math.min(1, t));
+    let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+    t = Math.max(0, Math.min(1, t));
 
-        const closestX = x1 + t * dx;
-        const closestY = y1 + t * dy;
-        const distX = px - closestX;
-        const distY = py - closestY;
+    const closestX = x1 + t * dx;
+    const closestY = y1 + t * dy;
+    const distX = px - closestX;
+    const distY = py - closestY;
 
-        return {
-          distance: Math.sqrt(distX * distX + distY * distY),
-          t: t  // 投影參數，0表示在head端，1表示在tail端
-        };
-      }
+    return {
+      distance: Math.sqrt(distX * distX + distY * distY),
+      t: t
+    };
+  }
 
-      // 計算骨骼的有效影響半徑（基於骨骼長度）
-      function getBoneInfluenceRadius(bone) {
-        const globalTransform = bone.getGlobalTransform();
-        const dx = globalTransform.tail.x - globalTransform.head.x;
-        const dy = globalTransform.tail.y - globalTransform.head.y;
-        const boneLength = Math.sqrt(dx * dx + dy * dy);
+  // 計算骨骼的有效影響半徑（基於骨骼長度）
+  function getBoneInfluenceRadius(bone) {
+    const globalTransform = bone.getGlobalTransform();
+    // **骨骼座標現在是像素座標,直接計算長度**
+    const dx = globalTransform.tail.x - globalTransform.head.x;
+    const dy = globalTransform.tail.y - globalTransform.head.y;
+    const boneLength = Math.sqrt(dx * dx + dy * dy);
 
-        // 影響半徑 = 骨骼長度的一定比例 * overlapFactor
-        // overlapFactor 越小，影響範圍越小
-        return boneLength * 0.5 * overlapFactor;
-      }
+    return boneLength * 0.5 * overlapFactor;
+  }
 
-      // === 主迴圈 ===
-      for (let i = 0; i < vertexCount; i++) {
-        const vx = vertices[i * 4];
-        const vy = vertices[i * 4 + 1];
+  // === 主迴圈 ===
+  for (let i = 0; i < vertexCount; i++) {
+    const vx = vertices[i * 4];
+    const vy = vertices[i * 4 + 1];
 
-        const candidates = [];
+    // **將頂點從 NDC 轉換為 Canvas 像素座標**
+    const vxLayerPixel = (vx + 1.0) * 0.5 * width;
+    const vyLayerPixel = (1.0 - vy) * 0.5 * height;
+    const vxCanvasPixel = vxLayerPixel + left;
+    const vyCanvasPixel = vyLayerPixel + top;
 
-        for (let j = 0; j < allBones.length; j++) {
-          const bone = allBones[j];
-          const globalTransform = bone.getGlobalTransform();
-          const result = distanceToSegment(
-            vx, vy,
-            globalTransform.head.x, globalTransform.head.y,
-            globalTransform.tail.x, globalTransform.tail.y
-          );
+    const candidates = [];
 
-          const influenceRadius = getBoneInfluenceRadius(bone);
+    for (let j = 0; j < allBones.length; j++) {
+      const bone = allBones[j];
+      const globalTransform = bone.getGlobalTransform();
+      
+      // **骨骼座標已經是 Canvas 像素座標,直接使用**
+      const result = distanceToSegment(
+        vxCanvasPixel, vyCanvasPixel,
+        globalTransform.head.x, globalTransform.head.y,
+        globalTransform.tail.x, globalTransform.tail.y
+      );
 
-          // 只考慮在影響範圍內的骨骼
-          if (result.distance <= influenceRadius) {
-            // 計算權重：距離越近權重越高
-            // 使用平滑的衰減函數
-            const normalizedDist = result.distance / influenceRadius;
-            const weight = Math.pow(1.0 - normalizedDist, 3); // 立方衰減，更銳利
+      const influenceRadius = getBoneInfluenceRadius(bone);
 
-            candidates.push({
-              boneIndex: j,
-              boneName: bone.name,
-              distance: result.distance,
-              weight: weight,
-              t: result.t
-            });
-          }
-        }
+      if (result.distance <= influenceRadius) {
+        const normalizedDist = result.distance / influenceRadius;
+        const weight = Math.pow(1.0 - normalizedDist, 3);
 
-        // 如果沒有骨骼在影響範圍內，選擇最近的那個
-        if (candidates.length === 0) {
-          let minDist = Infinity;
-          let closestBone = null;
-
-          for (let j = 0; j < allBones.length; j++) {
-            const bone = allBones[j];
-            const globalTransform = bone.getGlobalTransform();
-            const result = distanceToSegment(
-              vx, vy,
-              globalTransform.head.x, globalTransform.head.y,
-              globalTransform.tail.x, globalTransform.tail.y
-            );
-
-            if (result.distance < minDist) {
-              minDist = result.distance;
-              closestBone = {
-                boneIndex: j,
-                boneName: bone.name,
-                distance: result.distance,
-                weight: 1.0,
-                t: result.t
-              };
-            }
-          }
-
-          if (closestBone) {
-            candidates.push(closestBone);
-          }
-        }
-
-        // 正規化權重
-        let totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
-        if (totalWeight > 0) {
-          candidates.forEach(c => c.weight /= totalWeight);
-        }
-
-        // 只保留權重較大的骨骼（進一步減少影響的骨骼數量）
-        const threshold = 0.05; // 權重小於5%的忽略
-        const finalBones = candidates.filter(c => c.weight >= threshold);
-
-        // 再次正規化
-        totalWeight = finalBones.reduce((sum, c) => sum + c.weight, 0);
-        if (totalWeight > 0) {
-          finalBones.forEach(c => c.weight /= totalWeight);
-        }
-
-        // === 存到 vertex group ===
-        finalBones.forEach(item => {
-          const boneName = item.boneName;
-          if (!vertexGroupMap.has(boneName)) {
-            vertexGroupMap.set(boneName, { name: boneName, vertices: [] });
-          }
-          const group = vertexGroupMap.get(boneName);
-          const existingVertex = group.vertices.find(v => v.id === i);
-          if (existingVertex) {
-            existingVertex.weight += item.weight;
-          } else {
-            group.vertices.push({ id: i, weight: item.weight });
-          }
+        candidates.push({
+          boneIndex: j,
+          boneName: bone.name,
+          distance: result.distance,
+          weight: weight,
+          t: result.t
         });
       }
+    }
 
-      console.log("some body change vertex group there ... ");
-      layer.vertexGroup.value = Array.from(vertexGroupMap.values());
-      console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
-      console.log(`Average bones per vertex: ${layer.vertexGroup.value.reduce((sum, g) => sum + g.vertices.length, 0) / vertexCount
-        }`);
-    };
+    // 如果沒有骨骼在影響範圍內，選擇最近的那個
+    if (candidates.length === 0) {
+      let minDist = Infinity;
+      let closestBone = null;
+
+      for (let j = 0; j < allBones.length; j++) {
+        const bone = allBones[j];
+        const globalTransform = bone.getGlobalTransform();
+        const result = distanceToSegment(
+          vxCanvasPixel, vyCanvasPixel,
+          globalTransform.head.x, globalTransform.head.y,
+          globalTransform.tail.x, globalTransform.tail.y
+        );
+
+        if (result.distance < minDist) {
+          minDist = result.distance;
+          closestBone = {
+            boneIndex: j,
+            boneName: bone.name,
+            distance: result.distance,
+            weight: 1.0,
+            t: result.t
+          };
+        }
+      }
+
+      if (closestBone) {
+        candidates.push(closestBone);
+      }
+    }
+
+    // 正規化權重
+    let totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
+    if (totalWeight > 0) {
+      candidates.forEach(c => c.weight /= totalWeight);
+    }
+
+    // 只保留權重較大的骨骼
+    const threshold = 0.05;
+    const finalBones = candidates.filter(c => c.weight >= threshold);
+
+    // 再次正規化
+    totalWeight = finalBones.reduce((sum, c) => sum + c.weight, 0);
+    if (totalWeight > 0) {
+      finalBones.forEach(c => c.weight /= totalWeight);
+    }
+
+    // === 存到 vertex group ===
+    finalBones.forEach(item => {
+      const boneName = item.boneName;
+      if (!vertexGroupMap.has(boneName)) {
+        vertexGroupMap.set(boneName, { name: boneName, vertices: [] });
+      }
+      const group = vertexGroupMap.get(boneName);
+      const existingVertex = group.vertices.find(v => v.id === i);
+      if (existingVertex) {
+        existingVertex.weight += item.weight;
+      } else {
+        group.vertices.push({ id: i, weight: item.weight });
+      }
+    });
+  }
+
+  console.log("some body change vertex group there ... ");
+  layer.vertexGroup.value = Array.from(vertexGroupMap.values());
+  console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
+  console.log(`Average bones per vertex: ${layer.vertexGroup.value.reduce((sum, g) => sum + g.vertices.length, 0) / vertexCount}`);
+};
     const vertexGroupInfo = computed(() => {
       console.log(" refresh vertex group : ")
       refreshKey.value; // 強制刷新

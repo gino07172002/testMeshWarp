@@ -1331,7 +1331,7 @@ function distance(x1, y1, x2, y2) {
  *   - type: 'head', 'tail', 或 'body'
  *   - distance: 到點擊點的距離
  */
-export function getClosestBoneAtClick(skeleton, clickX, clickY, isCreatMode = true, headTailRadius = 0.05, maxDistance = 0.05) {
+export function getClosestBoneAtClick(skeleton, clickX, clickY, isCreatMode = true, headTailRadius = 10, maxDistance =10) {
   let closestResult = null;
   let minDistance = maxDistance;
 
@@ -1351,6 +1351,7 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY, isCreatMode = tr
     bone.offsetY = clickY - head.y;
     // 檢測 head
     const headDist = distance(clickX, clickY, head.x, head.y);
+   // console.log(" head dist : ",headDist);
     if (headDist <= headTailRadius && headDist < minDistance) {
       // 如果是連接的骨骼的 head，自動轉向 parent 的 tail
       if (bone.isConnected && bone.parent) {

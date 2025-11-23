@@ -425,21 +425,31 @@ class Bones {
 
     return getBone;
   }
+  /*
+    GetCloestBoneAsSelectBone(xNDC, yNDC, isCreatMode = true) {
+      const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC, isCreatMode);
+  
+      lastSelectedBone.value = getBone ? getBone.bone : null;
+      lastSelectedBonePart.value = getBone ? getBone.type : null; // 'head', 'tail', or 'middle'
+      mousedown_x = xNDC;
+      mousedown_y = yNDC;
+  
+      return getBone;
+    }
+      */
 
-  GetCloestBoneAsSelectBone(xNDC, yNDC, isCreatMode = true) {
-    const getBone = getClosestBoneAtClick(meshSkeleton, xNDC, yNDC, isCreatMode);
+  GetCloestBoneAsSelectBone(x, y, isCreatMode = true) {
+    const getBone = getClosestBoneAtClick(meshSkeleton, x, y, isCreatMode);
 
     lastSelectedBone.value = getBone ? getBone.bone : null;
     lastSelectedBonePart.value = getBone ? getBone.type : null; // 'head', 'tail', or 'middle'
-    mousedown_x = xNDC;
-    mousedown_y = yNDC;
+    mousedown_x = x;
+    mousedown_y = y;
 
     return getBone;
   }
-
-
   // 修改後的 handleBoneAnimateMouseDown
-  handleMeshBoneAnimateMouseDown(xNDC, yNDC) {
+  handleMeshBoneAnimateMouseDown(x, y) {
     // console.log(" handleMeshBoneAnimateMouseDown at : ", xNDC, ' , ', yNDC);
     if (lastSelectedBone.value && lastSelectedBonePart.value) {
       const bone = lastSelectedBone.value;
@@ -447,14 +457,14 @@ class Bones {
       if (lastSelectedBonePart.value === 'head') {
         {
           // When connected, moving head also moves parent's tail
-          bone.setPoseGlobalHead(xNDC, yNDC);
+          bone.setPoseGlobalHead(x, y);
           //bone.parent.setGlobalTail(xNDC, yNDC);
 
 
         }
       } else if (lastSelectedBonePart.value === 'tail') {
 
-        bone.setPoseGlobalTail(xNDC, yNDC);
+        bone.setPoseGlobalTail(x, y);
 
       } else if (lastSelectedBonePart.value === 'middle') {
 
@@ -641,7 +651,6 @@ class Bones {
   updatePoseMesh(gl) {
     console.log(" update pose mesh ... ");
 
-    //simple test : just move all vertices  with root bone's head position , maybe would be more complex later
     const layers = glsInstance.layers;
     if (!meshSkeleton || meshSkeleton.rootBones.length === 0) return;
 
@@ -659,39 +668,46 @@ class Bones {
       collectBones(rootBone);
     }
 
-    function deformVertexByBone(
-      vx, vy, vz, vw,
-      bone, weight,
-      width, height,
-      canvasWidth, canvasHeight,
-      top, left
-    ) {
-      // 取得骨骼的當前姿勢（Pose）世界變換
+    function deformVertexByBone(vx, vy, vz, vw, bone, weight, width, height, canvasWidth, canvasHeight, top, left) {
       const poseTransform = bone.getGlobalPoseTransform();
-      const head = poseTransform.head;           // 姿勢骨頭頭部位置 (世界/Canvas 座標)
-      const originalHead = bone.getGlobalHead(); // 綁定骨頭頭部位置 (世界/Canvas 座標)
-
-      
+      const head = poseTransform.head;
+      const originalHead = bone.getGlobalHead();
       const rotationDelta = poseTransform.rotation - bone.globalRotation;
+
       const cosR = Math.cos(rotationDelta);
       const sinR = Math.sin(rotationDelta);
 
-      const lx = (vx - (originalHead.x) * canvasWidth / width);
-      const ly = (vy - (originalHead.y) * canvasHeight / height);
+      // 1. 將頂點從 NDC 轉換為圖層像素座標
+      const vxLayerPixel = (vx + 1.0) * 0.5 * width;
+      const vyLayerPixel = (1.0 - vy) * 0.5 * height;
 
-      console.log("lx ly : ",{lx,ly});
-      const sx = (lx);
-      const sy = (ly);
-     
-      const rx = sx * cosR - sy * sinR;
-      const ry = sx * sinR + sy * cosR;
+      // 2. 將圖層像素座標轉換為 Canvas 像素座標
+      const vxCanvasPixel = vxLayerPixel + left;
+      const vyCanvasPixel = vyLayerPixel + top;
 
-      const px = (rx + head.x * canvasWidth / width);
-      const py = (ry + head.y * canvasHeight / height);
+      // 3. 計算相對於原始骨頭位置的局部座標 (Canvas 空間)
+      const lx = vxCanvasPixel - originalHead.x;
+      const ly = vyCanvasPixel - originalHead.y;
+
+      // 4. 應用旋轉
+      const rx = lx * cosR - ly * sinR;
+      const ry = lx * sinR + ly * cosR;
+
+      // 5. 加上新的骨頭位置 (Canvas 空間)
+      const pxCanvas = rx + head.x;
+      const pyCanvas = ry + head.y;
+
+      // 6. 將結果從 Canvas 像素座標轉回圖層像素座標
+      const pxLayerPixel = pxCanvas - left;
+      const pyLayerPixel = pyCanvas - top;
+
+      // 7. 將圖層像素座標轉回 NDC
+      const pxNDC = (pxLayerPixel / width) * 2.0 - 1.0;
+      const pyNDC = 1.0 - (pyLayerPixel / height) * 2.0;
 
       return {
-        x: px * weight,
-        y: py * weight,
+        x: pxNDC * weight,
+        y: pyNDC * weight,
         z: vz * weight,
         w: vw * weight
       };
@@ -702,31 +718,32 @@ class Bones {
       const vertices = layer.vertices.value;
       if (!vertices || vertices.length === 0) continue;
 
-
-      const vertexGroups = layer.vertexGroup.value; // [{name, vertices:[{id, weight},...]}]
+      const vertexGroups = layer.vertexGroup.value;
       const newVertices = new Float32Array(vertices.length);
-
-      // === 修正:先複製原始頂點數據 ===
-      newVertices.set(vertices);
 
       // 如果沒有 vertex group 或為空,直接使用原始頂點
       if (!vertexGroups || vertexGroups.length === 0) {
+        // **修正1: 沒有骨骼影響時,應該複製原始頂點**
+        newVertices.set(vertices);
         layer.poseVertices.value = newVertices;
         gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
         gl.bufferData(gl.ARRAY_BUFFER, newVertices, gl.STATIC_DRAW);
         continue;
       }
+
       const { canvasWidth, canvasHeight, width, height, top, left, rotation } = layer.transformParams;
-      // 用於追蹤哪些頂點已經被處理過
+      
+      // **修正2: 先將所有頂點複製為原始值(作為未受影響頂點的預設值)**
+      newVertices.set(vertices);
+      
       const processedVertices = new Set();
 
-      // 每個 group (bone) 負責更新有影響的 vertex
       for (const group of vertexGroups) {
         const bone = boneMap[group.name];
         if (!bone || !group.vertices || group.vertices.length === 0) continue;
 
         for (const v of group.vertices) {
-          const idx = v.id * 4; // 一個 vertex 佔4個slot
+          const idx = v.id * 4;
 
           // 第一次處理這個頂點時,先清零(準備累加)
           if (!processedVertices.has(v.id)) {
@@ -742,19 +759,35 @@ class Bones {
           const vz = vertices[idx + 2];
           const vw = vertices[idx + 3];
 
-          const d = deformVertexByBone(
-              vx, vy, vz, vw, 
-              bone, v.weight, 
-              width, height, 
-              canvasWidth, canvasHeight, 
-              top, left, 
-              rotation // 傳入 layer.transformParams.rotation
-            );
-          // 累加 (因為可能多個bone影響同一個vertex)
+          const d = deformVertexByBone(vx, vy, vz, vw, bone, v.weight, width, height, canvasWidth, canvasHeight, top, left);
+
           newVertices[idx] += d.x;
           newVertices[idx + 1] += d.y;
           newVertices[idx + 2] += d.z;
           newVertices[idx + 3] += d.w;
+        }
+      }
+      
+      // **修正3: 檢查權重總和,如果不足1.0,補足原始頂點的影響**
+      for (const vertexId of processedVertices) {
+        const idx = vertexId * 4;
+        
+        // 計算該頂點的總權重
+        let totalWeight = 0;
+        for (const group of vertexGroups) {
+          const vertexInGroup = group.vertices.find(v => v.id === vertexId);
+          if (vertexInGroup) {
+            totalWeight += vertexInGroup.weight;
+          }
+        }
+        
+        // 如果權重總和小於1,用原始頂點補足
+        if (totalWeight < 1.0) {
+          const remainingWeight = 1.0 - totalWeight;
+          newVertices[idx] += vertices[idx] * remainingWeight;
+          newVertices[idx + 1] += vertices[idx + 1] * remainingWeight;
+          newVertices[idx + 2] += vertices[idx + 2] * remainingWeight;
+          newVertices[idx + 3] += vertices[idx + 3] * remainingWeight;
         }
       }
 
@@ -762,12 +795,7 @@ class Bones {
       gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
       gl.bufferData(gl.ARRAY_BUFFER, newVertices, gl.STATIC_DRAW);
     }
-
-
-
-
-
-  }
+}
   recoverSelectedVertex(currentChosedLayer) {
     console.log("recover selected vertex ...");
 

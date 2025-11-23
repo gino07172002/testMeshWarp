@@ -6,7 +6,8 @@ import {
   wholeImageWidth,
   wholeImageHeight,
   lastLoadedImageType,
-  selectedLayers
+  selectedLayers,
+  getRawXY
 } from './globalVars.js'  // 引入全局變數
 import {
   //initBone,
@@ -44,6 +45,7 @@ import {
   psdRenderAgain,
   pngRenderAgain,
   renderMeshSkeleton,
+  renderMeshSkeleton2,
   renderWeightPaint,
   makeRenderPass,
   bindGl,
@@ -149,6 +151,8 @@ export const allEditor = defineComponent({
       const handleMouseDown = (e) => {
         mousePressed.value = e.button;
         const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
+        const { x: x, y: y } = getRawXY(e, canvas, container);
+
         startPosX = xNDC;
         startPosY = yNDC;
 
@@ -212,18 +216,20 @@ export const allEditor = defineComponent({
           else if (activeTool.value === 'bone-create') {
             if (e.button === 2) {
               console.log(" right button down edit bone...  ");
-              bonesInstance.handleMeshBoneEditMouseDown(xNDC, yNDC);
+              //   bonesInstance.handleMeshBoneEditMouseDown(xNDC, yNDC);
+              bonesInstance.handleMeshBoneEditMouseDown(x, y);
               isDragging = true;
             }
             else {
               //  if(!getBone)
-              bonesInstance.handleMeshBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
-              //bonesInstance.handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
+              //  bonesInstance.handleMeshBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
+
+              bonesInstance.handleMeshBoneCreateMouseDown(x, y, isShiftPressed.value);
               isDragging = true;
             }
           } else if (activeTool.value === 'bone-animate') {
-            bonesInstance.GetCloestBoneAsSelectBone(xNDC, yNDC, false);
-
+            //bonesInstance.GetCloestBoneAsSelectBone(xNDC, yNDC, false);
+            bonesInstance.GetCloestBoneAsSelectBone(x, y, false);
             isDragging = true;
           }
         }
@@ -232,10 +238,12 @@ export const allEditor = defineComponent({
       const handleMouseMove = (e) => {
 
         const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
+        const { x: x, y: y } = getRawXY(e, canvas, container);
 
         if (!isDragging) {
           const isCreatMode = (activeTool.value === 'bone-create');
-          bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC, isCreatMode);
+          //  bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC, isCreatMode);
+          bonesInstance.GetCloestBoneAsHoverBone(x, y, isCreatMode);
 
           return;
         }
@@ -259,15 +267,20 @@ export const allEditor = defineComponent({
           // console.log(" mouse move event : ", e.buttons);  // in mouse move e.buttons: 1:left, 2:right, 3:left+right
           if (e.buttons === 2) {  //edit selected bone
             //   console.log(" right button move edit bone...  ");
-            bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
+            // bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
+            bonesInstance.meshBoneEditMouseMove(x, y);
+            // console.log(" get raw x y", { x, y });
           }
           else {
             //console.log(" left button move create bone...  ");
-            bonesInstance.meshboneCreateMouseMove(xNDC, yNDC);
+            //bonesInstance.meshboneCreateMouseMove(xNDC, yNDC);
+            bonesInstance.meshboneCreateMouseMove(x, y);
           }
 
         } else if (activeTool.value === 'bone-animate') {
-          bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
+          // bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
+          bonesInstance.handleMeshBoneAnimateMouseDown(x, y);
+
           bonesInstance.updatePoseMesh(gl);
           forceUpdate();
           // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
@@ -278,14 +291,20 @@ export const allEditor = defineComponent({
 
       const handleMouseUp = (e) => {
         const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
+        const { x: x, y: y } = getRawXY(e, canvas, container);
+
+        console.log("mouse : ", { x, y });
+        console.log("canvas: ", wholeImageWidth.value, " , ", wholeImageHeight.value);
         mousePressed.value = e.button;
         if (activeTool.value === 'bone-create' && isDragging) {
 
           if (e.button === 2) { //edit selected bone
-            bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
+            //bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
+            bonesInstance.meshBoneEditMouseMove(x, y);
           }
           else {
-            bonesInstance.MeshBoneCreate(xNDC, yNDC);
+            //  bonesInstance.MeshBoneCreate(xNDC, yNDC);
+            bonesInstance.MeshBoneCreate(x, y);
           }
 
 
@@ -373,6 +392,7 @@ export const allEditor = defineComponent({
 
       // === 骨架渲染（所有模式都要）===
       passes.push(
+        /*
         makeRenderPass(
           renderMeshSkeleton,
           gl.value,
@@ -381,6 +401,18 @@ export const allEditor = defineComponent({
           bonesInstance,
           mousePressed,
           activeTool
+        )
+          */
+        makeRenderPass(
+          renderMeshSkeleton2,
+          gl.value,
+          skeletonProgram.value,
+          meshSkeleton,
+          bonesInstance,
+          mousePressed,
+          activeTool,
+          wholeImageWidth.value,
+          wholeImageHeight.value
         )
       );
 
@@ -471,7 +503,7 @@ export const allEditor = defineComponent({
               ndcLeft, ndcTop, 0, 1       // Top-left
             ];
 
-            console.log("checking layerVertices: ",layerVertices)
+            console.log("checking layerVertices: ", layerVertices)
             // Create and populate vertex buffer object (VBO)
             layer.vbo = glContext.createBuffer();
             glContext.bindBuffer(glContext.ARRAY_BUFFER, layer.vbo);
@@ -595,7 +627,9 @@ export const allEditor = defineComponent({
 
 
       // === 骨架渲染（所有模式都要）===
+
       passes.push(
+        /*
         makeRenderPass(
           renderMeshSkeleton,
           gl.value,
@@ -604,6 +638,18 @@ export const allEditor = defineComponent({
           bonesInstance,
           mousePressed,
           activeTool
+        )
+          */
+        makeRenderPass(
+          renderMeshSkeleton2,
+          gl.value,
+          skeletonProgram.value,
+          meshSkeleton,
+          bonesInstance,
+          mousePressed,
+          activeTool,
+          wholeImageWidth.value,
+          wholeImageHeight.value
         )
       );
       if (activeTool.value === 'bone-animate') { //update pose if in animate mode

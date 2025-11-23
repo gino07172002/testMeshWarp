@@ -12,6 +12,7 @@ import {
   Bone,
   Attachment
 } from './mesh.js';
+import { wholeImageHeight, wholeImageWidth } from './globalVars.js';
 // 📦 全局狀態區 (State)
 const gl = ref(null);                    // WebGL 上下文
 const texture = ref(null);               // 紋理
@@ -601,348 +602,348 @@ class gls {
 
 
   updateLayerVertices(gl, layer, options = {}) {
-  const {
-    update = [],
-    add = [],
-    delete: del = [],
-    addEdge = [],      // 新增: [{v1: index1, v2: index2}, ...]
-    deleteEdge = [],   // 新增: [{v1: index1, v2: index2}, ...]
-  } = options;
+    const {
+      update = [],
+      add = [],
+      delete: del = [],
+      addEdge = [],      // 新增: [{v1: index1, v2: index2}, ...]
+      deleteEdge = [],   // 新增: [{v1: index1, v2: index2}, ...]
+    } = options;
 
-  let vertices = [...layer.vertices.value];
-  let indices = [...layer.indices.value];
-  let linesIndices = [...layer.linesIndices.value];
-  const vertexSize = 4; // [localX, localY, texX, texY]
+    let vertices = [...layer.vertices.value];
+    let indices = [...layer.indices.value];
+    let linesIndices = [...layer.linesIndices.value];
+    const vertexSize = 4; // [localX, localY, texX, texY]
 
-  // 🔧 輔助函數: 建立邊的唯一key (小索引在前)
-  const edgeKey = (v1, v2) => {
-    const [a, b] = v1 < v2 ? [v1, v2] : [v2, v1];
-    return `${a}-${b}`;
-  };
-  // 初始化 edges 結構 (如果不存在)
-  if (!layer.edges) {
-    layer.edges = new Set();
+    // 🔧 輔助函數: 建立邊的唯一key (小索引在前)
+    const edgeKey = (v1, v2) => {
+      const [a, b] = v1 < v2 ? [v1, v2] : [v2, v1];
+      return `${a}-${b}`;
+    };
+    // 初始化 edges 結構 (如果不存在)
+    if (!layer.edges) {
+      layer.edges = new Set();
 
-    // 從 linesIndices 建立 edges
-    // linesIndices 格式: [v1, v2, v3, v4, ...] 每兩個索引代表一條邊
-    for (let i = 0; i < linesIndices.length; i += 2) {
-      const v1 = linesIndices[i];
-      const v2 = linesIndices[i + 1];
+      // 從 linesIndices 建立 edges
+      // linesIndices 格式: [v1, v2, v3, v4, ...] 每兩個索引代表一條邊
+      for (let i = 0; i < linesIndices.length; i += 2) {
+        const v1 = linesIndices[i];
+        const v2 = linesIndices[i + 1];
 
-      // 建立標準化的邊表示 (確保小索引在前,避免重複)
-      layer.edges.add(edgeKey(v1, v2));
-    }
-  }
-
-  // 初始化原始三角形記錄 (保留初始網格)
-  if (!layer.originalTriangles) {
-    layer.originalTriangles = new Set();
-    for (let i = 0; i < indices.length; i += 3) {
-      const tri = [indices[i], indices[i + 1], indices[i + 2]].sort((a, b) => a - b).join('-');
-      layer.originalTriangles.add(tri);
-    }
-  }
-
-  // === 基本變形參數 (由 createLayerBuffers 設定) ===
-  const params = layer.transformParams;
-  let useTransform = !!params;
-
-  let sx, sy, centerX_NDC, centerY_NDC, cosR, sinR, aspect, canvasWidth, canvasHeight, width, height;
-  if (useTransform) {
-    canvasWidth = params.canvasWidth;
-    canvasHeight = params.canvasHeight;
-    width = params.width;
-    height = params.height;
-    aspect = canvasWidth / canvasHeight;
-    const { left, top } = params;
-    const rotation = params.rotation || 0;
-    const glLeft = (left / canvasWidth) * 2 - 1;
-    const glRight = ((left + width) / canvasWidth) * 2 - 1;
-    const glTop = 1 - (top / canvasHeight) * 2;
-    const glBottom = 1 - ((top + height) / canvasHeight) * 2;
-    sx = (glRight - glLeft) / 2;
-    sy = (glTop - glBottom) / 2;
-    centerX_NDC = (glLeft + glRight) / 2;
-    centerY_NDC = (glTop + glBottom) / 2;
-    cosR = Math.cos(rotation);
-    sinR = Math.sin(rotation);
-  }
-
-  // 🔧 輔助函數: 世界 NDC → 局部座標
-  const toLocalCoord = (worldX, worldY) => {
-    if (!useTransform) {
-      return [worldX, worldY]; // 無變形，直接使用
-    }
-    const dx = worldX - centerX_NDC;
-    const dy = worldY - centerY_NDC;
-    const dx_pixel = dx * (canvasWidth / 2);
-    const dy_pixel = -dy * (canvasHeight / 2); // 正向向下
-    const local_pixel_X = dx_pixel * cosR - dy_pixel * sinR * aspect;
-    const local_pixel_Y = dx_pixel * sinR / aspect + dy_pixel * cosR;
-    const localX = local_pixel_X / (width / 2);
-    const localY = -local_pixel_Y / (height / 2); // 翻轉為正向上
-    return [localX, localY];
-  };
-
-  // 🔧 輔助函數: 計算紋理座標 (基於局部座標，假設 Y 翻轉)
-  const toTexCoord = (localX, localY) => {
-    const texX = (localX + 1) / 2;
-    const texY = (1 - localY) / 2;
-    return [texX, texY];
-  };
-
-  // 🔧 輔助函數: 尋找共享邊的三角形
-  const findTriangles = (edges) => {
-    const triangles = [];
-    const edgeMap = new Map(); // vertex -> connected vertices
-
-    // 建立鄰接表
-    for (const key of edges) {
-      const [v1, v2] = key.split('-').map(Number);
-      if (!edgeMap.has(v1)) edgeMap.set(v1, new Set());
-      if (!edgeMap.has(v2)) edgeMap.set(v2, new Set());
-      edgeMap.get(v1).add(v2);
-      edgeMap.get(v2).add(v1);
+        // 建立標準化的邊表示 (確保小索引在前,避免重複)
+        layer.edges.add(edgeKey(v1, v2));
+      }
     }
 
-    // 尋找三角形 (3個頂點兩兩相連)
-    const visited = new Set();
-    for (const [v1, neighbors1] of edgeMap) {
-      for (const v2 of neighbors1) {
-        if (v2 <= v1) continue; // 避免重複
-        const neighbors2 = edgeMap.get(v2);
-        for (const v3 of neighbors1) {
-          if (v3 <= v2) continue;
-          if (neighbors2.has(v3)) {
-            const triKey = [v1, v2, v3].sort((a, b) => a - b).join('-');
-            if (!visited.has(triKey)) {
-              triangles.push([v1, v2, v3]);
-              visited.add(triKey);
+    // 初始化原始三角形記錄 (保留初始網格)
+    if (!layer.originalTriangles) {
+      layer.originalTriangles = new Set();
+      for (let i = 0; i < indices.length; i += 3) {
+        const tri = [indices[i], indices[i + 1], indices[i + 2]].sort((a, b) => a - b).join('-');
+        layer.originalTriangles.add(tri);
+      }
+    }
+
+    // === 基本變形參數 (由 createLayerBuffers 設定) ===
+    const params = layer.transformParams;
+    let useTransform = !!params;
+
+    let sx, sy, centerX_NDC, centerY_NDC, cosR, sinR, aspect, canvasWidth, canvasHeight, width, height;
+    if (useTransform) {
+      canvasWidth = params.canvasWidth;
+      canvasHeight = params.canvasHeight;
+      width = params.width;
+      height = params.height;
+      aspect = canvasWidth / canvasHeight;
+      const { left, top } = params;
+      const rotation = params.rotation || 0;
+      const glLeft = (left / canvasWidth) * 2 - 1;
+      const glRight = ((left + width) / canvasWidth) * 2 - 1;
+      const glTop = 1 - (top / canvasHeight) * 2;
+      const glBottom = 1 - ((top + height) / canvasHeight) * 2;
+      sx = (glRight - glLeft) / 2;
+      sy = (glTop - glBottom) / 2;
+      centerX_NDC = (glLeft + glRight) / 2;
+      centerY_NDC = (glTop + glBottom) / 2;
+      cosR = Math.cos(rotation);
+      sinR = Math.sin(rotation);
+    }
+
+    // 🔧 輔助函數: 世界 NDC → 局部座標
+    const toLocalCoord = (worldX, worldY) => {
+      if (!useTransform) {
+        return [worldX, worldY]; // 無變形，直接使用
+      }
+      const dx = worldX - centerX_NDC;
+      const dy = worldY - centerY_NDC;
+      const dx_pixel = dx * (canvasWidth / 2);
+      const dy_pixel = -dy * (canvasHeight / 2); // 正向向下
+      const local_pixel_X = dx_pixel * cosR - dy_pixel * sinR * aspect;
+      const local_pixel_Y = dx_pixel * sinR / aspect + dy_pixel * cosR;
+      const localX = local_pixel_X / (width / 2);
+      const localY = -local_pixel_Y / (height / 2); // 翻轉為正向上
+      return [localX, localY];
+    };
+
+    // 🔧 輔助函數: 計算紋理座標 (基於局部座標，假設 Y 翻轉)
+    const toTexCoord = (localX, localY) => {
+      const texX = (localX + 1) / 2;
+      const texY = (1 - localY) / 2;
+      return [texX, texY];
+    };
+
+    // 🔧 輔助函數: 尋找共享邊的三角形
+    const findTriangles = (edges) => {
+      const triangles = [];
+      const edgeMap = new Map(); // vertex -> connected vertices
+
+      // 建立鄰接表
+      for (const key of edges) {
+        const [v1, v2] = key.split('-').map(Number);
+        if (!edgeMap.has(v1)) edgeMap.set(v1, new Set());
+        if (!edgeMap.has(v2)) edgeMap.set(v2, new Set());
+        edgeMap.get(v1).add(v2);
+        edgeMap.get(v2).add(v1);
+      }
+
+      // 尋找三角形 (3個頂點兩兩相連)
+      const visited = new Set();
+      for (const [v1, neighbors1] of edgeMap) {
+        for (const v2 of neighbors1) {
+          if (v2 <= v1) continue; // 避免重複
+          const neighbors2 = edgeMap.get(v2);
+          for (const v3 of neighbors1) {
+            if (v3 <= v2) continue;
+            if (neighbors2.has(v3)) {
+              const triKey = [v1, v2, v3].sort((a, b) => a - b).join('-');
+              if (!visited.has(triKey)) {
+                triangles.push([v1, v2, v3]);
+                visited.add(triKey);
+              }
             }
           }
         }
       }
-    }
 
-    return triangles;
-  };
-
-  // 1️⃣ 修改頂點位置 + 同步 texcoord
-  for (const { index, x: worldX, y: worldY } of update) {
-    const i = index * vertexSize;
-    if (i + 1 < vertices.length) {
-      const [localX, localY] = toLocalCoord(worldX, worldY);
-      vertices[i] = localX;
-      vertices[i + 1] = localY;
-      const [texX, texY] = toTexCoord(localX, localY);
-      vertices[i + 2] = texX;
-      vertices[i + 3] = texY;
-    }
-  }
-
-  // 2️⃣ 刪除頂點
-  if (del.length > 0) {
-    const sortedDel = [...del].sort((a, b) => b - a);
-
-    // 刪除相關的邊
-    const newEdges = new Set();
-    for (const key of layer.edges) {
-      const [v1, v2] = key.split('-').map(Number);
-      if (!del.includes(v1) && !del.includes(v2)) {
-        // 重新映射索引
-        const newV1 = v1 - del.filter(d => d < v1).length;
-        const newV2 = v2 - del.filter(d => d < v2).length;
-        newEdges.add(edgeKey(newV1, newV2));
-      }
-    }
-    layer.edges = newEdges;
-
-    // 更新原始三角形
-    const newOriginalTriangles = new Set();
-    for (const triKey of layer.originalTriangles) {
-      const [v1, v2, v3] = triKey.split('-').map(Number);
-      if (!del.includes(v1) && !del.includes(v2) && !del.includes(v3)) {
-        const newV1 = v1 - del.filter(d => d < v1).length;
-        const newV2 = v2 - del.filter(d => d < v2).length;
-        const newV3 = v3 - del.filter(d => d < v3).length;
-        const newTriKey = [newV1, newV2, newV3].sort((a, b) => a - b).join('-');
-        newOriginalTriangles.add(newTriKey);
-      }
-    }
-    layer.originalTriangles = newOriginalTriangles;
-
-    // 刪除頂點資料
-    for (const index of sortedDel) {
-      vertices.splice(index * vertexSize, vertexSize);
-    }
-
-    // 輔助函數：計算刪除後的新索引
-    const getNewIndex = (oldIndex) => {
-      // 計算在 oldIndex 之前有多少個頂點被刪除
-      const shift = del.filter(d => d < oldIndex).length;
-      return oldIndex - shift;
+      return triangles;
     };
 
-    // 重建 indices (三角形索引)
-    const newIndices = [];
-    for (let i = 0; i < indices.length; i += 3) {
-      const v1 = indices[i];
-      const v2 = indices[i + 1];
-      const v3 = indices[i + 2];
-
-      // 檢查此三角形是否包含任何被刪除的頂點
-      if (!del.includes(v1) && !del.includes(v2) && !del.includes(v3)) {
-        // 如果沒有，則重新映射索引並保留此三角形
-        newIndices.push(getNewIndex(v1), getNewIndex(v2), getNewIndex(v3));
+    // 1️⃣ 修改頂點位置 + 同步 texcoord
+    for (const { index, x: worldX, y: worldY } of update) {
+      const i = index * vertexSize;
+      if (i + 1 < vertices.length) {
+        const [localX, localY] = toLocalCoord(worldX, worldY);
+        vertices[i] = localX;
+        vertices[i + 1] = localY;
+        const [texX, texY] = toTexCoord(localX, localY);
+        vertices[i + 2] = texX;
+        vertices[i + 3] = texY;
       }
-      // 如果包含，則此三角形被自動丟棄
     }
-    indices = newIndices; // 更新為重建後的索引
 
-    // 重建 linesIndices (線段索引)
-    const newLinesIndices = [];
-    for (let i = 0; i < linesIndices.length; i += 2) {
-      const v1 = linesIndices[i];
-      const v2 = linesIndices[i + 1];
+    // 2️⃣ 刪除頂點
+    if (del.length > 0) {
+      const sortedDel = [...del].sort((a, b) => b - a);
 
-      // 檢查此線段是否包含任何被刪除的頂點
-      if (!del.includes(v1) && !del.includes(v2)) {
-        // 如果沒有，則重新映射索引並保留此線段
-        newLinesIndices.push(getNewIndex(v1), getNewIndex(v2));
-      }
-      // 如果包含，則此線段被自動丟棄
-    }
-    linesIndices = newLinesIndices; // 更新為重建後的線段索引
-  }
-
-  // 3️⃣ 新增頂點
-  if (add.length > 0) {
-    for (const { x: worldX, y: worldY, texX = null, texY = null } of add) {
-      const [localX, localY] = toLocalCoord(worldX, worldY);
-      const [tx, ty] = texX != null ? [texX, texY] : toTexCoord(localX, localY);
-      vertices.push(localX, localY, tx, ty);
-    }
-  }
-
-  // 🆕 4️⃣ 新增邊
-  if (addEdge.length > 0) {
-    for (const { v1, v2 } of addEdge) {
-      const vertexCount = vertices.length / vertexSize;
-      if (v1 >= 0 && v1 < vertexCount && v2 >= 0 && v2 < vertexCount && v1 !== v2) {
-        const key = edgeKey(v1, v2);
-
-        // 🔧 檢查邊是否已經存在
-        if (layer.edges.has(key)) {
-          console.log(`⚠️ Edge ${key} already exists, skipping...`);
-          continue;
+      // 刪除相關的邊
+      const newEdges = new Set();
+      for (const key of layer.edges) {
+        const [v1, v2] = key.split('-').map(Number);
+        if (!del.includes(v1) && !del.includes(v2)) {
+          // 重新映射索引
+          const newV1 = v1 - del.filter(d => d < v1).length;
+          const newV2 = v2 - del.filter(d => d < v2).length;
+          newEdges.add(edgeKey(newV1, newV2));
         }
-
-        layer.edges.add(key);
-        // 更新線段索引
-        linesIndices.push(v1, v2);
       }
-    }
-    // 檢查是否形成新的三角形
-    const newTriangles = findTriangles(layer.edges);
-    const existingTriangles = new Set([...layer.originalTriangles]);
+      layer.edges = newEdges;
 
-    // 記錄現有的動態三角形
-    for (let i = 0; i < indices.length; i += 3) {
-      const tri = [indices[i], indices[i + 1], indices[i + 2]].sort((a, b) => a - b).join('-');
-      existingTriangles.add(tri);
-    }
-
-    // 新增三角形到索引
-    for (const [v1, v2, v3] of newTriangles) {
-      const triKey = [v1, v2, v3].sort((a, b) => a - b).join('-');
-      if (!existingTriangles.has(triKey)) {
-        indices.push(v1, v2, v3);
-        //   console.log(`🔺 New triangle formed: ${v1}-${v2}-${v3}`);
+      // 更新原始三角形
+      const newOriginalTriangles = new Set();
+      for (const triKey of layer.originalTriangles) {
+        const [v1, v2, v3] = triKey.split('-').map(Number);
+        if (!del.includes(v1) && !del.includes(v2) && !del.includes(v3)) {
+          const newV1 = v1 - del.filter(d => d < v1).length;
+          const newV2 = v2 - del.filter(d => d < v2).length;
+          const newV3 = v3 - del.filter(d => d < v3).length;
+          const newTriKey = [newV1, newV2, newV3].sort((a, b) => a - b).join('-');
+          newOriginalTriangles.add(newTriKey);
+        }
       }
-    }
-  }
+      layer.originalTriangles = newOriginalTriangles;
 
-  // 🆕 5️⃣ 刪除邊
-  if (deleteEdge.length > 0) {
-    for (const { v1, v2 } of deleteEdge) {
-      const key = edgeKey(v1, v2);
-      layer.edges.delete(key);
+      // 刪除頂點資料
+      for (const index of sortedDel) {
+        vertices.splice(index * vertexSize, vertexSize);
+      }
 
-      // 從線段索引中移除
+      // 輔助函數：計算刪除後的新索引
+      const getNewIndex = (oldIndex) => {
+        // 計算在 oldIndex 之前有多少個頂點被刪除
+        const shift = del.filter(d => d < oldIndex).length;
+        return oldIndex - shift;
+      };
+
+      // 重建 indices (三角形索引)
+      const newIndices = [];
+      for (let i = 0; i < indices.length; i += 3) {
+        const v1 = indices[i];
+        const v2 = indices[i + 1];
+        const v3 = indices[i + 2];
+
+        // 檢查此三角形是否包含任何被刪除的頂點
+        if (!del.includes(v1) && !del.includes(v2) && !del.includes(v3)) {
+          // 如果沒有，則重新映射索引並保留此三角形
+          newIndices.push(getNewIndex(v1), getNewIndex(v2), getNewIndex(v3));
+        }
+        // 如果包含，則此三角形被自動丟棄
+      }
+      indices = newIndices; // 更新為重建後的索引
+
+      // 重建 linesIndices (線段索引)
+      const newLinesIndices = [];
       for (let i = 0; i < linesIndices.length; i += 2) {
-        if ((linesIndices[i] === v1 && linesIndices[i + 1] === v2) ||
-          (linesIndices[i] === v2 && linesIndices[i + 1] === v1)) {
-          linesIndices.splice(i, 2);
-          i -= 2; // 調整索引以繼續檢查
+        const v1 = linesIndices[i];
+        const v2 = linesIndices[i + 1];
+
+        // 檢查此線段是否包含任何被刪除的頂點
+        if (!del.includes(v1) && !del.includes(v2)) {
+          // 如果沒有，則重新映射索引並保留此線段
+          newLinesIndices.push(getNewIndex(v1), getNewIndex(v2));
+        }
+        // 如果包含，則此線段被自動丟棄
+      }
+      linesIndices = newLinesIndices; // 更新為重建後的線段索引
+    }
+
+    // 3️⃣ 新增頂點
+    if (add.length > 0) {
+      for (const { x: worldX, y: worldY, texX = null, texY = null } of add) {
+        const [localX, localY] = toLocalCoord(worldX, worldY);
+        const [tx, ty] = texX != null ? [texX, texY] : toTexCoord(localX, localY);
+        vertices.push(localX, localY, tx, ty);
+      }
+    }
+
+    // 🆕 4️⃣ 新增邊
+    if (addEdge.length > 0) {
+      for (const { v1, v2 } of addEdge) {
+        const vertexCount = vertices.length / vertexSize;
+        if (v1 >= 0 && v1 < vertexCount && v2 >= 0 && v2 < vertexCount && v1 !== v2) {
+          const key = edgeKey(v1, v2);
+
+          // 🔧 檢查邊是否已經存在
+          if (layer.edges.has(key)) {
+            console.log(`⚠️ Edge ${key} already exists, skipping...`);
+            continue;
+          }
+
+          layer.edges.add(key);
+          // 更新線段索引
+          linesIndices.push(v1, v2);
+        }
+      }
+      // 檢查是否形成新的三角形
+      const newTriangles = findTriangles(layer.edges);
+      const existingTriangles = new Set([...layer.originalTriangles]);
+
+      // 記錄現有的動態三角形
+      for (let i = 0; i < indices.length; i += 3) {
+        const tri = [indices[i], indices[i + 1], indices[i + 2]].sort((a, b) => a - b).join('-');
+        existingTriangles.add(tri);
+      }
+
+      // 新增三角形到索引
+      for (const [v1, v2, v3] of newTriangles) {
+        const triKey = [v1, v2, v3].sort((a, b) => a - b).join('-');
+        if (!existingTriangles.has(triKey)) {
+          indices.push(v1, v2, v3);
+          //   console.log(`🔺 New triangle formed: ${v1}-${v2}-${v3}`);
         }
       }
     }
 
-    // 🔥 關鍵修正: 建立已刪除邊的集合
-    const deletedEdges = new Set();
-    for (const { v1, v2 } of deleteEdge) {
-      deletedEdges.add(edgeKey(v1, v2));
-    }
+    // 🆕 5️⃣ 刪除邊
+    if (deleteEdge.length > 0) {
+      for (const { v1, v2 } of deleteEdge) {
+        const key = edgeKey(v1, v2);
+        layer.edges.delete(key);
 
-    // 檢查三角形是否包含已刪除的邊
-    const triangleHasDeletedEdge = (v1, v2, v3) => {
-      return deletedEdges.has(edgeKey(v1, v2)) ||
-        deletedEdges.has(edgeKey(v2, v3)) ||
-        deletedEdges.has(edgeKey(v1, v3));
-    };
+        // 從線段索引中移除
+        for (let i = 0; i < linesIndices.length; i += 2) {
+          if ((linesIndices[i] === v1 && linesIndices[i + 1] === v2) ||
+            (linesIndices[i] === v2 && linesIndices[i + 1] === v1)) {
+            linesIndices.splice(i, 2);
+            i -= 2; // 調整索引以繼續檢查
+          }
+        }
+      }
 
-    const validDynamicTriangles = findTriangles(layer.edges);
-    const allValidTriangles = new Set();
+      // 🔥 關鍵修正: 建立已刪除邊的集合
+      const deletedEdges = new Set();
+      for (const { v1, v2 } of deleteEdge) {
+        deletedEdges.add(edgeKey(v1, v2));
+      }
 
-    // 🔑 永久更新 originalTriangles,移除包含已刪除邊的三角形
-    const newOriginalTriangles = new Set();
-    for (const triKey of layer.originalTriangles) {
-      const [v1, v2, v3] = triKey.split('-').map(Number);
-      if (!triangleHasDeletedEdge(v1, v2, v3)) {
-        newOriginalTriangles.add(triKey);
+      // 檢查三角形是否包含已刪除的邊
+      const triangleHasDeletedEdge = (v1, v2, v3) => {
+        return deletedEdges.has(edgeKey(v1, v2)) ||
+          deletedEdges.has(edgeKey(v2, v3)) ||
+          deletedEdges.has(edgeKey(v1, v3));
+      };
+
+      const validDynamicTriangles = findTriangles(layer.edges);
+      const allValidTriangles = new Set();
+
+      // 🔑 永久更新 originalTriangles,移除包含已刪除邊的三角形
+      const newOriginalTriangles = new Set();
+      for (const triKey of layer.originalTriangles) {
+        const [v1, v2, v3] = triKey.split('-').map(Number);
+        if (!triangleHasDeletedEdge(v1, v2, v3)) {
+          newOriginalTriangles.add(triKey);
+          allValidTriangles.add(triKey);
+        } else {
+          //   console.log(`🗑️ Original triangle permanently removed: ${triKey}`);
+        }
+      }
+      layer.originalTriangles = newOriginalTriangles; // 永久更新
+
+      // 再加入有效的動態三角形
+      for (const [v1, v2, v3] of validDynamicTriangles) {
+        const triKey = [v1, v2, v3].sort((a, b) => a - b).join('-');
         allValidTriangles.add(triKey);
-      } else {
-        //   console.log(`🗑️ Original triangle permanently removed: ${triKey}`);
+      }
+
+      // 重建索引
+      indices = [];
+      for (const triKey of allValidTriangles) {
+        const [v1, v2, v3] = triKey.split('-').map(Number);
+        indices.push(v1, v2, v3);
       }
     }
-    layer.originalTriangles = newOriginalTriangles; // 永久更新
 
-    // 再加入有效的動態三角形
-    for (const [v1, v2, v3] of validDynamicTriangles) {
-      const triKey = [v1, v2, v3].sort((a, b) => a - b).join('-');
-      allValidTriangles.add(triKey);
-    }
+    // 6️⃣ 更新 Buffer 資料
+    gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-    // 重建索引
-    indices = [];
-    for (const triKey of allValidTriangles) {
-      const [v1, v2, v3] = triKey.split('-').map(Number);
-      indices.push(v1, v2, v3);
-    }
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.eboLines);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+    // 7️⃣ 更新 Layer 狀態
+    layer.vertices.value = [...vertices];
+    layer.poseVertices.value = [...vertices];
+    layer.indices.value = indices;
+    layer.linesIndices.value = linesIndices;
+
+    //   console.log("✅ Vertices updated with refreshed texture mapping");
+    //   console.log(`📊 Edges: ${layer.edges.size}, Triangles: ${indices.length / 3} (Original: ${layer.originalTriangles.size})`);
   }
-
-  // 6️⃣ 更新 Buffer 資料
-  gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.DYNAMIC_DRAW);
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.eboLines);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(linesIndices), gl.STATIC_DRAW);
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-
-  // 7️⃣ 更新 Layer 狀態
-  layer.vertices.value = [...vertices];
-  layer.poseVertices.value = [...vertices];
-  layer.indices.value = indices;
-  layer.linesIndices.value = linesIndices;
-
-  //   console.log("✅ Vertices updated with refreshed texture mapping");
-  //   console.log(`📊 Edges: ${layer.edges.size}, Triangles: ${indices.length / 3} (Original: ${layer.originalTriangles.size})`);
-}
   saveInitialState(layer, mouseX, mouseY, centerX, centerY, width, height, rotation) {
     layer.initialMouseX = mouseX;
     layer.initialMouseY = mouseY;
@@ -1764,7 +1765,214 @@ export const renderMeshSkeleton = (gl, skeletonProgram, meshSkeleton, bonesInsta
     gl.disable(gl.BLEND);
   }
 };
+export const renderMeshSkeleton2 = (gl, skeletonProgram, meshSkeleton, bonesInstance, mousePressed, activeTool, canvasWidth, canvasHeight) => {
+  // 保存當前WebGL狀態
+  let drawPoseBone = (activeTool.value === "bone-animate");
+  //console.log("canvasWidth: ", { canvasWidth, canvasHeight });
 
+  const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM);
+  const prevArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+  const prevElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
+  const prevBlend = gl.getParameter(gl.BLEND);
+
+  gl.useProgram(skeletonProgram);
+  const skeletonPosAttrib = gl.getAttribLocation(skeletonProgram, 'aPosition');
+
+  // === 渲染現有骨架 ===
+  if (meshSkeleton && meshSkeleton.bones.length > 0) {
+    const vertices = [];
+    const indices = [];
+    const headVertices = [];
+    const tailVertices = [];
+    let vertexIndex = 0;
+
+    const processRootBones = () => {
+      // 獲取所有根骨骼
+      const rootBones = meshSkeleton.bones.filter(bone => !bone.parent);
+
+      // 從每個根骨骼開始遞迴處理
+      const processBoneRecursive = (bone) => {
+        let transform;
+
+        if (drawPoseBone) {
+          // 在動畫模式下使用 pose transform
+          bone.updatePoseGlobalTransform(); // update pose transform from local and parent
+          transform = bone.getGlobalPoseTransform();
+        } else {
+          // 其他模式下使用一般的 global transform
+          transform = bone.getGlobalTransform();
+        }
+        let headNDCx = transform.head.x / canvasWidth * 2 - 1;
+        let headNDCy = 1 - transform.head.y / canvasHeight * 2;
+
+        let tailNDCx = transform.tail.x / canvasWidth * 2 - 1;
+        let tailNDCy = 1 - transform.tail.y / canvasHeight * 2;
+
+        vertices.push(headNDCx, headNDCy);
+        vertices.push(tailNDCx, tailNDCy);
+
+        headVertices.push(headNDCx, headNDCy);
+        tailVertices.push(tailNDCx, tailNDCy);
+
+        indices.push(vertexIndex, vertexIndex + 1);
+        vertexIndex += 2;
+
+        // 遞迴處理所有子骨骼
+        bone.children.forEach(child => processBoneRecursive(child));
+      };
+
+      // 處理每個根骨骼
+      rootBones.forEach(rootBone => processBoneRecursive(rootBone));
+    };
+
+    processRootBones();
+
+    const skeletonVbo = gl.createBuffer();
+    const skeletonEbo = gl.createBuffer();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, skeletonVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skeletonEbo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+    gl.enableVertexAttribArray(skeletonPosAttrib);
+    gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+    // 渲染骨架線條（白色）
+    gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 1, 1);
+    gl.drawElements(gl.LINES, indices.length, gl.UNSIGNED_SHORT, 0);
+
+    // 渲染頭部和尾部點
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array(headVertices), [1, 1, 0, 1], 7.0); // 黃色頭部
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array(tailVertices), [0, 0.5, 1, 1], 7.0); // 藍色尾部
+
+    gl.deleteBuffer(skeletonVbo);
+    gl.deleteBuffer(skeletonEbo);
+  }
+
+  // === 渲染滑鼠拖曳中的暫時骨架 ===
+  if (bonesInstance && mousePressed.value === 0) {
+    const dragBoneData = bonesInstance.GetMouseDragBone?.() || {};
+    const { mousedown_x, mousedown_y, mousemove_x, mousemove_y } = dragBoneData;
+
+    const hasValidDragData = mousedown_x != null && mousedown_y != null &&
+      mousemove_x != null && mousemove_y != null;
+
+    if (hasValidDragData) {
+      let headNDCx1 = mousedown_x / canvasWidth * 2 - 1;
+      let headNDCy1 = 1 - mousedown_y / canvasHeight * 2;
+
+      let headNDCx2 = mousemove_x / canvasWidth * 2 - 1;
+      let headNDCy2 = 1 - mousemove_y / canvasHeight * 2;
+      const tempVertices = new Float32Array([headNDCx1, headNDCy1, headNDCx2, headNDCy2]);
+      const tempIndices = new Uint16Array([0, 1]);
+
+      const tempVbo = gl.createBuffer();
+      const tempEbo = gl.createBuffer();
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, tempVbo);
+      gl.bufferData(gl.ARRAY_BUFFER, tempVertices, gl.STATIC_DRAW);
+
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tempEbo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, tempIndices, gl.STATIC_DRAW);
+
+      gl.enableVertexAttribArray(skeletonPosAttrib);
+      gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+      // 暫時骨架（紅色）
+      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
+      gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, 0);
+
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousedown_x, mousedown_y]), [1, 0.5, 0, 1], 8.0);
+      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousemove_x, mousemove_y]), [1, 0, 0.5, 1], 8.0);
+
+      gl.deleteBuffer(tempVbo);
+      gl.deleteBuffer(tempEbo);
+    }
+  }
+
+  // === 渲染 lastSelectedBone ===
+  //get last selected bone from bonesInstance by GetLastSelectedBone() function
+  const lastSelectedBone = bonesInstance.GetLastSelectedBone?.();
+  if (lastSelectedBone) {
+    const bone = lastSelectedBone;
+
+    // 區分create mode 跟 pose mode的不同座標
+    const transform = (drawPoseBone) ? bone.getGlobalPoseTransform() : bone.getGlobalTransform();
+
+    const vertices = new Float32Array([transform.head.x, transform.head.y, transform.tail.x, transform.tail.y]);
+    const indices = new Uint16Array([0, 1]);
+
+    const vbo = gl.createBuffer();
+    const ebo = gl.createBuffer();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+    gl.enableVertexAttribArray(skeletonPosAttrib);
+    gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+    // 綠色選中骨架
+    gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 0, 1);
+    gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, 0);
+
+    // 頭尾點
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([transform.head.x, transform.head.y]), [0, 1, 0, 1], 9.0);
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([transform.tail.x, transform.tail.y]), [0, 1, 0, 1], 9.0);
+
+    gl.deleteBuffer(vbo);
+    gl.deleteBuffer(ebo);
+  }
+
+  // === 渲染 mouseHoveringBone ===
+  //get last mouseHoveringBone from bonesInstance by GetHoverBone() function
+  const mouseHoveringBone = bonesInstance.GetHoverBone?.();
+  if (mouseHoveringBone && (mouseHoveringBone !== lastSelectedBone)) {
+    const bone = mouseHoveringBone;
+    const transform = (drawPoseBone) ? bone.getGlobalPoseTransform() : bone.getGlobalTransform();
+
+    const vertices = new Float32Array([transform.head.x, transform.head.y, transform.tail.x, transform.tail.y]);
+    const indices = new Uint16Array([0, 1]);
+
+    const vbo = gl.createBuffer();
+    const ebo = gl.createBuffer();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+    gl.enableVertexAttribArray(skeletonPosAttrib);
+    gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+    // 青色 Hover 骨架
+    gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 0, 1, 1, 1);
+    gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, 0);
+
+    // 頭尾點
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([transform.head.x, transform.head.y]), [0, 1, 1, 1], 8.0);
+    renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([transform.tail.x, transform.tail.y]), [0, 1, 1, 1], 8.0);
+
+    gl.deleteBuffer(vbo);
+    gl.deleteBuffer(ebo);
+  }
+
+  // === 恢復WebGL狀態 ===
+  gl.useProgram(prevProgram);
+  gl.bindBuffer(gl.ARRAY_BUFFER, prevArrayBuffer);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, prevElementBuffer);
+
+  if (prevBlend) {
+    gl.enable(gl.BLEND);
+  } else {
+    gl.disable(gl.BLEND);
+  }
+};
 // 渲染點的輔助函數
 const renderPoints = (gl, program, posAttrib, verticesPoints, color, pointSize) => {
   const vbo_temp = gl.createBuffer();
@@ -2419,6 +2627,9 @@ export const pngRender = async () => {
 
   let canvasHeight = texture.value[0].height;
   let canvasWidth = texture.value[0].width;
+
+  wholeImageHeight.value = canvasHeight;
+  wholeImageWidth.value = canvasWidth;
   for (let i = 0; i < texture.value.length; i++) {
     glsInstance.createLayerBuffers(
       gl.value,
@@ -2498,6 +2709,9 @@ export const pngRenderAgain = async () => {
 
   let canvasHeight = texture.value[0].height;
   let canvasWidth = texture.value[0].width;
+
+  wholeImageHeight.value = canvasHeight;
+  wholeImageWidth.value = canvasWidth;
   for (let i = 0; i < texture.value.length; i++) {
 
 
