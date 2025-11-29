@@ -491,7 +491,7 @@ export const meshEditor = defineComponent({
       beforePasses.push(
         makeRenderPass(
           render,
-          gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.refLayers, selectedLayers)
+          gl.value, program.value,  glsInstance.refLayers, selectedLayers)
       )
 
 

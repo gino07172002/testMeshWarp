@@ -208,7 +208,7 @@ export const allEditor = defineComponent({
 
 
           } else if (activeTool.value === 'select-points') {
-            bonesInstance.handleSelectPointsMouseDown(xNDC, yNDC, e.button === 0, isShiftPressed.value);
+            bonesInstance.handleSelectPointsMouseDown(xNDC, yNDC,x,y);
             isDragging = true;
 
           }
@@ -258,7 +258,7 @@ export const allEditor = defineComponent({
 
         } else if (activeTool.value === 'select-points') {
           if (isDragging)
-            bonesInstance.handleSelectPointsMouseMove(xNDC, yNDC, isShiftPressed.value);
+            bonesInstance.handleSelectPointsMouseMove(xNDC, yNDC, x,y);
 
         }
 
@@ -312,7 +312,7 @@ export const allEditor = defineComponent({
         }
         else if (activeTool.value === 'select-points') {
           if (isDragging) {
-            bonesInstance.handleSelectPointsMouseUp(xNDC, yNDC, currentChosedLayer.value, isShiftPressed.value, isCtrlPressed.value);
+            bonesInstance.handleSelectPointsMouseUp(xNDC, yNDC, currentChosedLayer.value, isShiftPressed.value, isCtrlPressed.value,x,y);
             isDragging = false;
           }
         }

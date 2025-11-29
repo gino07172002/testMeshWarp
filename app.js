@@ -960,13 +960,18 @@ const app = Vue.createApp({
     const toggleLayerSelection = (index) => {
       console.log(" toggle layer selection : ", index);
       if (chosenLayers.value.includes(index)) {
+        //cancel selection
         chosenLayers.value = chosenLayers.value.filter(i => i !== index)
+        if(currentChosedLayer.value === index){
+          currentChosedLayer.value = -1;
+        }
       } else {
         chosenLayers.value.push(index)
+         // set last input index as currentChosedLayer
+      currentChosedLayer.value = index;
       }
 
-      // set last input index as currentChosedLayer
-      currentChosedLayer.value = index;
+     
 
       //checking vertex group info
       console.log(" vertex group info : ", glsInstance.layers[index]?.vertexGroup.value);

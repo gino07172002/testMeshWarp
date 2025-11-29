@@ -32,6 +32,9 @@ var mousedown_y = null;
 var mousemove_x = null;
 var mousemove_y = null;
 
+var mousedown_NDC = null
+var mousemove_NDC = null;
+
 //mesh bone
 const lastSelectedBone = ref();
 const lastSelectedBonePart = ref(); // 'head', 'tail', or 'middle'
@@ -498,25 +501,28 @@ class Bones {
     }
     return null;
   }
-  handleSelectPointsMouseDown(xNDC, yNDC) {
-    mousedown_x = xNDC;
-    mousedown_y = yNDC;
-    mousemove_x = xNDC;
-    mousemove_y = yNDC;
+  handleSelectPointsMouseDown(xNDC, yNDC,x,y) {
+    mousedown_x = x;
+    mousedown_y = y;
+    mousemove_x = x;
+    mousemove_y = y;
+    mousedown_NDC={x:xNDC, y:yNDC};
+    mousemove_NDC={x:xNDC, y:yNDC};
+
     console.log(" select points mouse down at : ", xNDC, ' , ', yNDC);
   }
-  handleSelectPointsMouseMove(xNDC, yNDC) {
-
-    mousemove_x = xNDC;
-    mousemove_y = yNDC;
+  handleSelectPointsMouseMove(xNDC, yNDC,x,y) {
+    mousemove_NDC={x:xNDC, y:yNDC};
+    mousemove_x = x;
+    mousemove_y = y;
   }
   handleSelectPointsMouseUp(xNDC, yNDC, layerIndex, isShiftPressed = false, isCtrlPressed = false) {
     console.log(" handleSelectPointsMouseUp at : ", xNDC, ' , ', yNDC);
     // 框選範圍 (世界 NDC 空間)
-    const minX = Math.min(mousedown_x, xNDC);
-    const maxX = Math.max(mousedown_x, xNDC);
-    const minY = Math.min(mousedown_y, yNDC);
-    const maxY = Math.max(mousedown_y, yNDC);
+    const minX = Math.min(mousedown_NDC.x, xNDC);
+    const maxX = Math.max(mousedown_NDC.x, xNDC);
+    const minY = Math.min(mousedown_NDC.y, yNDC);
+    const maxY = Math.max(mousedown_NDC.y, yNDC);
     const layer = glsInstance.layers[layerIndex];
     const vertices = layer.vertices.value;
     console.log(" vertices length: ", vertices.length);

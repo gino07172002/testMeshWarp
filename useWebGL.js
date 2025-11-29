@@ -1262,7 +1262,7 @@ export const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer,
     }
 
 
-  let res = render(gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers);
+  let res = render(gl, program, renderLayer, selectedLayers);
 
   if (res === false) {
     return;
@@ -1279,7 +1279,7 @@ export const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer,
   );
 };
 
-export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers) => {
+export const render = (gl, program, renderLayer, selectedLayers) => {
 
   if (gl.isContextLost()) {
     return false;
@@ -1306,8 +1306,6 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
   let layerIndices = selectedLayers.value;
   layerIndices.sort((a, b) => a - b);
 
-  if (layerIndices.length == 0)
-    layerIndices = [0];
 
   for (const layerIndex of layerIndices) {
     if (layerIndex >= textures.length)
@@ -1354,9 +1352,6 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
       const glTop = 1 - (top / canvasHeight) * 2;
       const glBottom = 1 - ((top + height) / canvasHeight) * 2;
 
-      // 計算目標區域的 NDC 邊界
-      const ndcWidth = (width / canvasWidth) * 2;
-      const ndcHeight = (height / canvasHeight) * 2;
 
       // 縮放：從標準 2x2 正方形到目標矩形
       const sx = (glRight - glLeft) / 2;
@@ -1401,170 +1396,6 @@ export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, 
   }
 };
 
-//webgl function to render image
-/*
-export const render = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers) => {
-
-  if (gl.isContextLost()) {
-    return false;
-  }
-  if (!program || !gl.isProgram(program)) {
-    return false;
-  }
-
-  if (!selectedLayers)
-    selectedLayers.value = [];
-
-  // 啟用混合,但不要用深度測試(透明圖層會出問題)
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-  if (!texture.value || !Array.isArray(texture.value) || texture.value.length === 0) {
-    console.log(" nothing here, stop loop");
-    return false;
-  }
-
-  const textures = texture.value;
-  gl.useProgram(program);
-
-  let layerIndices = selectedLayers.value;
-  layerIndices.sort((a, b) => a - b);
-
-  if (layerIndices.length == 0)
-    layerIndices = [0];
-
-  for (const layerIndex of layerIndices) {
-    if (layerIndex >= textures.length)
-      continue;
-    const tex = textures[layerIndex];
-    const layer = renderLayer[layerIndex];
-
-    if (!tex || !tex.tex || !layer || !layer.vbo || !layer.ebo) {
-      console.warn(`Skipping layer ${layerIndex}: missing resources`);
-      continue;
-    }
-
-    if (layer.visible === false) {
-      console.log(`Layer ${layerIndex} is hidden`);
-      continue;
-    }
-
-    // === 綁定當前圖層的緩衝區 ===
-    gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
-
-    // === 設定頂點屬性 ===
-    const positionAttrib = gl.getAttribLocation(program, 'aPosition');
-    const texCoordAttrib = gl.getAttribLocation(program, 'aTexCoord');
-
-    if (positionAttrib !== -1) {
-      gl.enableVertexAttribArray(positionAttrib);
-      gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 16, 0);
-    }
-
-    if (texCoordAttrib !== -1) {
-      gl.enableVertexAttribArray(texCoordAttrib);
-      gl.vertexAttribPointer(texCoordAttrib, 2, gl.FLOAT, false, 16, 8);
-    }
-
-    // === 計算轉換矩陣 ===
-    let transformMatrix;
-
-
-    {
-      // === 使用 transformParams 轉換到旋轉座標 ===
-      const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
-      const rotation = layer.rotation || 0; // 弧度
-
-      // 外部畫布的 NDC 座標
-      let glLeft = left;
-      let glRight = left + (width / canvasWidth) * 2;
-      let glTop = top;
-      let glBottom = top - (height / canvasHeight) * 2;
-
-      // 內部 ROI 區域的 NDC 座標 (相對於外部畫布的局部座標)
-      let glLeftInner = -1;    // 預設填滿整個外部區域
-      let glRightInner = 1;
-      let glTopInner = 1;
-      let glBottomInner = -1;
-      let glRotationInner = 0;
-      let glCanvasWidthInner = canvasWidth;
-      let glCanvasHeightInner = canvasHeight;
-
-      if (layer.innerTransformParams) {
-        // 如果有 innerTransformParams,使用它定義的 ROI 區域
-        glLeftInner = layer.innerTransformParams.left;
-        glRightInner = layer.innerTransformParams.right;
-        glTopInner = layer.innerTransformParams.top;
-        glBottomInner = layer.innerTransformParams.bottom;
-        glRotationInner = layer.innerTransformParams.rotation || 0;
-        glCanvasWidthInner = layer.innerTransformParams.canvasWidth || canvasWidth;
-        glCanvasHeightInner = layer.innerTransformParams.canvasHeight || canvasHeight;
-      }
-
-      // 外部畫布的尺寸和中心
-      const outerWidth = glRight - glLeft;
-      const outerHeight = glTop - glBottom;
-      const outerCenterX = glLeft + outerWidth / 2;
-      const outerCenterY = glBottom + outerHeight / 2;
-
-      // 內部 ROI 的尺寸 (在局部座標系中)
-      // const innerWidth = glRight - glLeft;
-      //  const innerHeight = glTop - glBottom;
-
-      const innerWidth = glRightInner - glLeftInner;
-      const innerHeight = glTopInner - glBottomInner;
-
-
-      // 計算從局部座標 [-1,1] 映射到外部畫布區域的縮放
-      const sx = (outerWidth / 2) * (innerWidth / 2);
-      const sy = (outerHeight / 2) * (innerHeight / 2);
-
-      // 計算 ROI 在局部座標系中的中心
-      const innerCenterX = (glLeftInner + glRightInner) / 2;
-      const innerCenterY = (glBottomInner + glTopInner) / 2;
-
-      // 計算最終的平移量 (先考慮 ROI 偏移,再加上外部畫布中心)
-      const tx = outerCenterX + innerCenterX * (outerWidth / 2);
-      const ty = outerCenterY + innerCenterY * (outerHeight / 2);
-
-
-      // 計算旋轉矩陣分量
-      const cosR = Math.cos(glRotationInner);
-      const sinR = Math.sin(glRotationInner);
-
-      // 組合矩陣: Translation * Rotation * Scale
-      // 這會將頂點從 [-1,1] 局部空間 -> 旋轉 -> 縮放到 ROI 大小 -> 平移到最終位置
-      transformMatrix = new Float32Array([
-        sx * cosR, sx * sinR, 0, 0,
-        -sy * sinR, sy * cosR, 0, 0,
-        0, 0, 1, 0,
-        tx, ty, 0, 1
-      ]);
-    }
-
-    const transformLocation = gl.getUniformLocation(program, 'uTransform');
-    if (transformLocation) {
-      gl.uniformMatrix4fv(transformLocation, false, transformMatrix);
-    }
-
-    // === 設定透明度 ===
-    const opacity = layer.opacity?.value ?? 1.0;
-    const opacityLocation = gl.getUniformLocation(program, 'uOpacity');
-    if (opacityLocation !== null) {
-      gl.uniform1f(opacityLocation, opacity);
-    }
-
-    // === 綁定紋理 ===
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, tex.tex);
-    gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
-
-    // === 繪製圖層 ===
-    gl.drawElements(gl.TRIANGLES, layer.indices.value.length, gl.UNSIGNED_SHORT, 0);
-  }
-};
-*/
 export const makeRenderPass = (fn, ...args) => {
   return () => fn(...args);
 };
@@ -1889,8 +1720,41 @@ export const renderMeshSkeleton2 = (gl, skeletonProgram, meshSkeleton, bonesInst
 
       gl.deleteBuffer(tempVbo);
       gl.deleteBuffer(tempEbo);
+
+      // === 渲染拖曳範圍方形框 ===
+      const rectVertices = new Float32Array([
+        headNDCx1, headNDCy1,  // 左下
+        headNDCx2, headNDCy1,  // 右下
+        headNDCx2, headNDCy2,  // 右上
+        headNDCx1, headNDCy2   // 左上
+      ]);
+      const rectIndices = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0]); // 四條邊
+
+      const rectVbo = gl.createBuffer();
+      const rectEbo = gl.createBuffer();
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, rectVbo);
+      gl.bufferData(gl.ARRAY_BUFFER, rectVertices, gl.STATIC_DRAW);
+
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, rectEbo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, rectIndices, gl.STATIC_DRAW);
+
+      gl.enableVertexAttribArray(skeletonPosAttrib);
+      gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+      console.log("draw rectangle frame",dragBoneData);
+      // 半透明黃色方形框
+      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 0, 0.5);
+      gl.drawElements(gl.LINES, rectIndices.length, gl.UNSIGNED_SHORT, 0);
+
+      gl.deleteBuffer(rectVbo);
+      gl.deleteBuffer(rectEbo);
     }
+
+
   }
+
+
 
   // === 渲染 lastSelectedBone ===
   //get last selected bone from bonesInstance by GetLastSelectedBone() function
@@ -2116,7 +1980,7 @@ function weightToColor(weight) {
 export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChosedLayerRef, selectedVertices) {
 
   if (!selectedVertices)
-    selectedVertices.value = [];
+    return
   let currentChosedLayer = currentChosedLayerRef.value;
 
   var baseLayer = layers[currentChosedLayer];
@@ -2124,7 +1988,7 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
 
   let layerIndex = currentChosedLayer;
   if (layerIndex >= layerSize)
-    layerIndex = 0;
+    return;
 
   if (!baseLayer || !baseLayer.vbo) return;
 
@@ -2141,8 +2005,6 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
     const glRight = ((left + width) / canvasWidth) * 2 - 1;
     const glTop = 1 - (top / canvasHeight) * 2;
     const glBottom = 1 - ((top + height) / canvasHeight) * 2;
-    const ndcWidth = (width / canvasWidth) * 2;
-    const ndcHeight = (height / canvasHeight) * 2;
 
 
     // 縮放：從標準 2x2 正方形到目標矩形
@@ -2208,6 +2070,8 @@ export function renderGridOnly(gl, colorProgram, layers, layerSize, currentChose
       }
     }
   }
+
+
 }
 export function fitTransformToVertices(layer) {
   const vertices = layer.vertices.value;
@@ -2727,6 +2591,19 @@ export const pngRenderAgain = async () => {
       glsInstance.layers[i],
       glsInstance.layers[i]
     );
+
+    glsInstance.createLayerBuffersByInputLayers(
+      gl.value,
+      texture.value[i].image,
+      texture.value[i].width,
+      texture.value[i].height,
+      0,
+      0,
+      canvasWidth,
+      canvasHeight,
+      glsInstance.refLayers[i],
+      glsInstance.layers[i]  // 使用 layers[i] 的頂點數據
+    );
   }
 }
 export const bindGl = async (selectedLayers) => {
@@ -2860,6 +2737,15 @@ export const psdRenderAgain = async (selectedLayers, wholeImageHeight, wholeImag
         layer,
         layer
       );
+
+    glsInstance.createLayerBuffersByInputLayers(
+      gl.value,
+      att.image, att.width, att.height,
+      att.top, att.left,
+      canvasWidth, canvasHeight,
+      glsInstance.refLayers[i],
+      layer  // 使用 layer 的頂點數據
+    );
   }
   //await bindGl(selectedLayers);
   console.log("WebGL initialization complete");
