@@ -106,7 +106,36 @@ export class Bone {
     this.length = Math.max(0, length);
     this.parent = parent;
     this.isConnected = isConnected;
-    this.slot = []; // slot is spine2d's concept, a bone can have one slot to attach image, maybe not the same as out architecture
+    // this.slots = []; // slot is spine2d's concept, a bone can have one slot to attach image, maybe not the same as out architecture
+
+
+    this.slots = [          // ← 這裡就是 Spine 的 Slot 概念
+      {
+        id: 'slot_arm_L',
+        name: '左手臂',
+        visible: true,
+        attachmentKey: 'arm_normal',        // 目前掛載的 key
+        attachment: null,                   // 執行期由 changeAttachment 填入
+        attachments: {                      // 所有可切換的 attachment
+          arm_normal: {
+            type: 'image',
+            name: 'arm_normal',
+            src: 'parts/arm_L.png',
+            pivot: { x: 0.5, y: 0.08 }
+          },
+          arm_thick: {
+            type: 'mesh',
+            name: 'arm_thick',
+            src: 'parts/arm_L_thick.png',
+            pivot: { x: 0.5, y: 0.1 },
+            hull: 12,          // 網格外框點數
+            edges: []          // 之後放邊界索引
+          }
+        },
+        color: { r: 1, g: 1, b: 1, a: 1 },  // 染色用
+        deform: {}                           // 動畫關鍵影格會寫入這裡
+      }
+    ];
 
     // 新增 local/global head/rotation
     if (parent) {
@@ -1331,7 +1360,7 @@ function distance(x1, y1, x2, y2) {
  *   - type: 'head', 'tail', 或 'body'
  *   - distance: 到點擊點的距離
  */
-export function getClosestBoneAtClick(skeleton, clickX, clickY, isCreatMode = true, headTailRadius = 10, maxDistance =10) {
+export function getClosestBoneAtClick(skeleton, clickX, clickY, isCreatMode = true, headTailRadius = 10, maxDistance = 10) {
   let closestResult = null;
   let minDistance = maxDistance;
 
@@ -1351,7 +1380,7 @@ export function getClosestBoneAtClick(skeleton, clickX, clickY, isCreatMode = tr
     bone.offsetY = clickY - head.y;
     // 檢測 head
     const headDist = distance(clickX, clickY, head.x, head.y);
-   // console.log(" head dist : ",headDist);
+    // console.log(" head dist : ",headDist);
     if (headDist <= headTailRadius && headDist < minDistance) {
       // 如果是連接的骨骼的 head，自動轉向 parent 的 tail
       if (bone.isConnected && bone.parent) {
@@ -1480,7 +1509,7 @@ export class Mesh2D {
     this.indices = []; // 三角形索引
 
 
-    this.image =null;
+    this.image = null;
     this.atlas_region = { "x": 100, "y": 200, "w": 256, "h": 128 },
 
 

@@ -1696,59 +1696,65 @@ export const renderMeshSkeleton2 = (gl, skeletonProgram, meshSkeleton, bonesInst
 
       let headNDCx2 = mousemove_x / canvasWidth * 2 - 1;
       let headNDCy2 = 1 - mousemove_y / canvasHeight * 2;
-      const tempVertices = new Float32Array([headNDCx1, headNDCy1, headNDCx2, headNDCy2]);
-      const tempIndices = new Uint16Array([0, 1]);
 
-      const tempVbo = gl.createBuffer();
-      const tempEbo = gl.createBuffer();
 
-      gl.bindBuffer(gl.ARRAY_BUFFER, tempVbo);
-      gl.bufferData(gl.ARRAY_BUFFER, tempVertices, gl.STATIC_DRAW);
+      if (activeTool.value === "bone-create") {
+        const tempVertices = new Float32Array([headNDCx1, headNDCy1, headNDCx2, headNDCy2]);
+        const tempIndices = new Uint16Array([0, 1]);
 
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tempEbo);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, tempIndices, gl.STATIC_DRAW);
+        const tempVbo = gl.createBuffer();
+        const tempEbo = gl.createBuffer();
 
-      gl.enableVertexAttribArray(skeletonPosAttrib);
-      gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, tempVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, tempVertices, gl.STATIC_DRAW);
 
-      // 暫時骨架（紅色）
-      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
-      gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, 0);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tempEbo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, tempIndices, gl.STATIC_DRAW);
 
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousedown_x, mousedown_y]), [1, 0.5, 0, 1], 8.0);
-      renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousemove_x, mousemove_y]), [1, 0, 0.5, 1], 8.0);
+        gl.enableVertexAttribArray(skeletonPosAttrib);
+        gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
 
-      gl.deleteBuffer(tempVbo);
-      gl.deleteBuffer(tempEbo);
+        // 暫時骨架（紅色）
+        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 0, 0, 1);
+        gl.drawElements(gl.LINES, 2, gl.UNSIGNED_SHORT, 0);
 
-      // === 渲染拖曳範圍方形框 ===
-      const rectVertices = new Float32Array([
-        headNDCx1, headNDCy1,  // 左下
-        headNDCx2, headNDCy1,  // 右下
-        headNDCx2, headNDCy2,  // 右上
-        headNDCx1, headNDCy2   // 左上
-      ]);
-      const rectIndices = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0]); // 四條邊
+        renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousedown_x, mousedown_y]), [1, 0.5, 0, 1], 8.0);
+        renderPoints(gl, skeletonProgram, skeletonPosAttrib, new Float32Array([mousemove_x, mousemove_y]), [1, 0, 0.5, 1], 8.0);
 
-      const rectVbo = gl.createBuffer();
-      const rectEbo = gl.createBuffer();
+        gl.deleteBuffer(tempVbo);
+        gl.deleteBuffer(tempEbo);
+      }
+      if (activeTool.value === "select-points") {
 
-      gl.bindBuffer(gl.ARRAY_BUFFER, rectVbo);
-      gl.bufferData(gl.ARRAY_BUFFER, rectVertices, gl.STATIC_DRAW);
+        // === 渲染拖曳範圍方形框 ===
+        const rectVertices = new Float32Array([
+          headNDCx1, headNDCy1,  // 左下
+          headNDCx2, headNDCy1,  // 右下
+          headNDCx2, headNDCy2,  // 右上
+          headNDCx1, headNDCy2   // 左上
+        ]);
+        const rectIndices = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0]); // 四條邊
 
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, rectEbo);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, rectIndices, gl.STATIC_DRAW);
+        const rectVbo = gl.createBuffer();
+        const rectEbo = gl.createBuffer();
 
-      gl.enableVertexAttribArray(skeletonPosAttrib);
-      gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, rectVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, rectVertices, gl.STATIC_DRAW);
 
-      console.log("draw rectangle frame",dragBoneData);
-      // 半透明黃色方形框
-      gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 0, 0.5);
-      gl.drawElements(gl.LINES, rectIndices.length, gl.UNSIGNED_SHORT, 0);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, rectEbo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, rectIndices, gl.STATIC_DRAW);
 
-      gl.deleteBuffer(rectVbo);
-      gl.deleteBuffer(rectEbo);
+        gl.enableVertexAttribArray(skeletonPosAttrib);
+        gl.vertexAttribPointer(skeletonPosAttrib, 2, gl.FLOAT, false, 0, 0);
+
+        console.log("draw rectangle frame", dragBoneData);
+        // 半透明黃色方形框
+        gl.uniform4f(gl.getUniformLocation(skeletonProgram, 'uColor'), 1, 1, 0, 0.5);
+        gl.drawElements(gl.LINES, rectIndices.length, gl.UNSIGNED_SHORT, 0);
+
+        gl.deleteBuffer(rectVbo);
+        gl.deleteBuffer(rectEbo);
+      }
     }
 
 

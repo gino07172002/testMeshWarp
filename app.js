@@ -493,7 +493,7 @@ const app = Vue.createApp({
 
       lastSelectedBone.value = bonesInstance.findBoneById(boneId);
 
-      console.log(" lastSelectedBone : ", lastSelectedBone.value.id);
+
     };
 
     // assign necessary vule to global
@@ -513,7 +513,7 @@ const app = Vue.createApp({
       else if (tool === 'edit-points') {
 
         bonesInstance.recoverSelectedVertex(currentChosedLayer)
-        
+
         // restore vertices to original
       }
       else if (tool === 'bone-clear') {
@@ -962,16 +962,16 @@ const app = Vue.createApp({
       if (chosenLayers.value.includes(index)) {
         //cancel selection
         chosenLayers.value = chosenLayers.value.filter(i => i !== index)
-        if(currentChosedLayer.value === index){
+        if (currentChosedLayer.value === index) {
           currentChosedLayer.value = -1;
         }
       } else {
         chosenLayers.value.push(index)
-         // set last input index as currentChosedLayer
-      currentChosedLayer.value = index;
+        // set last input index as currentChosedLayer
+        currentChosedLayer.value = index;
       }
 
-     
+
 
       //checking vertex group info
       console.log(" vertex group info : ", glsInstance.layers[index]?.vertexGroup.value);
@@ -1002,190 +1002,190 @@ const app = Vue.createApp({
         }
       }
     }
-  const bindingBoneWeight = (overlapFactor = 1) => {
-  console.log(" Binding bone weight ... ");
-  if (skeletons.length === 0) {
-    console.warn("No skeletons available for binding.");
-    return;
-  }
-  printBoneHierarchy(skeletons[0].bones);
-  const layer = glsInstance.layers[currentChosedLayer.value];
-  if (!layer) {
-    console.error("Invalid layer index for binding bone weight.");
-    return;
-  }
-  const vertices = layer.vertices.value;
-  const vertexCount = vertices.length / 4;
-
-  // 收集所有骨骼
-  const allBones = [];
-  function collectBones(bones) {
-    for (const bone of bones) {
-      allBones.push(bone);
-      if (bone.children && bone.children.length > 0) {
-        collectBones(bone.children);
+    const bindingBoneWeight = (overlapFactor = 1) => {
+      console.log(" Binding bone weight ... ");
+      if (skeletons.length === 0) {
+        console.warn("No skeletons available for binding.");
+        return;
       }
-    }
-  }
-  collectBones(skeletons[0].bones);
-  console.log(`Found ${allBones.length} bones and ${vertexCount} vertices`);
-
-  // 清空舊的 vertex group
-  console.log("some body clear vertex group ... ");
-  layer.vertexGroup.value = [];
-  const vertexGroupMap = new Map();
-
-  // **取得圖層的變換參數**
-  const { canvasWidth, canvasHeight, width, height, top, left } = layer.transformParams;
-
-  // 計算點到骨頭線段的距離
-  function distanceToSegment(px, py, x1, y1, x2, y2) {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const lengthSquared = dx * dx + dy * dy;
-
-    if (lengthSquared === 0) {
-      const distX = px - x1;
-      const distY = py - y1;
-      return {
-        distance: Math.sqrt(distX * distX + distY * distY),
-        t: 0
-      };
-    }
-
-    let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
-    t = Math.max(0, Math.min(1, t));
-
-    const closestX = x1 + t * dx;
-    const closestY = y1 + t * dy;
-    const distX = px - closestX;
-    const distY = py - closestY;
-
-    return {
-      distance: Math.sqrt(distX * distX + distY * distY),
-      t: t
-    };
-  }
-
-  // 計算骨骼的有效影響半徑（基於骨骼長度）
-  function getBoneInfluenceRadius(bone) {
-    const globalTransform = bone.getGlobalTransform();
-    // **骨骼座標現在是像素座標,直接計算長度**
-    const dx = globalTransform.tail.x - globalTransform.head.x;
-    const dy = globalTransform.tail.y - globalTransform.head.y;
-    const boneLength = Math.sqrt(dx * dx + dy * dy);
-
-    return boneLength * 0.5 * overlapFactor;
-  }
-
-  // === 主迴圈 ===
-  for (let i = 0; i < vertexCount; i++) {
-    const vx = vertices[i * 4];
-    const vy = vertices[i * 4 + 1];
-
-    // **將頂點從 NDC 轉換為 Canvas 像素座標**
-    const vxLayerPixel = (vx + 1.0) * 0.5 * width;
-    const vyLayerPixel = (1.0 - vy) * 0.5 * height;
-    const vxCanvasPixel = vxLayerPixel + left;
-    const vyCanvasPixel = vyLayerPixel + top;
-
-    const candidates = [];
-
-    for (let j = 0; j < allBones.length; j++) {
-      const bone = allBones[j];
-      const globalTransform = bone.getGlobalTransform();
-      
-      // **骨骼座標已經是 Canvas 像素座標,直接使用**
-      const result = distanceToSegment(
-        vxCanvasPixel, vyCanvasPixel,
-        globalTransform.head.x, globalTransform.head.y,
-        globalTransform.tail.x, globalTransform.tail.y
-      );
-
-      const influenceRadius = getBoneInfluenceRadius(bone);
-
-      if (result.distance <= influenceRadius) {
-        const normalizedDist = result.distance / influenceRadius;
-        const weight = Math.pow(1.0 - normalizedDist, 3);
-
-        candidates.push({
-          boneIndex: j,
-          boneName: bone.name,
-          distance: result.distance,
-          weight: weight,
-          t: result.t
-        });
+      printBoneHierarchy(skeletons[0].bones);
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer) {
+        console.error("Invalid layer index for binding bone weight.");
+        return;
       }
-    }
+      const vertices = layer.vertices.value;
+      const vertexCount = vertices.length / 4;
 
-    // 如果沒有骨骼在影響範圍內，選擇最近的那個
-    if (candidates.length === 0) {
-      let minDist = Infinity;
-      let closestBone = null;
-
-      for (let j = 0; j < allBones.length; j++) {
-        const bone = allBones[j];
-        const globalTransform = bone.getGlobalTransform();
-        const result = distanceToSegment(
-          vxCanvasPixel, vyCanvasPixel,
-          globalTransform.head.x, globalTransform.head.y,
-          globalTransform.tail.x, globalTransform.tail.y
-        );
-
-        if (result.distance < minDist) {
-          minDist = result.distance;
-          closestBone = {
-            boneIndex: j,
-            boneName: bone.name,
-            distance: result.distance,
-            weight: 1.0,
-            t: result.t
-          };
+      // 收集所有骨骼
+      const allBones = [];
+      function collectBones(bones) {
+        for (const bone of bones) {
+          allBones.push(bone);
+          if (bone.children && bone.children.length > 0) {
+            collectBones(bone.children);
+          }
         }
       }
+      collectBones(skeletons[0].bones);
+      console.log(`Found ${allBones.length} bones and ${vertexCount} vertices`);
 
-      if (closestBone) {
-        candidates.push(closestBone);
+      // 清空舊的 vertex group
+      console.log("some body clear vertex group ... ");
+      layer.vertexGroup.value = [];
+      const vertexGroupMap = new Map();
+
+      // **取得圖層的變換參數**
+      const { canvasWidth, canvasHeight, width, height, top, left } = layer.transformParams;
+
+      // 計算點到骨頭線段的距離
+      function distanceToSegment(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lengthSquared = dx * dx + dy * dy;
+
+        if (lengthSquared === 0) {
+          const distX = px - x1;
+          const distY = py - y1;
+          return {
+            distance: Math.sqrt(distX * distX + distY * distY),
+            t: 0
+          };
+        }
+
+        let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+        t = Math.max(0, Math.min(1, t));
+
+        const closestX = x1 + t * dx;
+        const closestY = y1 + t * dy;
+        const distX = px - closestX;
+        const distY = py - closestY;
+
+        return {
+          distance: Math.sqrt(distX * distX + distY * distY),
+          t: t
+        };
       }
-    }
 
-    // 正規化權重
-    let totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
-    if (totalWeight > 0) {
-      candidates.forEach(c => c.weight /= totalWeight);
-    }
+      // 計算骨骼的有效影響半徑（基於骨骼長度）
+      function getBoneInfluenceRadius(bone) {
+        const globalTransform = bone.getGlobalTransform();
+        // **骨骼座標現在是像素座標,直接計算長度**
+        const dx = globalTransform.tail.x - globalTransform.head.x;
+        const dy = globalTransform.tail.y - globalTransform.head.y;
+        const boneLength = Math.sqrt(dx * dx + dy * dy);
 
-    // 只保留權重較大的骨骼
-    const threshold = 0.05;
-    const finalBones = candidates.filter(c => c.weight >= threshold);
-
-    // 再次正規化
-    totalWeight = finalBones.reduce((sum, c) => sum + c.weight, 0);
-    if (totalWeight > 0) {
-      finalBones.forEach(c => c.weight /= totalWeight);
-    }
-
-    // === 存到 vertex group ===
-    finalBones.forEach(item => {
-      const boneName = item.boneName;
-      if (!vertexGroupMap.has(boneName)) {
-        vertexGroupMap.set(boneName, { name: boneName, vertices: [] });
+        return boneLength * 0.5 * overlapFactor;
       }
-      const group = vertexGroupMap.get(boneName);
-      const existingVertex = group.vertices.find(v => v.id === i);
-      if (existingVertex) {
-        existingVertex.weight += item.weight;
-      } else {
-        group.vertices.push({ id: i, weight: item.weight });
-      }
-    });
-  }
 
-  console.log("some body change vertex group there ... ");
-  layer.vertexGroup.value = Array.from(vertexGroupMap.values());
-  console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
-  console.log(`Average bones per vertex: ${layer.vertexGroup.value.reduce((sum, g) => sum + g.vertices.length, 0) / vertexCount}`);
-};
+      // === 主迴圈 ===
+      for (let i = 0; i < vertexCount; i++) {
+        const vx = vertices[i * 4];
+        const vy = vertices[i * 4 + 1];
+
+        // **將頂點從 NDC 轉換為 Canvas 像素座標**
+        const vxLayerPixel = (vx + 1.0) * 0.5 * width;
+        const vyLayerPixel = (1.0 - vy) * 0.5 * height;
+        const vxCanvasPixel = vxLayerPixel + left;
+        const vyCanvasPixel = vyLayerPixel + top;
+
+        const candidates = [];
+
+        for (let j = 0; j < allBones.length; j++) {
+          const bone = allBones[j];
+          const globalTransform = bone.getGlobalTransform();
+
+          // **骨骼座標已經是 Canvas 像素座標,直接使用**
+          const result = distanceToSegment(
+            vxCanvasPixel, vyCanvasPixel,
+            globalTransform.head.x, globalTransform.head.y,
+            globalTransform.tail.x, globalTransform.tail.y
+          );
+
+          const influenceRadius = getBoneInfluenceRadius(bone);
+
+          if (result.distance <= influenceRadius) {
+            const normalizedDist = result.distance / influenceRadius;
+            const weight = Math.pow(1.0 - normalizedDist, 3);
+
+            candidates.push({
+              boneIndex: j,
+              boneName: bone.name,
+              distance: result.distance,
+              weight: weight,
+              t: result.t
+            });
+          }
+        }
+
+        // 如果沒有骨骼在影響範圍內，選擇最近的那個
+        if (candidates.length === 0) {
+          let minDist = Infinity;
+          let closestBone = null;
+
+          for (let j = 0; j < allBones.length; j++) {
+            const bone = allBones[j];
+            const globalTransform = bone.getGlobalTransform();
+            const result = distanceToSegment(
+              vxCanvasPixel, vyCanvasPixel,
+              globalTransform.head.x, globalTransform.head.y,
+              globalTransform.tail.x, globalTransform.tail.y
+            );
+
+            if (result.distance < minDist) {
+              minDist = result.distance;
+              closestBone = {
+                boneIndex: j,
+                boneName: bone.name,
+                distance: result.distance,
+                weight: 1.0,
+                t: result.t
+              };
+            }
+          }
+
+          if (closestBone) {
+            candidates.push(closestBone);
+          }
+        }
+
+        // 正規化權重
+        let totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
+        if (totalWeight > 0) {
+          candidates.forEach(c => c.weight /= totalWeight);
+        }
+
+        // 只保留權重較大的骨骼
+        const threshold = 0.05;
+        const finalBones = candidates.filter(c => c.weight >= threshold);
+
+        // 再次正規化
+        totalWeight = finalBones.reduce((sum, c) => sum + c.weight, 0);
+        if (totalWeight > 0) {
+          finalBones.forEach(c => c.weight /= totalWeight);
+        }
+
+        // === 存到 vertex group ===
+        finalBones.forEach(item => {
+          const boneName = item.boneName;
+          if (!vertexGroupMap.has(boneName)) {
+            vertexGroupMap.set(boneName, { name: boneName, vertices: [] });
+          }
+          const group = vertexGroupMap.get(boneName);
+          const existingVertex = group.vertices.find(v => v.id === i);
+          if (existingVertex) {
+            existingVertex.weight += item.weight;
+          } else {
+            group.vertices.push({ id: i, weight: item.weight });
+          }
+        });
+      }
+
+      console.log("some body change vertex group there ... ");
+      layer.vertexGroup.value = Array.from(vertexGroupMap.values());
+      console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
+      console.log(`Average bones per vertex: ${layer.vertexGroup.value.reduce((sum, g) => sum + g.vertices.length, 0) / vertexCount}`);
+    };
     const vertexGroupInfo = computed(() => {
       console.log(" refresh vertex group : ")
       refreshKey.value; // 強制刷新
@@ -1654,72 +1654,179 @@ const app = Vue.createApp({
 
 });
 const TreeItem = {
-  props: ['node', 'expandedNodes', 'selectedItem'],
-  emits: ['toggle-node', 'item-click'],
+  props: ['node', 'expandedNodes', 'selectedItem', 'layers'], // 多傳 layers 進來
+  emits: [
+    'toggle-node', 'item-click',
+    'slot-visible-change', 'slot-attachment-change',
+    'slot-reorder'          // 順序異動
+  ],
   template: `
     <div class="tree-item">
-      <!-- Bone 標題 -->
-      <div class="tree-item-header" style="display: flex; align-items: center;">
-        <!-- 展開箭頭 -->
-        <span v-if="hasChildren || hasSlots"
-          style="cursor: pointer; width: 16px; display: inline-block;"
-          @click.stop="toggleNode(node.id)">
-          {{ isExpanded ? '▼' : '▶' }}
+      <!-- ====== 骨頭列（完全沒改） ====== -->
+      <div class="tree-item-header" style="display:flex;align-items:center;">
+        <span v-if="hasChildren||hasSlots" style="cursor:pointer;width:16px"
+              @click.stop="toggleNode(node.id)">
+          {{ isExpanded?'▼':'▶' }}
         </span>
-        <span v-else style="display:inline-block; width:16px;"></span>
-
-        <!-- Bone 名稱 -->
-        <span
-          :style="{
-            backgroundColor: selectedItem?.type === 'bone' && selectedItem?.id === node?.id ? 'gray' : 'transparent'
-          }"
-          style="cursor: pointer;"
-          @click="selectItem({ type: 'bone', id: node?.id })"
-        >
-          🦴 {{ node?.name || '(未命名骨骼)' }}
+        <span v-else style="display:inline-block;width:16px"/>
+        <span style="cursor:pointer;margin-left:4px"
+              :style="{backgroundColor:
+                selectedItem?.type==='bone'&&selectedItem?.id===node.id?'gray':'transparent'}"
+              @click="selectItem({type:'bone',id:node.id})">
+          🦴 {{ node.name||'(未命名骨骼)' }}
         </span>
       </div>
 
-      <!-- 展開內容 -->
-      <div v-if="isExpanded" class="tree-item-children" style="padding-left: 16px;">
-        <!-- Slot -->
-        <div v-for="slot in node.slots" :key="slot.id"
-             style="cursor:pointer; padding:2px;"
-             :style="{ backgroundColor: selectedItem?.type === 'slot' && selectedItem?.id === slot.id ? 'gray' : 'transparent' }"
-             @click="selectItem({ type: 'slot', id: slot.id })">
-          🎯 Slot: {{ slot.name }}
+      <!-- ====== 展開區 ====== -->
+      <div v-if="isExpanded" class="tree-item-children" style="padding-left:20px">
+        <!-- Slot 列表 -->
+        <div v-for="(slot,idx) in node.slots" :key="slot.id"
+             style="display:flex;align-items:center;cursor:pointer;padding:2px 0"
+             :style="{backgroundColor:
+               selectedItem?.type==='slot'&&selectedItem?.id===slot.id?'gray':'transparent'}"
+             @click="selectItem({type:'slot',id:slot.id})">
+
+          <!-- 可視眼睛 -->
+          <span style="font-size:12px" @click.stop="toggleSlotVisible(slot)"
+                :title="slot.visible?'隱藏':'顯示'">
+            {{ slot.visible?'👁':'🚫' }}
+          </span>
+
+          🎯 {{ slot.name }}
+
+          <!-- 附件切換 -->
+          <select v-if="slot.attachments&&Object.keys(slot.attachments).length"
+                  style="margin-left:6px;font-size:11px"
+                  :value="slot.attachmentKey||''"
+                  @change="changeAttachment(slot,$event.target.value)" @click.stop>
+            <option value="">(空)</option>
+            <option v-for="k in Object.keys(slot.attachments)" :key="k" :value="k">
+              {{ k }}
+            </option>
+           
+          </select>
+           <button @click.stop="appendAttachment(slot)" title="新增attachment">image➕</button>
+          <!-- ****** 新增/刪除/排序 ****** -->
+          <span style="margin-left:auto;display:flex;gap:2px;font-size:12px">
+            <button @click.stop="moveSlot(idx,-1)" :disabled="idx===0"
+                    title="上移">⬆</button>
+            <button @click.stop="moveSlot(idx,1)"  :disabled="idx===node.slots.length-1"
+                    title="下移">⬇</button>
+            <button @click.stop="addSlot(idx)" title="在此處新增">➕</button>
+            <button @click.stop="deleteSlot(idx)" title="刪除">🗑</button>
+            
+          </span>
         </div>
 
-        <!-- 子 Bone -->
-        <tree-item
-          v-for="child in node.children"
-          :key="child.id"
-          :node="child"
-          :expanded-nodes="expandedNodes"
-          :selected-item="selectedItem"
-          @toggle-node="$emit('toggle-node', $event)"
-          @item-click="$emit('item-click', $event)"
-        />
+        <!-- 遞迴子骨 -->
+        <tree-item v-for="c in node.children" :key="c.id"
+                   :node="c" :expanded-nodes="expandedNodes"
+                   :selected-item="selectedItem" :layers="layers"
+                   @toggle-node="$emit('toggle-node',$event)"
+                   @item-click="$emit('item-click',$event)"
+                   @slot-visible-change="$emit('slot-visible-change',$event)"
+                   @slot-attachment-change="$emit('slot-attachment-change',$event)"
+                   @slot-reorder="$emit('slot-reorder',$event)"/>
       </div>
     </div>
   `,
+
   computed: {
-    hasChildren() {
-      return this.node.children && this.node.children.length > 0;
-    },
-    hasSlots() {
-      return this.node.slots && this.node.slots.length > 0;
-    },
-    isExpanded() {
-      return this.expandedNodes.includes(this.node.id);
-    }
+    hasChildren() { return this.node.children && this.node.children.length > 0; },
+    hasSlots() { return this.node.slots && this.node.slots.length > 0; },
+    isExpanded() { return this.expandedNodes.includes(this.node.id); }
   },
+
   methods: {
-    toggleNode(nodeId) {
-      this.$emit('toggle-node', nodeId);
+    toggleNode(id) { this.$emit('toggle-node', id); },
+    selectItem(item) { this.$emit('item-click', item); },
+    toggleSlotVisible(slot) {
+      slot.visible = !slot.visible;
+      this.$emit('slot-visible-change', { slotId: slot.id, visible: slot.visible });
     },
-    selectItem(item) {
-      this.$emit('item-click', item);
+    changeAttachment(slot, key) {
+      slot.attachmentKey = key || null;
+      slot.attachment = key ? slot.attachments[key] : null;
+      this.$emit('slot-attachment-change',
+        { slotId: slot.id, key, attachment: slot.attachment });
+    },
+
+    /* **********  以下三個是新方法  ********** */
+    // 新增 slot：先問名字 → 再挑圖 → 推進陣列
+    addSlot(insertBeforeIdx) {
+      const name = prompt('新 slot 名稱：', 'newSlot');
+      if (!name) return; // 取消就什麼都不做
+
+      /* ====== 讓使用者「可跳過」選圖 ====== */
+      const items = glsInstance.layers.map((L, i) => `${i}:${L.name.value}`).join('\n');
+      const pick = prompt(
+        `選圖 index 當 default attachment（直接按 Cancel 或留空＝先不要綁圖）\n${items}`
+      );
+      const idx = Number(pick);
+      const hasValidLayer = !Number.isNaN(idx) && glsInstance.layers[idx];
+
+      const newSlot = {
+        id: `slot_${Date.now()}`,
+        name,
+        visible: true,
+        attachmentKey: hasValidLayer ? 'default' : null,
+        attachment: null,
+        attachments: hasValidLayer
+          ? {
+            default: {
+              type: 'image',
+              name: 'default',
+              src: idx,
+              pivot: { x: 0.5, y: 0.5 }
+            }
+          }
+          : {}, // 先放空物件，之後再塞
+        color: { r: 1, g: 1, b: 1, a: 1 },
+        deform: {}
+      };
+
+      // 把指標補上
+      if (hasValidLayer) newSlot.attachment = newSlot.attachments.default;
+
+      this.node.slots.splice(insertBeforeIdx + 1, 0, newSlot);
+      this.reorderDone();
+    },
+    appendAttachment(slot) {
+      const key = prompt('attachment key：', 'img1');
+      if (!key || slot.attachments[key]) return; // 重複 key 就擋掉
+
+      const items = glsInstance.layers.map((L, i) => `${i}:${L.name.value}`).join('\n');
+      const pick = prompt(`選圖 index：\n${items}`);
+      const idx = Number(pick);
+      if (Number.isNaN(idx) || !glsInstance.layers[idx]) return;
+
+      this.$set(slot.attachments, key, {   // Vue2 需要響應式
+        type: 'image',
+        name: key,
+        src: idx,
+        pivot: { x: 0.5, y: 0.5 }
+      });
+    },
+    deleteSlot(idx) {
+      if (!confirm(`刪除 slot「${this.node.slots[idx].name}」？`)) return;
+      this.node.slots.splice(idx, 1);
+      this.reorderDone();
+    },
+
+    moveSlot(idx, dir /* -1 or 1 */) {
+      const arr = this.node.slots;
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= arr.length) return;
+      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]]; // swap
+      this.reorderDone();
+    },
+
+    // 統一告訴外層「順序變了」
+    reorderDone() {
+      this.$emit('slot-reorder', {
+        boneId: this.node.id,
+        slots: [...this.node.slots]   // 把最新順序丟出去
+      });
     }
   }
 };
