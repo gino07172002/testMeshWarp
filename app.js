@@ -485,16 +485,19 @@ const app = Vue.createApp({
     }
 
 
-    function handleNameClick(input) {
-      // selectedBone.value = boneId; // 或做你原本選骨骼的處理
+    function handleNameClick(payload) {
+      // payload 結構: { type, id, data }
+      //this.seletedItem = payload;c
 
-      let boneId = input.id || input; // 防呆處理
+      console.log("選中了:", payload.type, payload.data.name);
+      console.log("handle bone name click: ", input);
+      let boneId = payload.id || payload; // 防呆處理
       console.log(" click bone id : ", boneId, "bone index? ", boneId.boneIndex);
 
       lastSelectedBone.value = bonesInstance.findBoneById(boneId);
-
-
-    };
+      // 如果你有右側屬性面板，這裡就是把 payload.data 傳給屬性面板的時機
+      // this.attributePanelData = payload.data;
+    }
 
     // assign necessary vule to global
 
@@ -1530,7 +1533,6 @@ const app = Vue.createApp({
       console.log("hi select timeline ID ", selectedTimelineId);
     }
 
-
     onMounted(async () => {
 
 
@@ -1646,7 +1648,7 @@ const app = Vue.createApp({
       currentTimeline,
       playAnimation,
       counter,
-      testWord
+      testWord,
     };
 
   }
@@ -1654,71 +1656,69 @@ const app = Vue.createApp({
 
 });
 const TreeItem = {
-  props: ['node', 'expandedNodes', 'selectedItem', 'layers'], // 多傳 layers 進來
+  // 接收 layers 是為了選圖，expandedNodes 控制樹狀展開
+  props: ['node', 'expandedNodes', 'selectedItem', 'layers'],
   emits: [
     'toggle-node', 'item-click',
     'slot-visible-change', 'slot-attachment-change',
-    'slot-reorder'          // 順序異動
+    'slot-reorder'
   ],
   template: `
     <div class="tree-item">
-      <!-- ====== 骨頭列（完全沒改） ====== -->
       <div class="tree-item-header" style="display:flex;align-items:center;">
         <span v-if="hasChildren||hasSlots" style="cursor:pointer;width:16px"
               @click.stop="toggleNode(node.id)">
           {{ isExpanded?'▼':'▶' }}
         </span>
         <span v-else style="display:inline-block;width:16px"/>
+        
         <span style="cursor:pointer;margin-left:4px"
               :style="{backgroundColor:
-                selectedItem?.type==='bone'&&selectedItem?.id===node.id?'gray':'transparent'}"
-              @click="selectItem({type:'bone',id:node.id})">
-          🦴 {{ node.name||'(未命名骨骼)' }}
+                selectedItem?.type==='bone'&&selectedItem?.id===node.id?'#444':'transparent', color: selectedItem?.type==='bone'&&selectedItem?.id===node.id?'#fff':'inherit'}"
+              @click="selectItem({type:'bone',id:node.id, data: node})">
+          🦴 {{ node.name || '(未命名骨骼)' }}
         </span>
       </div>
 
-      <!-- ====== 展開區 ====== -->
-      <div v-if="isExpanded" class="tree-item-children" style="padding-left:20px">
-        <!-- Slot 列表 -->
+      <div v-if="isExpanded" class="tree-item-children" style="padding-left:20px; border-left: 1px dashed #ccc;">
+        
         <div v-for="(slot,idx) in node.slots" :key="slot.id"
-             style="display:flex;align-items:center;cursor:pointer;padding:2px 0"
+             style="display:flex;align-items:center;cursor:pointer;padding:2px 0; border-bottom:1px solid #eee;"
              :style="{backgroundColor:
-               selectedItem?.type==='slot'&&selectedItem?.id===slot.id?'gray':'transparent'}"
-             @click="selectItem({type:'slot',id:slot.id})">
+                selectedItem?.type==='slot'&&selectedItem?.id===slot.id?'#e0e0e0':'transparent'}"
+             @click="selectItem({type:'slot',id:slot.id, data: slot})">
 
-          <!-- 可視眼睛 -->
-          <span style="font-size:12px" @click.stop="toggleSlotVisible(slot)"
+          <span style="font-size:12px; margin-right:5px;" @click.stop="toggleSlotVisible(slot)"
                 :title="slot.visible?'隱藏':'顯示'">
             {{ slot.visible?'👁':'🚫' }}
           </span>
 
-          🎯 {{ slot.name }}
+          <span style="font-size:13px;">🎯 {{ slot.name }}</span>
 
-          <!-- 附件切換 -->
-          <select v-if="slot.attachments&&Object.keys(slot.attachments).length"
-                  style="margin-left:6px;font-size:11px"
+          <span style="font-size:10px; color:#888; margin-left:4px;">
+            {{ slot.blendMode === 'normal' ? '' : '['+slot.blendMode+']' }}
+          </span>
+
+          <select v-if="slot.attachments && Object.keys(slot.attachments).length"
+                  style="margin-left:6px;font-size:11px;max-width:80px;"
                   :value="slot.attachmentKey||''"
                   @change="changeAttachment(slot,$event.target.value)" @click.stop>
             <option value="">(空)</option>
             <option v-for="k in Object.keys(slot.attachments)" :key="k" :value="k">
               {{ k }}
             </option>
-           
           </select>
-           <button @click.stop="appendAttachment(slot)" title="新增attachment">image➕</button>
-          <!-- ****** 新增/刪除/排序 ****** -->
+          
+          <button @click.stop="appendAttachment(slot)" title="新增 Attachment" style="font-size:10px; margin-left:2px;">📎+</button>
+
           <span style="margin-left:auto;display:flex;gap:2px;font-size:12px">
-            <button @click.stop="moveSlot(idx,-1)" :disabled="idx===0"
-                    title="上移">⬆</button>
-            <button @click.stop="moveSlot(idx,1)"  :disabled="idx===node.slots.length-1"
-                    title="下移">⬇</button>
-            <button @click.stop="addSlot(idx)" title="在此處新增">➕</button>
-            <button @click.stop="deleteSlot(idx)" title="刪除">🗑</button>
-            
+            <button @click.stop="moveSlot(idx,-1)" :disabled="idx===0" title="上移 (Draw Order)">⬆</button>
+            <button @click.stop="moveSlot(idx,1)"  :disabled="idx===node.slots.length-1" title="下移 (Draw Order)">⬇</button>
+            <button @click.stop="addSlot(idx)" title="在此處插入新 Slot">➕</button>
+            <button @click.stop="deleteSlot(idx)" title="刪除 Slot">🗑</button>
           </span>
         </div>
 
-        <!-- 遞迴子骨 -->
         <tree-item v-for="c in node.children" :key="c.id"
                    :node="c" :expanded-nodes="expandedNodes"
                    :selected-item="selectedItem" :layers="layers"
@@ -1739,93 +1739,145 @@ const TreeItem = {
 
   methods: {
     toggleNode(id) { this.$emit('toggle-node', id); },
-    selectItem(item) { this.$emit('item-click', item); },
+    // 傳回完整的 item data 以便屬性面板使用
+    selectItem(payload) { this.$emit('item-click', payload); },
+
     toggleSlotVisible(slot) {
       slot.visible = !slot.visible;
       this.$emit('slot-visible-change', { slotId: slot.id, visible: slot.visible });
     },
+
     changeAttachment(slot, key) {
-      slot.attachmentKey = key || null;
-      slot.attachment = key ? slot.attachments[key] : null;
-      this.$emit('slot-attachment-change',
-        { slotId: slot.id, key, attachment: slot.attachment });
+      // 如果 key 為空字串，則視為 null (隱藏附件)
+      const validKey = key === "" ? null : key;
+      slot.attachmentKey = validKey;
+      // 這裡不需要手動設定 slot.attachment，這通常是在 Render Loop 中根據 key 去 attachments 查表
+      // 但為了編輯器方便，我們還是可以發送事件
+      this.$emit('slot-attachment-change', {
+        slotId: slot.id,
+        key: validKey,
+        attachment: validKey ? slot.attachments[validKey] : null
+      });
     },
 
-    /* **********  以下三個是新方法  ********** */
-    // 新增 slot：先問名字 → 再挑圖 → 推進陣列
+    /* ********** 核心邏輯修改區 ********** */
+
+    // 1. 新增 Slot：結構更接近 Spine
     addSlot(insertBeforeIdx) {
-      const name = prompt('新 slot 名稱：', 'newSlot');
-      if (!name) return; // 取消就什麼都不做
+      const name = prompt('新 Slot 名稱：', 'newSlot');
+      if (!name) return;
 
-      /* ====== 讓使用者「可跳過」選圖 ====== */
-      const items = glsInstance.layers.map((L, i) => `${i}:${L.name.value}`).join('\n');
-      const pick = prompt(
-        `選圖 index 當 default attachment（直接按 Cancel 或留空＝先不要綁圖）\n${items}`
-      );
+      // 選擇預設圖片 (Attachment)
+      // 注意：這依賴全域 glsInstance，建議未來改為 props 傳入 layer list
+      const items = (this.layers || []).map((L, i) => `${i}:${L.name.value}`).join('\n');
+      const pick = prompt(`選擇初始圖片 (Attachment) Index:\n${items}`);
       const idx = Number(pick);
-      const hasValidLayer = !Number.isNaN(idx) && glsInstance.layers[idx];
+      // 檢查是否為有效數字且圖層存在
+      const hasValidLayer = !Number.isNaN(idx) && this.layers && this.layers[idx];
 
+      // ====== Spine 風格結構 ======
       const newSlot = {
         id: `slot_${Date.now()}`,
-        name,
+        name: name,
+
+        // [重要] 綁定父骨骼 ID
+        boneId: this.node.id,
+
         visible: true,
-        attachmentKey: hasValidLayer ? 'default' : null,
-        attachment: null,
-        attachments: hasValidLayer
-          ? {
-            default: {
-              type: 'image',
-              name: 'default',
-              src: idx,
-              pivot: { x: 0.5, y: 0.5 }
-            }
-          }
-          : {}, // 先放空物件，之後再塞
+
+        // [重要] 混合模式 (Normal, Additive, Multiply, Screen)
+        blendMode: 'normal',
+
+        // 顏色與透明度
         color: { r: 1, g: 1, b: 1, a: 1 },
-        deform: {}
+
+        // 當前選中的附件 Key
+        attachmentKey: hasValidLayer ? 'default' : null,
+
+        // 附件庫 (類似 Skin)
+        attachments: {}
       };
 
-      // 把指標補上
-      if (hasValidLayer) newSlot.attachment = newSlot.attachments.default;
+      // 如果有選圖，建立標準 Region Attachment
+      if (hasValidLayer) {
+        newSlot.attachments['default'] = {
+          type: 'region',   // Spine 術語：圖片叫 region
+          name: 'default',
 
+          // 資源參照
+          refId: idx,       // 你的圖層 index
+          path: this.layers[idx].name.value,
+
+          // [重要] 變形屬性 (相對於 Bone 的 Offset)
+          x: 0,
+          y: 0,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          width: 100, // 預設寬
+          height: 100 // 預設高
+        };
+      }
+
+      // 插入 Slot 陣列
       this.node.slots.splice(insertBeforeIdx + 1, 0, newSlot);
       this.reorderDone();
     },
+
+    // 2. 新增 Attachment：支援 Transform 初始化
     appendAttachment(slot) {
-      const key = prompt('attachment key：', 'img1');
-      if (!key || slot.attachments[key]) return; // 重複 key 就擋掉
+      const key = prompt('新 Attachment Key (例如: happy_face)：', `img_${Object.keys(slot.attachments).length + 1}`);
+      if (!key || slot.attachments[key]) return;
 
-      const items = glsInstance.layers.map((L, i) => `${i}:${L.name.value}`).join('\n');
-      const pick = prompt(`選圖 index：\n${items}`);
+      const items = (this.layers || []).map((L, i) => `${i}:${L.name.value}`).join('\n');
+      const pick = prompt(`選擇圖片 Index:\n${items}`);
       const idx = Number(pick);
-      if (Number.isNaN(idx) || !glsInstance.layers[idx]) return;
 
-      this.$set(slot.attachments, key, {   // Vue2 需要響應式
-        type: 'image',
+      if (Number.isNaN(idx) || !this.layers || !this.layers[idx]) return;
+
+      // 使用 Vue.set 或解構賦值以觸發響應更新
+      const newAttachment = {
+        type: 'region',
         name: key,
-        src: idx,
-        pivot: { x: 0.5, y: 0.5 }
-      });
+        refId: idx,
+        path: this.layers[idx].name.value,
+        // 初始化 Transform
+        x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1,
+        width: 100, height: 100
+      };
+
+      // 為了確保 Vue 偵測到物件變更，重新賦值整個 attachments 物件
+      slot.attachments = {
+        ...slot.attachments,
+        [key]: newAttachment
+      };
+
+      console.log(`Slot [${slot.name}] added attachment [${key}]`);
+
+      // 自動切換到新圖片
+      this.changeAttachment(slot, key);
     },
+
     deleteSlot(idx) {
-      if (!confirm(`刪除 slot「${this.node.slots[idx].name}」？`)) return;
+      if (!confirm(`確定刪除 Slot「${this.node.slots[idx].name}」？`)) return;
       this.node.slots.splice(idx, 1);
       this.reorderDone();
     },
 
-    moveSlot(idx, dir /* -1 or 1 */) {
+    moveSlot(idx, dir) {
       const arr = this.node.slots;
       const newIdx = idx + dir;
       if (newIdx < 0 || newIdx >= arr.length) return;
-      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]]; // swap
+
+      // 交換位置 (Draw Order 改變)
+      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
       this.reorderDone();
     },
 
-    // 統一告訴外層「順序變了」
     reorderDone() {
       this.$emit('slot-reorder', {
         boneId: this.node.id,
-        slots: [...this.node.slots]   // 把最新順序丟出去
+        slots: [...this.node.slots] // 傳回新的 Shallow Copy
       });
     }
   }

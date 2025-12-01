@@ -111,28 +111,42 @@ body {
 }
 
 .canvas-area {
+    /* 佈局設定：讓畫布置中 */
     flex: 1;
-    background-color: #2a2a2a;
-    overflow: auto;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+
+
+    cursor: grab;
+}
+
+.canvas-area:active {
+    cursor: grabbing;
+}
+
+/* 這是用來包裹 Canvas 進行 transform 的容器 */
+.canvas-viewport {
+    transform-origin: 0 0;
+    /* 移除原本的 width/height: 100% 以配合置中 */
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .image-container {
-    position: relative;
-    width: 100%;
-    /* 讓容器適應頁面 */
-    height: 100%;
-    max-width: 800px;
-    /* 可依需求調整 */
-    max-height: 800px;
-    /* 可依需求調整 */
-    margin: auto;
-    background-color: rgba(189, 185, 185, 0.323);
-    overflow: auto;
-    /* 設置網格背景 */
-    background-image:
+    /* 移除原本這裡的背景設定，保持乾淨 */
+    margin: 0;
+    transform-origin: 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+        /* 背景設定：原本在 image-container 的網格移到這裡 */
+    background-color: #6a6a6a;
+        background-image:
         linear-gradient(to right, rgba(0, 0, 0, 0.2) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(0, 0, 0, 0.2) 1px, transparent 1px),
         linear-gradient(to right, rgba(0, 0, 0, 0.5) 1px, transparent 1px),
@@ -141,9 +155,26 @@ body {
 }
 
 .image-canvas {
-    width: 100%;
-    height: auto;
+    /* Full Body 關鍵：限制最大寬高 */
     display: block;
+    max-width: 95vw;
+    max-height: 95vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5); /* 增加立體感 */
+}
+
+.canvas-area:active {
+    cursor: grabbing;
+}
+
+/* 右側面板容器，讓它彈性伸縮 */
+.right-panel-container {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* 寬度將由 JS 控制 */
 }
 
 .overlay-canvas {
@@ -746,4 +777,32 @@ body {
 
 .vertex-btn-group button:hover {
   background-color: #e0e0e0; /* 滑過時有反應 */
+}
+
+.resizer-col {
+    width: 5px;
+    background-color: #1a1a1a;
+    cursor: col-resize;
+    z-index: 10;
+    transition: background-color 0.2s;
+    border-left: 1px solid #3a3a3a;
+    border-right: 1px solid #3a3a3a;
+}
+
+.resizer-col:hover, .resizer-col.active {
+    background-color: #0078d7; /* 拖動時變色 */
+}
+
+.resizer-row {
+    height: 5px;
+    background-color: #1a1a1a;
+    cursor: row-resize;
+    z-index: 10;
+    transition: background-color 0.2s;
+    border-top: 1px solid #3a3a3a;
+    border-bottom: 1px solid #3a3a3a;
+}
+
+.resizer-row:hover, .resizer-row.active {
+    background-color: #0078d7;
 }

@@ -1,46 +1,105 @@
 <!-- editor.html -->
-<div>
-  <h1>mesh editor</h1>
-  <div class="main-container">
-    <div class="toolbar">
-      <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" @click="selectTool('grab-point')"
-        @contextmenu.prevent>grab-point</button>
-      <button class="tool-btn" :class="{ active: activeTool === 'select-points' }" @click="selectTool('select-points')"
-        @contextmenu.prevent>select-points</button>
-      <button class="tool-btn" :class="{ active: activeTool === 'add-points' }" @click="selectTool('add-points')"
-        @contextmenu.prevent>add-points</button>
-      <button class="tool-btn" :class="{ active: activeTool === 'edit-points' }" @click="selectTool('edit-points')"
-        @contextmenu.prevent>edit-points</button>
-      <button class="tool-btn" :class="{ active: activeTool === 'link-points' }" @click="selectTool('link-points')"
-        @contextmenu.prevent>link-points</button>
-      <button class="tool-btn" :class="{ active: activeTool === 'delete-edge' }" @click="selectTool('delete-edge')"
-        @contextmenu.prevent>delete-edge</button>
-      <button class="tool-btn" :class="{ active: activeTool === 'remove-points' }" @click="selectTool('remove-points')"
-        @contextmenu.prevent>remove-points</button>
-      <button class="tool-btn" :class="{ active: activeTool === 'remove-all-points' }"
-        @click="selectTool('remove-all-points')" @contextmenu.prevent>remove-all-points</button>
-      <button class="tool-btn" :class="{ active: activeTool === 'edit-boundary' }" @click="selectTool('edit-boundary')"
-        @contextmenu.prevent>edit-boundarys</button>
-    </div>
-    <div class="canvas-area" @contextmenu.prevent>
-      <div class="image-container" ref="imageContainer" @contextmenu.prevent>
+<div style="display: flex; height: 100vh; overflow: hidden; flex-direction: column;">
+  <div class="header">
+    <h1>Mesh Editor</h1>
+  </div>
+  
+  <div class="main-container" style="display: flex; flex: 1; overflow: hidden;">
+    
+    <div class="toolbar" style="overflow-y: auto; flex-shrink: 0;">
+      <button class="tool-btn" @click="camera.x=0; camera.y=0; camera.zoom=1" title="Reset View" style="font-size: 10px;">
+        Reset
+      </button>
 
-        <canvas class="image-canvas" id="webgl2" width="640" height="480" @contextmenu.prevent></canvas>
+      <hr style="width: 80%; border-color: #555; margin: 5px 0;">
+
+      <button class="tool-btn" :class="{ active: activeTool === 'grab-point' }" 
+              @click="selectTool('grab-point')" @contextmenu.prevent title="Grab Point">
+        Grab
+      </button>
+      
+      <button class="tool-btn" :class="{ active: activeTool === 'select-points' }" 
+              @click="selectTool('select-points')" @contextmenu.prevent title="Select Points">
+        Sel
+      </button>
+      
+      <button class="tool-btn" :class="{ active: activeTool === 'add-points' }" 
+              @click="selectTool('add-points')" @contextmenu.prevent title="Add Points">
+        Add
+      </button>
+      
+      <button class="tool-btn" :class="{ active: activeTool === 'edit-points' }" 
+              @click="selectTool('edit-points')" @contextmenu.prevent title="Edit Points">
+        Edit
+      </button>
+      
+      <button class="tool-btn" :class="{ active: activeTool === 'link-points' }" 
+              @click="selectTool('link-points')" @contextmenu.prevent title="Link Points">
+        Link
+      </button>
+      
+      <button class="tool-btn" :class="{ active: activeTool === 'delete-edge' }" 
+              @click="selectTool('delete-edge')" @contextmenu.prevent title="Delete Edge">
+        Del E
+      </button>
+      
+      <button class="tool-btn" :class="{ active: activeTool === 'remove-points' }" 
+              @click="selectTool('remove-points')" @contextmenu.prevent title="Remove Point">
+        Rm P
+      </button>
+      
+      <button class="tool-btn" :class="{ active: activeTool === 'remove-all-points' }" 
+              @click="selectTool('remove-all-points')" @contextmenu.prevent title="Remove All">
+        Rm All
+      </button>
+      
+      <button class="tool-btn" :class="{ active: activeTool === 'edit-boundary' }" 
+              @click="selectTool('edit-boundary')" @contextmenu.prevent title="Edit Boundary">
+        Bound
+      </button>
+    </div>
+
+    <div class="canvas-area" 
+         @wheel.prevent="handleWheel" 
+         @mousedown="handlePan"
+         style="flex: 1; position: relative; overflow: hidden; 
+            display: flex; 
+            align-items: flex-start; /* ✅ 修改這裡：從 center 改為 flex-start (靠上) */
+            justify-content: center; /* 保持水平置中 */
+            padding-top: 20px;       /* ✅ 建議：加上一點頂部留白，比較好看 */
+            ">
+      
+      <div class="canvas-viewport" 
+           :style="{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }"
+           style="transform-origin: 0 0;">
+        
+        <div class="image-container" ref="imageContainer">
+          <canvas class="image-canvas" id="webgl2" width="640" height="480" @contextmenu.prevent
+                  style="display: block; max-width: 95vw; max-height: 95vh; width: auto; height: auto; object-fit: contain; box-shadow: 0 0 20px rgba(0,0,0,0.5);">
+          </canvas>
+        </div>
       </div>
     </div>
+    <div class="resizer-col" 
+         @mousedown.prevent="startResize('right-panel', $event)">
+    </div>
 
-    <div style="display: flex; flex-direction: column;">
-      <!-- 圖層面板 -->
-      <div class="panel-section layers-section" style="height:200px; flex: 0 0 200px;">
+    <div class="right-panel-container" 
+         :style="{ width: layoutState.rightPanelWidth + 'px' }"
+         style="flex: none; display: flex; flex-direction: column;">
+      
+      <div class="panel-section layers-section" 
+           :style="{ height: layoutState.layersHeight + 'px' }"
+           style="flex: none; display: flex; flex-direction: column;">
+        
         <div class="panel-title">圖層</div>
-        <div class="layers-content">
+        <div class="layers-content" style="flex: 1; overflow-y: auto;">
           <div class="layers-container">
             <div id="layerContainer"></div>
-            <span>{{ showLayers?.length }}</span>
+            <div style="padding: 5px; color: #888; font-size: 12px;">Layers: {{ showLayers?.length }}</div>
+            
             <div v-for="(layer, index) in showLayers" :key="index" class="layer-item">
-              <!-- 勾選控制顯示/隱藏 -->
               <input type="checkbox" :value="index" v-model="selectedLayers" />
-              <!-- 點擊名稱選擇圖層 -->
               <span class="layer-name" :class="{ active: chosenLayers.includes(index) }"
                 @click="toggleLayerSelection(index)">
                 圖層 {{ layer.name }}
@@ -50,31 +109,41 @@
         </div>
       </div>
 
-      <!-- Mesh Attachments 面板 -->
-      <div class="panel-section mesh-section" style="height:100px; flex: 0 0 400px;">
+      <div class="resizer-row" 
+           @mousedown.prevent="startResize('layer-height', $event)">
+      </div>
+
+      <div class="panel-section mesh-section" 
+           style="flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;">
+           
         <div class="panel-title">Mesh Attachments</div>
-        <div class="mesh-content">
+        <div class="mesh-content" style="padding: 5px;">
           <div class="mesh-container">
-            <div class="vertex-btn-group">
-              <button @click="addMesh">+</button>
+            <div class="vertex-btn-group" style="margin-bottom: 5px;">
+              <button @click="addMesh" class="btn-secondary" style="width: 100%">Add Mesh +</button>
             </div>
             Mesh attachments 內容 {{meshs.length}}
             <div v-for="(mesh, index) in meshs" :key="index + '_mesh'" class="layer-item">
               <input type="checkbox" :value="index" v-model="selectedMesh" />
-              <span class="layer-name" :class="{ active:  chosenMesh.includes(index) }"
-                @click="toggleMeshSelection(index)">Mesh {{ index + 1 }}: {{ mesh.name }} -name: {{ mesh.image.name }}
+              <span class="layer-name" :class="{ active: chosenMesh.includes(index) }"
+                @click="toggleMeshSelection(index)">
+                Mesh {{ index + 1 }}: {{ mesh.name }}
               </span>
             </div>
-            <br> something here!
           </div>
-          <button @click="fitLayerBoundary">fit Layer Boundary</button>
-          <button @click="fitLayerBoundary2">fit Layer Boundary test</button>
+          <hr style="border-color: #444; margin: 10px 0;">
+          <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+            <button @click="fitLayerBoundary" style="flex: 1; font-size: 11px;">Fit Boundary</button>
+            <button @click="fitLayerBoundary2" style="flex: 1; font-size: 11px;">Fit Bound 2</button>
+          </div>
         </div>
       </div>
+
     </div>
-
-
-    
   </div>
-  <div v-if="mousePosition"> mouse at: {{ Math.round(mousePosition.mouseWorldX) }}, {{ Math.round(mousePosition.mouseWorldY) }}</div>
+  
+  <div v-if="mousePosition" class="status-bar" style="background: #1a1a1a; color: #aaa; padding: 2px 10px; font-size: 11px; border-top: 1px solid #333;"> 
+    Pos: {{ Math.round(mousePosition.mouseWorldX) }}, {{ Math.round(mousePosition.mouseWorldY) }} 
+    | Zoom: {{ Math.round(camera.zoom * 100) }}%
+  </div>
 </div>

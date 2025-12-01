@@ -1,6 +1,6 @@
 //allEditor.js
 import { useCounterStore } from './mesh.js';
-const { defineComponent, ref, onMounted, onUnmounted, h, nextTick, inject, computed, watch } = Vue;
+const { defineComponent, ref, onMounted, onUnmounted, h, nextTick, inject, computed, watch, reactive } = Vue;
 import {
   globalVars as v, triggerRefresh, loadHtmlPage, convertToNDC, mousePressed, isShiftPressed, forceUpdate, initGlAlready,
   wholeImageWidth,
@@ -208,7 +208,7 @@ export const allEditor = defineComponent({
 
 
           } else if (activeTool.value === 'select-points') {
-            bonesInstance.handleSelectPointsMouseDown(xNDC, yNDC,x,y);
+            bonesInstance.handleSelectPointsMouseDown(xNDC, yNDC, x, y);
             isDragging = true;
 
           }
@@ -258,7 +258,7 @@ export const allEditor = defineComponent({
 
         } else if (activeTool.value === 'select-points') {
           if (isDragging)
-            bonesInstance.handleSelectPointsMouseMove(xNDC, yNDC, x,y);
+            bonesInstance.handleSelectPointsMouseMove(xNDC, yNDC, x, y);
 
         }
 
@@ -312,7 +312,7 @@ export const allEditor = defineComponent({
         }
         else if (activeTool.value === 'select-points') {
           if (isDragging) {
-            bonesInstance.handleSelectPointsMouseUp(xNDC, yNDC, currentChosedLayer.value, isShiftPressed.value, isCtrlPressed.value,x,y);
+            bonesInstance.handleSelectPointsMouseUp(xNDC, yNDC, currentChosedLayer.value, isShiftPressed.value, isCtrlPressed.value, x, y);
             isDragging = false;
           }
         }
@@ -662,10 +662,50 @@ export const allEditor = defineComponent({
 
 
     });
-    onUnmounted(async () => {
-      console.log("bye~ page");
-    });
+    const startResize = (type, event) => {
+      layoutState.isResizing = true;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startWidth = layoutState.rightPanelWidth;
+      const startHeight = layoutState.layersHeight;
 
+      const onMouseMove = (moveEvent) => {
+        if (type === 'right-panel') {
+          // 向左拖動會增加寬度，所以是 startX - currentX
+          const deltaX = startX - moveEvent.clientX;
+          layoutState.rightPanelWidth = Math.max(150, Math.min(600, startWidth + deltaX));
+        } else if (type === 'layer-height') {
+          const deltaY = moveEvent.clientY - startY;
+          layoutState.layersHeight = Math.max(100, Math.min(500, startHeight + deltaY));
+        }
+      };
+
+      const onMouseUp = () => {
+        layoutState.isResizing = false;
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+    const slotVisibleChange = () => {
+      console.log("hi slotVisibleChange ");
+    };
+    const slotAttachmentChange = () => {
+      console.log("hi slotAttachmentChange ");
+    };
+    const slotReorder = () => {
+      console.log("hi slotReorder");
+    };
+    const layoutState = reactive({
+      rightPanelWidth: 280,
+      layersHeight: 200,
+      // 如果需要更多垂直調整，可以加更多變數，例如 propsHeight
+    });
+    const layers = computed(() => {
+  return glsInstance.layers || [];
+});
     onUnmounted(() => {
       console.log("unmount edit page, cleaning up gl context...");
       if (gl.value) {
@@ -676,6 +716,7 @@ export const allEditor = defineComponent({
         setCurrentJobName("exit");
       }
     });
+    
     return () =>
       renderFn.value
         ? renderFn.value({
@@ -727,7 +768,13 @@ export const allEditor = defineComponent({
           firstImage,
           onLayerCheckChange,
           onLayerCheckChange2,
-          testCountQQ
+          testCountQQ,
+          startResize,
+          layoutState,
+          slotVisibleChange,
+          slotAttachmentChange,
+          slotReorder,
+          layers
         })
         : h('div', '載入中...');
   },

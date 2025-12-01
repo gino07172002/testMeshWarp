@@ -1,6 +1,6 @@
 //Editor.js
 import { useCounterStore, Mesh2D } from './mesh.js';
-const { defineComponent, ref, onMounted, onUnmounted, h, nextTick, inject, computed } = Vue;
+const { defineComponent, ref, onMounted, onUnmounted, h, nextTick, inject, computed, reactive } = Vue;
 import {
   globalVars as v,
   triggerRefresh,
@@ -491,7 +491,7 @@ export const meshEditor = defineComponent({
       beforePasses.push(
         makeRenderPass(
           render,
-          gl.value, program.value,  glsInstance.refLayers, selectedLayers)
+          gl.value, program.value, glsInstance.refLayers, selectedLayers)
       )
 
 
@@ -554,6 +554,131 @@ export const meshEditor = defineComponent({
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers, passes, "edit", beforePasses);
 
     });
+    const layoutState = reactive({
+      rightPanelWidth: 300, // 右側面板初始寬度
+      layersHeight: 250,    // 圖層區塊初始高度
+      isResizing: false
+    });
+
+    // 處理拖曳手柄
+    const startResize = (type, event) => {
+      layoutState.isResizing = true;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startWidth = layoutState.rightPanelWidth;
+      const startHeight = layoutState.layersHeight;
+
+      const onMouseMove = (moveEvent) => {
+        if (type === 'right-panel') {
+          // 向左拖動會增加寬度，所以是 startX - currentX
+          const deltaX = startX - moveEvent.clientX;
+          layoutState.rightPanelWidth = Math.max(150, Math.min(600, startWidth + deltaX));
+        } else if (type === 'layer-height') {
+          const deltaY = moveEvent.clientY - startY;
+          layoutState.layersHeight = Math.max(100, Math.min(500, startHeight + deltaY));
+        }
+      };
+
+      const onMouseUp = () => {
+        layoutState.isResizing = false;
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+    
+    const getCorrectedNDC = (e, canvas) => {
+      const rect = canvas.getBoundingClientRect();
+
+      // 1. 取得滑鼠在 Canvas DOM 元素上的像素位置 (尚未考慮縮放)
+      // 注意：這裡假設 canvas 的 CSS transform 是由父層 .canvas-viewport 控制的
+      // 如果直接 transform canvas，rect 會是被縮放後的大小
+
+      // 我們改用 event.clientX 減去 容器的偏移，再扣除 camera 的位移，除以 zoom
+      const container = canvas.closest('.canvas-area');
+      const containerRect = container.getBoundingClientRect();
+
+      // 滑鼠相對於 canvas-area 左上角的像素位置
+      const mouseXInContainer = e.clientX - containerRect.left;
+      const mouseYInContainer = e.clientY - containerRect.top;
+
+      // 轉換為相對於「實際畫布內容」的像素位置 (反向應用平移與縮放)
+      const contentX = (mouseXInContainer - camera.x) / camera.zoom;
+      const contentY = (mouseYInContainer - camera.y) / camera.zoom;
+
+      // 接著轉為 NDC (-1 ~ 1)
+      // 假設畫布的渲染尺寸是 canvas.width / canvas.height
+      const xNDC = (contentX / canvas.width) * 2 - 1;
+      const yNDC = 1 - (contentY / canvas.height) * 2; // WebGL Y 軸向上，DOM 向下
+
+      return { x: xNDC, y: yNDC };
+    };
+
+    // 處理滑鼠滾輪縮放
+    const handleWheel = (e) => {
+      if (!e.altKey && !e.ctrlKey && activeTool.value !== 'move-view') {
+        // 如果沒有按特殊鍵，你可以選擇是否要攔截，這裡示範直接縮放
+      }
+
+      const zoomIntensity = 0.1;
+      const direction = e.deltaY > 0 ? -1 : 1;
+      const factor = 1 + (zoomIntensity * direction);
+
+      // 計算縮放前的滑鼠在「內容世界」的相對位置，讓縮放以滑鼠為中心
+      const container = document.querySelector('.canvas-area');
+      const rect = container.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const worldX = (mouseX - camera.x) / camera.zoom;
+      const worldY = (mouseY - camera.y) / camera.zoom;
+
+      // 更新 Zoom
+      const newZoom = Math.max(0.1, Math.min(5.0, camera.zoom * factor));
+      camera.zoom = newZoom;
+
+      // 更新 Pan (補償位移)
+      camera.x = mouseX - worldX * newZoom;
+      camera.y = mouseY - worldY * newZoom;
+    };
+
+    // 處理中鍵平移 (Pan)
+    // 修改後的 handlePan：只允許中鍵拖曳
+    const handlePan = (e) => {
+      // e.button === 1 代表中鍵 (滾輪鍵)
+      if (e.button === 1) {
+        e.preventDefault(); // 防止瀏覽器預設的捲動圖示出現
+
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startCamX = camera.x;
+        const startCamY = camera.y;
+
+        const onMouseMove = (moveE) => {
+          // 更新相機位置
+          camera.x = startCamX + (moveE.clientX - startX);
+          camera.y = startCamY + (moveE.clientY - startY);
+        };
+
+        const onMouseUp = () => {
+          // 放開滑鼠後移除監聽
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+        };
+
+        // 綁定到 window 以確保拖曳出畫布範圍也能偵測
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+      }
+    };
+    // --- 2. 畫布相機控制 (Camera Logic) ---
+    const camera = reactive({
+      x: 0,
+      y: 0,
+      zoom: 1.0
+    });
 
     onUnmounted(() => {
       console.log("unmount edit page, cleaning up gl context...");
@@ -584,7 +709,12 @@ export const meshEditor = defineComponent({
           selectedMesh,
           fitLayerBoundary,
           fitLayerBoundary2,
-          mousePosition
+          mousePosition,
+          layoutState,
+          camera,
+          handleWheel,
+          handlePan,
+          startResize
         })
         : h('div', '載入中...');
 
