@@ -1248,29 +1248,43 @@ export const setCurrentJobName = (jobName) => {
   currentJobName.value = jobName;
 }
 var time = 0;
+// useWebGL.js
+
 export const render2 = (gl, program, colorProgram, skeletonProgram, renderLayer, selectedLayers, passes, jobName, beforePasses) => {
   if (currentJobName.value != jobName) {
     console.log("stop running ");
     return;
   }
 
-  // console.log("selectedLayers.value, in render2: ", selectedLayers);
+  // ==========================================
+  // 🔥 修正開始：每一幀都必須先清除畫布
+  // ==========================================
+  // 設定背景顏色 (R, G, B, A)，這裡設為深灰色，避免透明圖層疊加造成視覺混亂
+  gl.clearColor(0.0, 0.0, 0.0, 0.0);
+  
+  // 清除 顏色緩衝區 (畫面) 與 深度緩衝區
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  // ==========================================
+  // 🔥 修正結束
+  // ==========================================
+
   time += 0.016;
+  
   if (beforePasses)
     for (const pass of beforePasses) {
-      pass(); // 每個 pass 內的參數已事先綁好
+      pass(); 
     }
-
 
   let res = render(gl, program, renderLayer, selectedLayers);
 
   if (res === false) {
     return;
   }
+  
   // === 在所有圖層之後渲染格線/骨架 ===
   if (passes)
     for (const pass of passes) {
-      pass(); // 每個 pass 內的參數已事先綁好
+      pass(); 
     }
 
   // 下一幀
@@ -2775,7 +2789,91 @@ export const getClosestVertex = (xNDC, yNDC, vertices) => {
 
   return localSelectedVertex;
 }
+export const restoreWebGLResources = async (newGl) => {
+  console.log("♻️ Restoring WebGL resources (Fix Black Screen)...");
 
+  // 1. 修復紋理 (Textures)
+  // 關鍵：直接遍歷現有的 texture.value，利用裡面暫存的 image 資料重建 GPU 紋理
+  if (texture.value && texture.value.length > 0) {
+    const processed = new Set(); // 用來避免重複處理共用的紋理 (addMesh 複製的圖層會共用同一個 texInfo 物件)
+
+    for (let i = 0; i < texture.value.length; i++) {
+      const texInfo = texture.value[i];
+      
+      // 如果這個紋理物件已經處理過（被其他圖層共用），就跳過，因為它的 .tex 已經更新了
+      if (!texInfo || processed.has(texInfo)) continue;
+
+      // 在新的 Context 建立新紋理
+      const newTex = newGl.createTexture();
+      newGl.bindTexture(newGl.TEXTURE_2D, newTex);
+      newGl.pixelStorei(newGl.UNPACK_FLIP_Y_WEBGL, true);
+
+      // 重新上傳圖片資料 (資料在 texInfo.image 裡，這是 JS 變數所以不會消失)
+      if (texInfo.image) {
+         // 判斷資料類型
+         if (texInfo.image instanceof Uint8Array || texInfo.image instanceof Uint8ClampedArray) {
+             // PSD 或 Raw Data
+             newGl.texImage2D(newGl.TEXTURE_2D, 0, newGl.RGBA, texInfo.width, texInfo.height, 0, newGl.RGBA, newGl.UNSIGNED_BYTE, texInfo.image);
+         } else {
+             // HTMLImageElement / Canvas
+             newGl.texImage2D(newGl.TEXTURE_2D, 0, newGl.RGBA, newGl.RGBA, newGl.UNSIGNED_BYTE, texInfo.image);
+         }
+         
+         // 設定參數
+         newGl.texParameteri(newGl.TEXTURE_2D, newGl.TEXTURE_WRAP_S, newGl.CLAMP_TO_EDGE);
+         newGl.texParameteri(newGl.TEXTURE_2D, newGl.TEXTURE_WRAP_T, newGl.CLAMP_TO_EDGE);
+         newGl.texParameteri(newGl.TEXTURE_2D, newGl.TEXTURE_MIN_FILTER, newGl.LINEAR);
+         newGl.texParameteri(newGl.TEXTURE_2D, newGl.TEXTURE_MAG_FILTER, newGl.LINEAR);
+      }
+      
+      newGl.bindTexture(newGl.TEXTURE_2D, null);
+
+      // 🔥 關鍵：更新舊物件的 .tex 屬性，指向新的 GPU Handle
+      // 這樣所有參照到這個 texInfo 的圖層（包含 addMesh 的）都會自動指向新紋理
+      texInfo.tex = newTex;
+      
+      processed.add(texInfo);
+    }
+  }
+
+  // 2. 重建幾何緩衝 (VBO/EBO)
+  // 遍歷 glsInstance.layers (包含 addMesh 新增的圖層)
+  for (let i = 0; i < glsInstance.layers.length; i++) {
+    const layer = glsInstance.layers[i];
+    
+    // 只要圖層有頂點數據，就幫它在新的 GL 上下文中申請 Buffer
+    if (layer.vertices.value && layer.vertices.value.length > 0) {
+        const { vbo, ebo, eboLines } = glsInstance.createWebGLBuffers(
+            newGl,
+            layer.vertices.value,
+            layer.indices.value,
+            layer.linesIndices.value
+        );
+        // 更新 layer 的 buffer 參照
+        layer.vbo = vbo;
+        layer.ebo = ebo;
+        layer.eboLines = eboLines;
+    }
+  }
+
+  // 3. 重建參考圖層 (RefLayers) 的 Buffer
+  for (let i = 0; i < glsInstance.refLayers.length; i++) {
+     const layer = glsInstance.refLayers[i];
+     if (layer.vertices.value && layer.vertices.value.length > 0) {
+        const { vbo, ebo, eboLines } = glsInstance.createWebGLBuffers(
+            newGl,
+            layer.vertices.value,
+            layer.indices.value,
+            layer.linesIndices.value
+        );
+        layer.vbo = vbo;
+        layer.ebo = ebo;
+        layer.eboLines = eboLines;
+     }
+  }
+
+  console.log(`✅ WebGL Resources restored. Textures count: ${texture.value.length}, Layers count: ${glsInstance.layers.length}`);
+}
 //外部引用
 // 📤 模組導出 (Exports)
 export {

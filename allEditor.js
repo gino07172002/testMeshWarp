@@ -52,6 +52,7 @@ import {
   clearTexture,
   pngLoadTexture,
   layerForTextureWebgl,
+  restoreWebGLResources
 } from './useWebGL.js';
 
 import glsInstance from './useWebGL.js';
@@ -592,14 +593,25 @@ export const allEditor = defineComponent({
       drawGlCanvas();
       console.log("is gl already init? ", initGlAlready.value);
       if (!initGlAlready.value) {
+        // === 第一次載入 ===
         lastLoadedImageType.value = 'png';
         clearTexture(selectedLayers);
         await pngLoadTexture('./png3.png')
         initGlAlready.value = true;
-      }
-      await initAnything();
+        await initAnything();
+      } else {
+        // === 頁面切換回來 (包含 addMesh 新增的圖層) ===
+        console.log("🔄 Restoring layers in AllEditor...");
 
-      await bindGl(selectedLayers);
+        // 呼叫恢復函式，而不是 initAnything/pngRenderAgain
+        await restoreWebGLResources(gl.value);
+ }
+        // 確保 GL 狀態綁定
+        await bindGl(selectedLayers);
+
+        // 更新 UI 列表
+        showLayers.value = glsInstance.layers;
+     
       const passes = [];
 
       // 根據模式動態加入 pass
@@ -629,17 +641,9 @@ export const allEditor = defineComponent({
       // === 骨架渲染（所有模式都要）===
 
       passes.push(
-        /*
         makeRenderPass(
-          renderMeshSkeleton,
-          gl.value,
-          skeletonProgram.value,
-          meshSkeleton,
-          bonesInstance,
-          mousePressed,
-          activeTool
-        )
-          */
+           () => bonesInstance.updateSlotAttachments()
+        ),
         makeRenderPass(
           renderMeshSkeleton2,
           gl.value,
@@ -704,8 +708,8 @@ export const allEditor = defineComponent({
       // 如果需要更多垂直調整，可以加更多變數，例如 propsHeight
     });
     const layers = computed(() => {
-  return glsInstance.layers || [];
-});
+      return glsInstance.layers || [];
+    });
     onUnmounted(() => {
       console.log("unmount edit page, cleaning up gl context...");
       if (gl.value) {
@@ -716,7 +720,7 @@ export const allEditor = defineComponent({
         setCurrentJobName("exit");
       }
     });
-    
+
     return () =>
       renderFn.value
         ? renderFn.value({

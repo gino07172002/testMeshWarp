@@ -825,7 +825,70 @@ class Bones {
     layer.vertices.value = new Float32Array(vertices);
     forceUpdate();
   }
+updateSlotAttachments() {
+    skeletons.forEach(skeleton => {
+      skeleton.forEachBone(bone => {
+        if (!bone.slots || bone.slots.length === 0) return;
 
+        // 取得骨骼當前的 Pose 變換 (Pixel 世界座標)
+        const boneTransform = bone.getGlobalPoseTransform();
+        
+        bone.slots.forEach(slot => {
+          const attachmentName = slot.attachmentKey;
+          if (!attachmentName) return;
+          
+          const attachment = slot.attachments[attachmentName];
+          if (!attachment) return;
+
+          const layerId = attachment.refId;
+          const layer = glsInstance.layers[layerId];
+          
+          // 確保 transformParams 存在
+          if (layer && layer.transformParams) {
+            
+            // 1. 取得 Attachment 偏移量
+            const offsetX = attachment.x || 0;
+            const offsetY = attachment.y || 0;
+            const offsetRotation = (attachment.rotation || 0) * (Math.PI / 180); 
+
+            const boneRotation = boneTransform.rotation;
+            
+            const cos = Math.cos(boneRotation);
+            const sin = Math.sin(boneRotation);
+            
+            // 旋轉偏移量
+            const rotatedX = offsetX * cos - offsetY * sin;
+            const rotatedY = offsetX * sin + offsetY * cos;
+
+            // 2. 計算世界中心點 (Pixel)
+            const worldCenterX = boneTransform.head.x + rotatedX;
+            const worldCenterY = boneTransform.head.y + rotatedY;
+
+            const finalRotation = boneRotation + offsetRotation;
+
+            // === 修正重點：從 transformParams 讀取寬高 ===
+            // 避免 layer.width 為 undefined 導致 NaN
+            const w = layer.transformParams.width || 100;
+            const h = layer.transformParams.height || 100;
+
+            // 更新參數
+            layer.transformParams.rotation = -finalRotation;
+            layer.transformParams.left = worldCenterX - w / 2;
+            layer.transformParams.top = worldCenterY - h / 2;
+            
+            layer.transformParams.right = layer.transformParams.left + w;
+            layer.transformParams.bottom = layer.transformParams.top + h;
+
+            layer.visible = slot.visible;
+            
+            if (slot.color) {
+               layer.opacity = { value: slot.color.a };
+            }
+          }
+        });
+      });
+    });
+  }
 }
 
 // ✅ 匯出

@@ -1188,6 +1188,74 @@ const app = Vue.createApp({
       layer.vertexGroup.value = Array.from(vertexGroupMap.values());
       console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
       console.log(`Average bones per vertex: ${layer.vertexGroup.value.reduce((sum, g) => sum + g.vertices.length, 0) / vertexCount}`);
+      // -------------------------------------------------------------
+      // ✨ 新增程式碼：將 Layer 轉換為 Root Bone 下的 Slot 與 Attachment
+      // -------------------------------------------------------------
+
+      // 1. 取得根骨骼 (通常是 skeleton 的第一個骨骼，或是 parent 為 null/-1 的骨骼)
+      // 這裡假設 skeletons[0] 是當前操作的骨架
+      const currentSkeleton = skeletons[0];
+      const rootBone = currentSkeleton.bones[0]; // 簡單取第0個作為 Root，你可以根據需求改為遍歷查找 parent===null 的骨骼
+
+      if (rootBone) {
+        // 確保 rootBone 有 slots 陣列
+        if (!rootBone.slots) {
+          rootBone.slots = [];
+        }
+
+        // 定義 Slot 和 Attachment 的名稱
+        const layerName = layer.name.value || `Layer_${currentChosedLayer.value}`;
+        const slotName = `${layerName}_Slot`;
+
+        // 檢查是否已經存在同名的 Slot，避免重複添加
+        const existingSlotIndex = rootBone.slots.findIndex(s => s.name === slotName);
+
+        // 建立 Attachment 物件 (對應 Spine 的 Region Attachment 或 Mesh Attachment)
+        // 注意：refId 必須對應到 glsInstance 中的 layer index，這樣渲染器才知道要畫哪張圖
+        const newAttachment = {
+          type: 'region',       // 或者 'mesh'，視你的渲染器實作定義
+          name: layerName,      // Attachment 名稱
+          refId: currentChosedLayer.value, // 關鍵：關聯到 WebGL 的 Layer ID
+          path: layerName,      // 圖片路徑或名稱
+
+          // 初始變形資料 (相對於骨骼，因為是綁定時建立，通常設為歸零或對應圖層初始位置)
+          // 如果你的系統支援將圖層的世界座標轉為骨骼的局部座標，這裡需要計算 offset
+          x: 0,
+          y: 0,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          width: layer.width || 100,
+          height: layer.height || 100
+        };
+
+        // 建立 Slot 物件
+        const newSlot = {
+          id: `slot_${Date.now()}`,
+          name: slotName,
+          boneId: rootBone.id, // 標記這個 Slot 屬於 Root Bone
+          visible: true,
+          blendMode: layer.blendMode || 'normal',
+          color: { r: 1, g: 1, b: 1, a: 1 },
+          attachmentKey: layerName, // 預設選中剛建立的 attachment
+          attachments: {
+            [layerName]: newAttachment // 將 attachment 放入 map 中
+          }
+        };
+
+        if (existingSlotIndex !== -1) {
+          // 如果 Slot 已存在，則更新它 (例如重新綁定權重後更新資訊)
+          console.log(`Updating existing slot: ${slotName}`);
+          rootBone.slots[existingSlotIndex] = newSlot;
+        } else {
+          // 如果 Slot 不存在，則推入新的
+          console.log(`Creating new slot for layer: ${layerName} on Root Bone`);
+          rootBone.slots.push(newSlot);
+        }
+
+        // 強制更新 UI (因為 Vue 有時監聽不到深層物件陣列的變動，視情況需要)
+        forceUpdate();
+      }
     };
     const vertexGroupInfo = computed(() => {
       console.log(" refresh vertex group : ")

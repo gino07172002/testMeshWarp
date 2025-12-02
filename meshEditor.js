@@ -56,7 +56,8 @@ import {
   renderOutBoundary,
   loadedImage,
   fitTransformToVertices,
-  fitTransformToVertices2
+  fitTransformToVertices2,
+  restoreWebGLResources
 } from './useWebGL.js';
 
 
@@ -444,23 +445,108 @@ export const meshEditor = defineComponent({
       // checking chosenMesh.includes(index)
       console.log(" chosenMesh includes index? ", chosenMesh.value.includes(index));
     }
+    // ... existing imports
+
+    // 找到原本的 addMesh 函式並替換為以下內容
     const addMesh = () => {
       console.log(" hi add addMesh ");
 
-      //copy layers[currentChosedLayer]'s vertices, indices, linesIndices to new mesh
-      if (glsInstance.layers.length > 0 && currentChosedLayer.value < glsInstance.layers.length) {
-        const layer = glsInstance.layers[currentChosedLayer.value];
-        const newMesh = new Mesh2D();
-        // console.log(" layer vertices : ", JSON.stringify(layer.vertices.value));
+      // 檢查是否有選中圖層
+      if (glsInstance.layers.length > 0 && currentChosedLayer.value !== null && currentChosedLayer.value < glsInstance.layers.length) {
 
-        // console.log(" layer indices : ", JSON.stringify(layer.indices.value));
-        newMesh.name = "mesh_" + (meshs.value.length + 1);
-        newMesh.image = loadedImage;
-        newMesh.vertices = [...layer.vertices.value];
+        const sourceLayerIndex = currentChosedLayer.value;
+        const sourceLayer = glsInstance.layers[sourceLayerIndex];
 
-        newMesh.indices = [...layer.indices.value];
-        newMesh.linesIndices = [...layer.linesIndices.value];
-        meshs.value.push(newMesh);
+        // 1. 建立新圖層
+        const newLayerName = sourceLayer.name.value + "_Copy";
+        const newLayer = glsInstance.addLayer(newLayerName);
+        const newIndex = glsInstance.layers.length - 1;
+
+        // 2. 深拷貝幾何數據
+        newLayer.vertices.value = [...sourceLayer.vertices.value];
+        newLayer.indices.value = [...sourceLayer.indices.value];
+        newLayer.linesIndices.value = [...sourceLayer.linesIndices.value];
+        newLayer.poseVertices.value = [...sourceLayer.poseVertices.value];
+
+        // 3. 拷貝 Set 結構
+        if (sourceLayer.edges) newLayer.edges = new Set(sourceLayer.edges);
+        if (sourceLayer.originalTriangles) newLayer.originalTriangles = new Set(sourceLayer.originalTriangles);
+
+        // 4. 深拷貝變形參數 (關鍵：讓位置正確)
+        if (sourceLayer.transformParams) newLayer.transformParams = JSON.parse(JSON.stringify(sourceLayer.transformParams));
+        if (sourceLayer.transformParams2) newLayer.transformParams2 = JSON.parse(JSON.stringify(sourceLayer.transformParams2));
+
+        // 5. 複製圖片引用
+        newLayer.image = sourceLayer.image;
+        newLayer.width = sourceLayer.width;
+        newLayer.height = sourceLayer.height;
+
+        // 6. 為主圖層建立 WebGL Buffers
+        const { vbo, ebo, eboLines } = glsInstance.createWebGLBuffers(
+          gl.value,
+          newLayer.vertices.value,
+          newLayer.indices.value,
+          newLayer.linesIndices.value
+        );
+        newLayer.vbo = vbo;
+        newLayer.ebo = ebo;
+        newLayer.eboLines = eboLines;
+
+        // 7. 同步處理 Ref Layer (避免 ghost layer 問題)
+        // gls.addLayer 自動建立了 refLayer，我們也需要幫它初始化 buffer
+        const refLayer = glsInstance.refLayers[newIndex];
+        if (refLayer) {
+          const { vbo: rvbo, ebo: rebo, eboLines: reboLines } = glsInstance.createWebGLBuffers(
+            gl.value,
+            newLayer.vertices.value,
+            newLayer.indices.value,
+            newLayer.linesIndices.value
+          );
+          refLayer.vbo = rvbo;
+          refLayer.ebo = rebo;
+          refLayer.eboLines = reboLines;
+          refLayer.transformParams = JSON.parse(JSON.stringify(newLayer.transformParams));
+          refLayer.vertices.value = [...newLayer.vertices.value]; // 同步頂點
+        }
+
+        // 8. 處理紋理 (Texture)
+        if (texture.value && texture.value[sourceLayerIndex]) {
+          texture.value.push(texture.value[sourceLayerIndex]);
+        }
+
+        // 9. 同步加入 Mesh2D 列表
+        const newMeshObj = new Mesh2D(newLayerName);
+        newMeshObj.image = loadedImage.value || sourceLayer.image;
+        newMeshObj.vertices = [...newLayer.vertices.value];
+        newMeshObj.indices = [...newLayer.indices.value];
+        newMeshObj.linesIndices = [...newLayer.linesIndices.value];
+        meshs.value.push(newMeshObj);
+
+        // ==========================
+        // 🔥 關鍵修正：自動選中與顯示
+        // ==========================
+
+        // A. 加入渲染清單 (讓貼圖顯示)
+        if (!selectedLayers.value.includes(newIndex)) {
+          selectedLayers.value.push(newIndex);
+        }
+
+        // B. 切換當前操作圖層 (讓 Vertex 紅點顯示)
+        currentChosedLayer.value = newIndex;
+
+        // C. 更新 UI 高亮 (chosenLayers)
+        // 先清空舊選擇 (如果是單選邏輯) 或者 push (如果是多選)
+        // 這裡假設單選操作比較直覺
+        chosenLayers.value = [newIndex];
+
+        // 10. 更新畫面
+        showLayers.value = glsInstance.layers;
+        forceUpdate();
+
+        console.log(`✅ 已複製並選中 Mesh 圖層: ${newLayerName} (Index: ${newIndex})`);
+
+      } else {
+        console.warn("⚠️ 未選中圖層，無法複製 Mesh");
       }
     }
     const fitLayerBoundary = () => {
@@ -476,15 +562,25 @@ export const meshEditor = defineComponent({
       drawGlCanvas();
       console.log("is gl already init? ", initGlAlready.value);
       if (!initGlAlready.value) {
+        // === 第一次載入 ===
         lastLoadedImageType.value = 'png';
         clearTexture(selectedLayers);
-        await pngLoadTexture('./png3.png')
+        await pngLoadTexture('./png3.png');
         initGlAlready.value = true;
-      }
-      await initAnything();
+        await initAnything(); // 這是原本的初始化邏輯
+      } else {
+        // === 頁面切換回來 (包含新增的圖層) ===
+        console.log("🔄 Switching back page, restoring existing layers...");
 
-      await bindGl(selectedLayers);
+        // 使用新功能：恢復所有圖層 (包含 addMesh 新增的)
+        await restoreWebGLResources(gl.value);
+}
+        // 確保 GL 狀態綁定正確
+        await bindGl(selectedLayers);
 
+        // 同步顯示列表
+        showLayers.value = glsInstance.layers;
+      
       const beforePasses = [];
 
       // 權重繪製模式
@@ -588,7 +684,7 @@ export const meshEditor = defineComponent({
       window.addEventListener('mousemove', onMouseMove);
       window.addEventListener('mouseup', onMouseUp);
     };
-    
+
     const getCorrectedNDC = (e, canvas) => {
       const rect = canvas.getBoundingClientRect();
 
