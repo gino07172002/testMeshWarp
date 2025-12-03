@@ -501,18 +501,18 @@ class Bones {
     }
     return null;
   }
-  handleSelectPointsMouseDown(xNDC, yNDC,x,y) {
+  handleSelectPointsMouseDown(xNDC, yNDC, x, y) {
     mousedown_x = x;
     mousedown_y = y;
     mousemove_x = x;
     mousemove_y = y;
-    mousedown_NDC={x:xNDC, y:yNDC};
-    mousemove_NDC={x:xNDC, y:yNDC};
+    mousedown_NDC = { x: xNDC, y: yNDC };
+    mousemove_NDC = { x: xNDC, y: yNDC };
 
     console.log(" select points mouse down at : ", xNDC, ' , ', yNDC);
   }
-  handleSelectPointsMouseMove(xNDC, yNDC,x,y) {
-    mousemove_NDC={x:xNDC, y:yNDC};
+  handleSelectPointsMouseMove(xNDC, yNDC, x, y) {
+    mousemove_NDC = { x: xNDC, y: yNDC };
     mousemove_x = x;
     mousemove_y = y;
   }
@@ -738,10 +738,10 @@ class Bones {
       }
 
       const { canvasWidth, canvasHeight, width, height, top, left, rotation } = layer.transformParams;
-      
+
       // **修正2: 先將所有頂點複製為原始值(作為未受影響頂點的預設值)**
       newVertices.set(vertices);
-      
+
       const processedVertices = new Set();
 
       for (const group of vertexGroups) {
@@ -773,11 +773,11 @@ class Bones {
           newVertices[idx + 3] += d.w;
         }
       }
-      
+
       // **修正3: 檢查權重總和,如果不足1.0,補足原始頂點的影響**
       for (const vertexId of processedVertices) {
         const idx = vertexId * 4;
-        
+
         // 計算該頂點的總權重
         let totalWeight = 0;
         for (const group of vertexGroups) {
@@ -786,7 +786,7 @@ class Bones {
             totalWeight += vertexInGroup.weight;
           }
         }
-        
+
         // 如果權重總和小於1,用原始頂點補足
         if (totalWeight < 1.0) {
           const remainingWeight = 1.0 - totalWeight;
@@ -801,7 +801,7 @@ class Bones {
       gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
       gl.bufferData(gl.ARRAY_BUFFER, newVertices, gl.STATIC_DRAW);
     }
-}
+  }
   recoverSelectedVertex(currentChosedLayer) {
     console.log("recover selected vertex ...");
 
@@ -825,13 +825,14 @@ class Bones {
     layer.vertices.value = new Float32Array(vertices);
     forceUpdate();
   }
-updateSlotAttachments() {
+  updateSlotAttachments() {
     skeletons.forEach(skeleton => {
       skeleton.forEachBone(bone => {
         if (!bone.slots || bone.slots.length === 0) return;
 
-        // 取得骨骼當前的 Pose 變換 (Pixel 世界座標)
+        // 1. 取得骨骼當前的 Pose 變換 與 原始變換
         const boneTransform = bone.getGlobalPoseTransform();
+        const boneOriginalTransform = bone.getGlobalTransform();
         
         bone.slots.forEach(slot => {
           const attachmentName = slot.attachmentKey;
@@ -846,38 +847,63 @@ updateSlotAttachments() {
           // 確保 transformParams 存在
           if (layer && layer.transformParams) {
             
-            // 1. 取得 Attachment 偏移量
-            const offsetX = attachment.x || 0;
-            const offsetY = attachment.y || 0;
-            const offsetRotation = (attachment.rotation || 0) * (Math.PI / 180); 
-
-            const boneRotation = boneTransform.rotation;
-            
-            const cos = Math.cos(boneRotation);
-            const sin = Math.sin(boneRotation);
-            
-            // 旋轉偏移量
-            const rotatedX = offsetX * cos - offsetY * sin;
-            const rotatedY = offsetX * sin + offsetY * cos;
-
-            // 2. 計算世界中心點 (Pixel)
-            const worldCenterX = boneTransform.head.x + rotatedX;
-            const worldCenterY = boneTransform.head.y + rotatedY;
-
-            const finalRotation = boneRotation + offsetRotation;
-
-            // === 修正重點：從 transformParams 讀取寬高 ===
-            // 避免 layer.width 為 undefined 導致 NaN
+            // A. 讀取圖層原始資訊
             const w = layer.transformParams.width || 100;
             const h = layer.transformParams.height || 100;
+            const canvasWidth = layer.transformParams.canvasWidth;
+            const canvasHeight = layer.transformParams.canvasHeight;
+            // 這是圖層在 Rest Pose 下的旋轉角度
+            const originalRotation = layer.transformParams.rotation || 0;
 
-            // 更新參數
-            layer.transformParams.rotation = -finalRotation;
-            layer.transformParams.left = worldCenterX - w / 2;
-            layer.transformParams.top = worldCenterY - h / 2;
+            // B. 計算圖層「原始中心點」 (World Pixel)
+            const originalCenterX = layer.transformParams.left + w / 2;
+            const originalCenterY = layer.transformParams.top + h / 2;
+
+            // C. 計算「原始相對向量」 (從 原始骨骼頭部 指向 原始圖層中心)
+            // [修正觀念]: 這個向量 vecX/vecY 已經完全代表了 Attachment 在 Rest Pose 下相對於骨骼的位置
+            const vecX = originalCenterX - boneOriginalTransform.head.x;
+            const vecY = originalCenterY - boneOriginalTransform.head.y;
+
+            // D. 計算骨骼的「旋轉差值」 (Pose - Rest)
+            const rotationDelta = boneTransform.rotation - boneOriginalTransform.rotation;
+
+            const cos = Math.cos(rotationDelta);
+            const sin = Math.sin(rotationDelta);
+
+            // E. 將「原始相對向量」根據「旋轉差值」進行旋轉
+            // 這一步計算出了新的圖層中心相對於新骨骼頭部的正確位置
+            const rotatedVecX = vecX * cos - vecY * sin;
+            const rotatedVecY = vecX * sin + vecY * cos;
+
+            // [刪除]: 不需要再計算 attRotatedX/Y，因為 vecX/Y 已經隱含了這些資訊
+            // 除非 attachment.x/y 是用來做 "額外的動畫偏移"，但通常 vecX 已經是最終位置
+
+            // G. 計算新的世界中心點
+            // [修正]: 直接加上 rotatedVec 即可，不要加 attRotatedX
+            const worldCenterX = boneTransform.head.x + rotatedVecX;
+            const worldCenterY = boneTransform.head.y + rotatedVecY;
+
+            // H. 計算新的圖層旋轉角度
+            // WebGL (NDC) 的旋轉方向與 Canvas Pixel 相反。
+            // 為了讓圖片跟著骨骼順時針轉，我們需要讓角度往負的方向走。
+            const attRotation = (attachment.rotation || 0) * (Math.PI / 180);
             
-            layer.transformParams.right = layer.transformParams.left + w;
-            layer.transformParams.bottom = layer.transformParams.top + h;
+            // 這裡邏輯維持原樣是正確的：
+            // 若骨骼順時針轉 (+Delta)，finalRotation 會變小 (更負)，在 WebGL 矩陣中負角度 = 順時針視覺效果。
+            const finalRotation = originalRotation - rotationDelta - attRotation;
+
+            // 7. 更新 poseTransformParams
+            layer.poseTransformParams = {
+              left: worldCenterX - w / 2,
+              top: worldCenterY - h / 2,
+              right: (worldCenterX - w / 2) + w,
+              bottom: (worldCenterY - h / 2) + h,
+              width: w,
+              height: h,
+              rotation: finalRotation, 
+              canvasWidth: canvasWidth,
+              canvasHeight: canvasHeight
+            };
 
             layer.visible = slot.visible;
             

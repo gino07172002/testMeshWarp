@@ -605,13 +605,13 @@ export const allEditor = defineComponent({
 
         // 呼叫恢復函式，而不是 initAnything/pngRenderAgain
         await restoreWebGLResources(gl.value);
- }
-        // 確保 GL 狀態綁定
-        await bindGl(selectedLayers);
+      }
+      // 確保 GL 狀態綁定
+      await bindGl(selectedLayers);
 
-        // 更新 UI 列表
-        showLayers.value = glsInstance.layers;
-     
+      // 更新 UI 列表
+      showLayers.value = glsInstance.layers;
+
       const passes = [];
 
       // 根據模式動態加入 pass
@@ -642,7 +642,7 @@ export const allEditor = defineComponent({
 
       passes.push(
         makeRenderPass(
-           () => bonesInstance.updateSlotAttachments()
+          () => bonesInstance.updateSlotAttachments()
         ),
         makeRenderPass(
           renderMeshSkeleton2,
