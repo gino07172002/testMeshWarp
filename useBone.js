@@ -1,5 +1,6 @@
 const { ref, reactive, toRaw } = Vue;
 import glsInstance from './useWebGL.js';
+import {getMouseLocalPos} from './useWebGL.js';
 import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick, Attachment } from './mesh.js';
 import {
   globalVars as v,
@@ -518,36 +519,53 @@ class Bones {
   }
   handleSelectPointsMouseUp(xNDC, yNDC, layerIndex, isShiftPressed = false, isCtrlPressed = false) {
     console.log(" handleSelectPointsMouseUp at : ", xNDC, ' , ', yNDC);
+    
     // 框選範圍 (世界 NDC 空間)
     const minX = Math.min(mousedown_NDC.x, xNDC);
     const maxX = Math.max(mousedown_NDC.x, xNDC);
     const minY = Math.min(mousedown_NDC.y, yNDC);
     const maxY = Math.max(mousedown_NDC.y, yNDC);
+    
     const layer = glsInstance.layers[layerIndex];
-    const vertices = layer.vertices.value;
+    // 使用 poseVertices (如果有的話) 或 vertices
+    // 注意：通常選取是基於原始位置(vertices)透過矩陣變換，或者直接選取變形後的位置
+    // 這裡維持你原本的邏輯：讀取原始 vertices，然後用矩陣算出現場位置
+    const vertices = layer.vertices.value; 
+    
     console.log(" vertices length: ", vertices.length);
-    // 取得變換參數
-    const params = layer.transformParams;
+
+    // === ✨ [修正 1] 優先使用 poseTransformParams (與 Render 邏輯同步) ===
+    const params = layer.poseTransformParams || layer.transformParams;
+    
     {
       const { canvasWidth, canvasHeight, left, top, width, height } = params;
       const rotation = params.rotation || 0;
-      // 計算變換矩陣 (與 handleBoundaryInteraction 相同)
+
+      // 計算邊界
       const glLeft = (left / canvasWidth) * 2 - 1;
       const glRight = ((left + width) / canvasWidth) * 2 - 1;
       const glTop = 1 - (top / canvasHeight) * 2;
       const glBottom = 1 - ((top + height) / canvasHeight) * 2;
+
       const sx = (glRight - glLeft) / 2;
       const sy = (glTop - glBottom) / 2;
       const centerX_NDC = (glLeft + glRight) / 2;
       const centerY_NDC = (glTop + glBottom) / 2;
+
       const cosR = Math.cos(rotation);
       const sinR = Math.sin(rotation);
+
+      // === ✨ [修正 2] 加入長寬比 (Aspect Ratio) 計算 ===
+      const aspect = canvasWidth / canvasHeight;
+
+      // === ✨ [修正 3] 矩陣應用 Aspect 修正 (與 Render 邏輯同步) ===
       const transformMatrix = new Float32Array([
-        sx * cosR, sx * sinR, 0, 0,
-        -sy * sinR, sy * cosR, 0, 0,
-        0, 0, 1, 0,
-        centerX_NDC, centerY_NDC, 0, 1
+        sx * cosR,              sx * sinR * aspect,       0, 0,
+        -sy * sinR / aspect,    sy * cosR,                0, 0,
+        0,                      0,                        1, 0,
+        centerX_NDC,            centerY_NDC,              0, 1
       ]);
+
       // 變換函數
       const m = transformMatrix;
       const transformPoint = (v) => {
@@ -558,6 +576,7 @@ class Bones {
           m[2] * x + m[6] * y + m[10] * z + m[14] * w
         ];
       };
+
       // 找出框到的點 (計算每個頂點的世界 NDC 位置)
       const newlySelected = [];
       for (let i = 0; i < vertices.length; i += 4) {
@@ -567,13 +586,16 @@ class Bones {
           vertices[i + 2] || 0, // z (預設 0)
           vertices[i + 3] || 1  // w (預設 1)
         ];
+        
         const ndc = transformPoint(localVert);
         const ndcX = ndc[0];
         const ndcY = ndc[1];
+
         if (ndcX >= minX && ndcX <= maxX && ndcY >= minY && ndcY <= maxY) {
           newlySelected.push(i / 4); // push vertex index
         }
       }
+
       // 處理選取邏輯
       if (isCtrlPressed) {
         // Ctrl → 從選取中移除
@@ -589,6 +611,7 @@ class Bones {
       }
       console.log(" selected vertices: ", selectedVertices.value);
     }
+
     // 清掉滑鼠狀態
     mousedown_x = null;
     mousedown_y = null;
@@ -619,41 +642,47 @@ class Bones {
 
 
   moveSelectedVertex(currentChosedLayer, useMultiSelect, localSelectedVertex, gl, xNDC, yNDC, dragStartX, dragStartY) {
-    const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
+    const layer = glsInstance.layers[currentChosedLayer.value];
+    const vertices = layer.vertices.value;
 
-    //backup original vertices (if backup not exist)
-    if (!glsInstance.layers[currentChosedLayer.value].originalVertices) {
-      glsInstance.layers[currentChosedLayer.value].originalVertices = [...vertices];
+    // backup original vertices
+    if (!layer.originalVertices) {
+      layer.originalVertices = [...vertices];
     }
 
+    // ✨ 1. 計算 當前滑鼠 的 Local 座標
+    const currLocal = getMouseLocalPos(xNDC, yNDC, layer);
 
     if (!useMultiSelect && localSelectedVertex !== -1) {
       // ===== 單點移動 =====
+      // 直接將頂點設定為滑鼠的 Local 位置 (吸附效果)
       const index = localSelectedVertex * 4;
-      vertices[index] = xNDC;
-      vertices[index + 1] = yNDC;
+      
+      vertices[index] = currLocal.x;
+      vertices[index + 1] = currLocal.y;
 
     } else if (useMultiSelect && selectedVertices.value.length > 0) {
-      console.log(" in multi select move ... ");
       // ===== 群組移動 =====
-      const dx = xNDC - dragStartX;
-      const dy = yNDC - dragStartY;
+      
+      // ✨ 2. 計算 起始滑鼠 (dragStart) 的 Local 座標
+      // 必須把 dragStart (NDC) 也轉成 Local，這樣算出來的 delta 才是正確的旋轉後方向
+      const startLocal = getMouseLocalPos(dragStartX, dragStartY, layer);
+
+      // ✨ 3. 計算 Local 空間的差值 (Delta)
+      const dxLocal = currLocal.x - startLocal.x;
+      const dyLocal = currLocal.y - startLocal.y;
 
       for (let idx of selectedVertices.value) {
         const index = idx * 4;
-        vertices[index] += dx;
-        vertices[index + 1] += dy;
+        vertices[index] += dxLocal;
+        vertices[index + 1] += dyLocal;
       }
-
-
     }
 
     // 更新 VBO
-    gl.bindBuffer(gl.ARRAY_BUFFER, glsInstance.layers[currentChosedLayer.value].vbo);
+    gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
-
-
-  }
+}
   updatePoseMesh(gl) {
     console.log(" update pose mesh ... ");
 
@@ -830,85 +859,68 @@ class Bones {
       skeleton.forEachBone(bone => {
         if (!bone.slots || bone.slots.length === 0) return;
 
-        // 1. 取得骨骼當前的 Pose 變換 與 原始變換
-        const boneTransform = bone.getGlobalPoseTransform();
-        const boneOriginalTransform = bone.getGlobalTransform();
-        
+        const bonePose = bone.getGlobalPoseTransform();
+        const boneRest = bone.getGlobalTransform();
+
         bone.slots.forEach(slot => {
           const attachmentName = slot.attachmentKey;
           if (!attachmentName) return;
-          
+
           const attachment = slot.attachments[attachmentName];
           if (!attachment) return;
 
           const layerId = attachment.refId;
           const layer = glsInstance.layers[layerId];
-          
-          // 確保 transformParams 存在
+
           if (layer && layer.transformParams) {
-            
-            // A. 讀取圖層原始資訊
-            const w = layer.transformParams.width || 100;
-            const h = layer.transformParams.height || 100;
-            const canvasWidth = layer.transformParams.canvasWidth;
-            const canvasHeight = layer.transformParams.canvasHeight;
-            // 這是圖層在 Rest Pose 下的旋轉角度
+            const { left, top, width, height, canvasWidth, canvasHeight } = layer.transformParams;
             const originalRotation = layer.transformParams.rotation || 0;
 
-            // B. 計算圖層「原始中心點」 (World Pixel)
-            const originalCenterX = layer.transformParams.left + w / 2;
-            const originalCenterY = layer.transformParams.top + h / 2;
+            const originalCenterX = left + width / 2;
+            const originalCenterY = top + height / 2;
 
-            // C. 計算「原始相對向量」 (從 原始骨骼頭部 指向 原始圖層中心)
-            // [修正觀念]: 這個向量 vecX/vecY 已經完全代表了 Attachment 在 Rest Pose 下相對於骨骼的位置
-            const vecX = originalCenterX - boneOriginalTransform.head.x;
-            const vecY = originalCenterY - boneOriginalTransform.head.y;
+            // 1. 計算相對於 Bone Rest Head 的原始向量
+            const vecX = originalCenterX - boneRest.head.x;
+            const vecY = originalCenterY - boneRest.head.y;
 
-            // D. 計算骨骼的「旋轉差值」 (Pose - Rest)
-            const rotationDelta = boneTransform.rotation - boneOriginalTransform.rotation;
+            // 2. 計算旋轉差值 (跟 updatePoseMesh 一模一樣: Pose - Rest)
+            const rotationDelta = bonePose.rotation - boneRest.rotation;
 
+            // 3. 使用跟 updatePoseMesh 一模一樣的旋轉公式
+            // 在 Y-Down 座標系中，這會產生正確的 "順時針" 公轉
             const cos = Math.cos(rotationDelta);
             const sin = Math.sin(rotationDelta);
 
-            // E. 將「原始相對向量」根據「旋轉差值」進行旋轉
-            // 這一步計算出了新的圖層中心相對於新骨骼頭部的正確位置
             const rotatedVecX = vecX * cos - vecY * sin;
             const rotatedVecY = vecX * sin + vecY * cos;
 
-            // [刪除]: 不需要再計算 attRotatedX/Y，因為 vecX/Y 已經隱含了這些資訊
-            // 除非 attachment.x/y 是用來做 "額外的動畫偏移"，但通常 vecX 已經是最終位置
+            // 4. 計算新的中心點
+            const newCenterX = bonePose.head.x + rotatedVecX;
+            const newCenterY = bonePose.head.y + rotatedVecY;
 
-            // G. 計算新的世界中心點
-            // [修正]: 直接加上 rotatedVec 即可，不要加 attRotatedX
-            const worldCenterX = boneTransform.head.x + rotatedVecX;
-            const worldCenterY = boneTransform.head.y + rotatedVecY;
+            // 5. 【關鍵修正】計算新的旋轉角度
+            // 因為 Shader 的旋轉方向 (NDC Y-Up) 跟骨骼 (Pixel Y-Down) 是相反的
+            // 骨骼順時針轉 (Delta > 0) 時，Shader 若收到正值會逆時針轉
+            // 所以這裡要用 "減法" 來讓 Shader 也產生順時針效果
+            const newRotation = originalRotation - rotationDelta;
 
-            // H. 計算新的圖層旋轉角度
-            // WebGL (NDC) 的旋轉方向與 Canvas Pixel 相反。
-            // 為了讓圖片跟著骨骼順時針轉，我們需要讓角度往負的方向走。
-            const attRotation = (attachment.rotation || 0) * (Math.PI / 180);
-            
-            // 這裡邏輯維持原樣是正確的：
-            // 若骨骼順時針轉 (+Delta)，finalRotation 會變小 (更負)，在 WebGL 矩陣中負角度 = 順時針視覺效果。
-            const finalRotation = originalRotation - rotationDelta - attRotation;
-
-            // 7. 更新 poseTransformParams
             layer.poseTransformParams = {
-              left: worldCenterX - w / 2,
-              top: worldCenterY - h / 2,
-              right: (worldCenterX - w / 2) + w,
-              bottom: (worldCenterY - h / 2) + h,
-              width: w,
-              height: h,
-              rotation: finalRotation, 
+              left: newCenterX - width / 2,
+              top: newCenterY - height / 2,
+              right: (newCenterX - width / 2) + width,
+              bottom: (newCenterY - height / 2) + height,
+              width: width,
+              height: height,
+              rotation: newRotation, 
               canvasWidth: canvasWidth,
-              canvasHeight: canvasHeight
+              canvasHeight: canvasHeight,
+              // ✨ [Added] Debug Point: The center of rotation (Pivot)
+              debugPivot: { x: bonePose.head.x, y: bonePose.head.y } 
             };
 
             layer.visible = slot.visible;
-            
             if (slot.color) {
-               layer.opacity = { value: slot.color.a };
+              layer.opacity = { value: slot.color.a };
             }
           }
         });

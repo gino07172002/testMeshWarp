@@ -1192,6 +1192,7 @@ const app = Vue.createApp({
       // ✨ 新增程式碼：將 Layer 轉換為 Root Bone 下的 Slot 與 Attachment
       // -------------------------------------------------------------
 
+      /*
       // 1. 取得根骨骼 (通常是 skeleton 的第一個骨骼，或是 parent 為 null/-1 的骨骼)
       // 這裡假設 skeletons[0] 是當前操作的骨架
       const currentSkeleton = skeletons[0];
@@ -1255,7 +1256,7 @@ const app = Vue.createApp({
 
         // 強制更新 UI (因為 Vue 有時監聽不到深層物件陣列的變動，視情況需要)
         forceUpdate();
-      }
+      }*/
     };
     const vertexGroupInfo = computed(() => {
       console.log(" refresh vertex group : ")

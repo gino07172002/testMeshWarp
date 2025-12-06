@@ -52,7 +52,8 @@ import {
   clearTexture,
   pngLoadTexture,
   layerForTextureWebgl,
-  restoreWebGLResources
+  restoreWebGLResources,
+  renderOutBoundary
 } from './useWebGL.js';
 
 import glsInstance from './useWebGL.js';
@@ -283,6 +284,7 @@ export const allEditor = defineComponent({
           bonesInstance.handleMeshBoneAnimateMouseDown(x, y);
 
           bonesInstance.updatePoseMesh(gl);
+          bonesInstance.updateSlotAttachments()
           forceUpdate();
           // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
           //   startPosX = xNDC;
@@ -641,9 +643,11 @@ export const allEditor = defineComponent({
       // === 骨架渲染（所有模式都要）===
 
       passes.push(
+        /*
         makeRenderPass(
           () => bonesInstance.updateSlotAttachments()
         ),
+        */
         makeRenderPass(
           renderMeshSkeleton2,
           gl.value,
@@ -654,10 +658,20 @@ export const allEditor = defineComponent({
           activeTool,
           wholeImageWidth.value,
           wholeImageHeight.value
-        )
+        ),
+          makeRenderPass(
+            renderOutBoundary,
+            gl.value,
+            colorProgram.value,
+            glsInstance.layers,
+            glsInstance.getLayerSize(),
+            currentChosedLayer,
+            selectedVertices
+          ),
       );
       if (activeTool.value === 'bone-animate') { //update pose if in animate mode
         bonesInstance.updatePoseMesh(gl.value);
+        
       }
       setCurrentJobName('edit');
       render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers, passes, "edit");

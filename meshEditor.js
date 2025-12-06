@@ -57,7 +57,8 @@ import {
   loadedImage,
   fitTransformToVertices,
   fitTransformToVertices2,
-  restoreWebGLResources
+  restoreWebGLResources,
+  getMouseLocalPos
 } from './useWebGL.js';
 
 
@@ -126,40 +127,57 @@ export const meshEditor = defineComponent({
         if (e.button === 0 || e.button === 2) {
           if (activeTool.value === 'grab-point') {
 
+            // 取得當前圖層
+            const currentLayer = glsInstance.layers[currentChosedLayer.value];
+
+            // ✨ 1. 將滑鼠 NDC 轉為 Local 座標
+            const { x: localMouseX, y: localMouseY } = getMouseLocalPos(xNDC, yNDC, currentLayer);
+
             if (!useMultiSelect) {
               // ===== 單點選取模式 =====
               let minDist = Infinity;
               localSelectedVertex = -1;
 
-              const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
+              const vertices = currentLayer.vertices.value;
+
+              // ✨ 2. 使用 localMouseX/Y 進行距離比較
+              // 注意：距離閾值(0.02)這裡是跟局部座標比，如果圖片縮放很大，可能需要調整閾值
+              // 建議使用平方距離 (distSq) 比較省效能
+              const thresholdSq = 0.05 * 0.05; // 放寬一點選取範圍
+
               for (let i = 0; i < vertices.length; i += 4) {
-                const dx = vertices[i] - xNDC;
-                const dy = vertices[i + 1] - yNDC;
-                const dist = dx * dx + dy * dy;
-                if (dist < minDist) {
-                  minDist = dist;
+                const dx = vertices[i] - localMouseX;
+                const dy = vertices[i + 1] - localMouseY;
+                const distSq = dx * dx + dy * dy;
+
+                if (distSq < minDist) {
+                  minDist = distSq;
                   localSelectedVertex = i / 4;
                 }
               }
 
-              if (minDist < 0.02) {
+              // 如果最近的點在閾值內
+              if (minDist < thresholdSq) {
                 isDragging = true;
-                selectedVertex.value = localSelectedVertex; // 單點記錄
+                selectedVertex.value = localSelectedVertex;
               }
 
             } else {
               // ===== 多點群組模式 =====
-              // 檢查點擊是否落在 selectedVertices 裡的某一個頂點
               let hitVertex = -1;
-              const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
+              const vertices = currentLayer.vertices.value;
+              const thresholdSq = 0.05 * 0.05;
 
               for (let idx of selectedVertices.value) {
                 const vx = vertices[idx * 4];
                 const vy = vertices[idx * 4 + 1];
-                const dx = vx - xNDC;
-                const dy = vy - yNDC;
-                const dist = dx * dx + dy * dy;
-                if (dist < 0.02) {
+
+                // ✨ 3. 同樣使用 localMouseX/Y
+                const dx = vx - localMouseX;
+                const dy = vy - localMouseY;
+                const distSq = dx * dx + dy * dy;
+
+                if (distSq < thresholdSq) {
                   hitVertex = idx;
                   break;
                 }
@@ -168,12 +186,11 @@ export const meshEditor = defineComponent({
 
               if (hitVertex !== -1) {
                 isDragging = true;
+                // 注意：dragStart 保持 NDC 格式，在 move 時我們再轉換
                 dragStartX = xNDC;
                 dragStartY = yNDC;
               }
             }
-
-
           } else if (activeTool.value === 'select-points') {
             bonesInstance.handleSelectPointsMouseDown(xNDC, yNDC, e.button === 0, isShiftPressed.value);
             isDragging = true;
@@ -198,7 +215,7 @@ export const meshEditor = defineComponent({
             }
             else {
               console.log(" hi I should edit point at : ", xNDC, " , ", yNDC);
-              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
               isDragging = true;
             }
           }
@@ -211,7 +228,7 @@ export const meshEditor = defineComponent({
             else {
               console.log(" hi I should edit point at : ", xNDC, " , ", yNDC);
 
-              let vertexIndex = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+              let vertexIndex = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
               isDragging = true;
               console.log(" remove vertex index : ", vertexIndex);
               if (vertexIndex !== -1)
@@ -221,7 +238,7 @@ export const meshEditor = defineComponent({
           else if (activeTool.value === 'link-points') {
             if (e.button === 0) {
 
-              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
               console.log("link point select first vertex at  ", selectedVertex.value);
               isDragging = true;
             }
@@ -229,7 +246,7 @@ export const meshEditor = defineComponent({
           else if (activeTool.value === 'delete-edge') {
             if (e.button === 0) {
 
-              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
               console.log("delete edge  select first vertex at  ", selectedVertex.value);
 
             }
@@ -360,7 +377,7 @@ export const meshEditor = defineComponent({
         else if (activeTool.value === 'link-points') {
           if (e.button === 0) {
 
-            let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+            let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
             console.log("link point select first vertex at  ", selectedVertex.value);
             console.log("link point select second vertex at  ", vertex2);
             if (vertex2 !== -1 && selectedVertex.value !== -1 && vertex2 !== selectedVertex.value) {
@@ -371,7 +388,7 @@ export const meshEditor = defineComponent({
         else if (activeTool.value === 'delete-edge') {
           if (e.button === 0) {
 
-            let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value].vertices.value);
+            let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
             console.log("link point select first vertex at  ", selectedVertex.value);
             console.log("link point select second vertex at  ", vertex2);
             if (vertex2 !== -1 && selectedVertex.value !== -1 && vertex2 !== selectedVertex.value) {
@@ -574,13 +591,13 @@ export const meshEditor = defineComponent({
 
         // 使用新功能：恢復所有圖層 (包含 addMesh 新增的)
         await restoreWebGLResources(gl.value);
-}
-        // 確保 GL 狀態綁定正確
-        await bindGl(selectedLayers);
+      }
+      // 確保 GL 狀態綁定正確
+      await bindGl(selectedLayers);
 
-        // 同步顯示列表
-        showLayers.value = glsInstance.layers;
-      
+      // 同步顯示列表
+      showLayers.value = glsInstance.layers;
+
       const beforePasses = [];
 
       // 權重繪製模式
