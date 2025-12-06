@@ -1,6 +1,7 @@
-//Editor.js
+// meshEditor.js
 import { useCounterStore, Mesh2D } from './mesh.js';
 const { defineComponent, ref, onMounted, onUnmounted, h, nextTick, inject, computed, reactive } = Vue;
+
 import {
   globalVars as v,
   triggerRefresh,
@@ -14,19 +15,18 @@ import {
   wholeImageWidth,
   wholeImageHeight,
   lastLoadedImageType,
-  meshs
-} from './globalVars.js'  // 引入全局變數
+  meshs,
+  getRawXY
+} from './globalVars.js';
+
 import {
-  //initBone,
-  boneParents,
   meshSkeleton,
   skeletons,
-  lastSelectedBone,
-  selectedVertices,
-  bonesInstance
+  bonesInstance,
+  selectedVertices
 } from './useBone.js';
-import glsInstance from './useWebGL.js';
 
+import glsInstance from './useWebGL.js';
 
 import {
   shaders,
@@ -43,15 +43,13 @@ import {
   renderGridOnly,
   pngRender,
   psdRender,
-  psdRenderAgain,
-  pngRenderAgain,
   renderMeshSkeleton,
+  renderMeshSkeleton2,
   renderWeightPaint,
   makeRenderPass,
   bindGl,
   clearTexture,
   pngLoadTexture,
-  layerForTextureWebgl,
   getClosestVertex,
   renderOutBoundary,
   loadedImage,
@@ -61,477 +59,417 @@ import {
   getMouseLocalPos
 } from './useWebGL.js';
 
-
-//load meshEditor.html at beginning
 export const meshEditor = defineComponent({
   name: 'Editor',
   setup() {
     const counter = useCounterStore();
     const renderFn = ref(null);
+
+    // === Injections (來自 app.js 的 Provide) ===
     const activeTool = inject('activeTool', ref('grab-point'));
     const showLayers = inject('showLayers', ref([]));
-    const selectTool = inject('selectTool', (tool) => { console.warn('selectTool not provided', tool); });
+    const selectTool = inject('selectTool', () => { });
     const currentChosedLayer = inject('currentChosedLayer', ref(null));
     const chosenLayers = inject('chosenLayers', ref([]));
     const selectedGroups = inject('selectedGroups', ref([]));
-    const toggleLayerSelection = inject('toggleLayerSelection', () => { console.log('toggleLayerSelection not provided'); });
+    const toggleLayerSelection = inject('toggleLayerSelection', () => { });
 
+    // === Local State ===
     const mousePosition = ref(null);
     const selectedMesh = ref(null);
-
     const chosenMesh = ref([]);
-
     const selectedVertex = ref(-1);
-
     const isCtrlPressed = ref(false);
-    const drawGlCanvas = async () => {
+
+    // UI Layout State
+    const layoutState = reactive({
+      rightPanelWidth: 300,
+      layersHeight: 250,
+      isResizing: false
+    });
+
+    // Camera / View State
+    const camera = reactive({ x: 0, y: 0, zoom: 1.0 });
+
+    // === Mouse Event State Variables ===
+    let isDragging = false;
+    let localSelectedVertex = -1;
+    let startPosX = 0;
+    let startPosY = 0;
+    let useMultiSelect = true; // 預設開啟多選邏輯
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let selectedBoundaryIndex = -1;
+
+    // ==========================================
+    // 🖱️ Event Handlers (Defined in Setup Scope)
+    // ==========================================
+
+    const handleMouseDown = (e) => {
+      // 確保在 canvas 範圍內才觸發 (雖然綁定在 canvas 上，但為了保險)
       const canvas = document.getElementById('webgl2');
-      const webglContext = canvas.getContext('webgl2');
-      if (!canvas) {
-        console.error("Canvas not found!");
+      if (!canvas) return;
+
+      mousePressed.value = e.button;
+      const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, canvas.closest('.canvas-area')); // 假設有 .canvas-area容器
+      const { x: rawX, y: rawY } = getRawXY(e, canvas, canvas.closest('.canvas-area'));
+
+      startPosX = xNDC;
+      startPosY = yNDC;
+
+      // 左鍵 (0) 或 右鍵 (2)
+      if (e.button === 0 || e.button === 2) {
+
+        // --- Tool: Grab Point ---
+        if (activeTool.value === 'grab-point') {
+          const currentLayer = glsInstance.layers[currentChosedLayer.value];
+          if (!currentLayer) return;
+
+          // ✨ 使用重構後的 Local 座標轉換，確保旋轉後也能準確點選
+          const { x: localMouseX, y: localMouseY } = getMouseLocalPos(xNDC, yNDC, currentLayer);
+          const vertices = currentLayer.vertices.value;
+
+          if (!useMultiSelect) {
+            // 單點模式
+            let minDist = Infinity;
+            localSelectedVertex = -1;
+            const thresholdSq = 0.05 * 0.05;
+
+            for (let i = 0; i < vertices.length; i += 4) {
+              const dx = vertices[i] - localMouseX;
+              const dy = vertices[i + 1] - localMouseY;
+              const distSq = dx * dx + dy * dy;
+              if (distSq < minDist) {
+                minDist = distSq;
+                localSelectedVertex = i / 4;
+              }
+            }
+
+            if (minDist < thresholdSq) {
+              isDragging = true;
+              selectedVertex.value = localSelectedVertex;
+            }
+          } else {
+            // 群組模式 (檢查是否點擊在已選取的點上)
+            let hitVertex = -1;
+            // 這裡依然需要檢查是否點中任何一個已選點，為了開始拖曳
+            // 注意：這裡簡化判斷，若需要精確點選特定點可遍歷 selectedVertices.value
+            // 為了效能，這裡假設 bonesInstance 內部有處理選取狀態，這裡只負責啟動拖曳
+            // 如果要檢查點擊位置：
+            const thresholdSq = 0.05 * 0.05;
+            // 引用外部 selectedVertices (從 useBone 或 globalVars)
+            // 假設 selectedVertices 在 bonesInstance 內管理，或者透過 globalVars 引入
+            // 這裡先使用 bonesInstance 的邏輯
+            // 修正：應該從 globalVars 或 useBone 引入 selectedVertices
+            // 假設在 useBone.js 裡有 export selectedVertices
+            // (上方已 import { selectedVertices } from './useBone.js')
+
+            for (let idx of selectedVertices.value) {
+              const vx = vertices[idx * 4];
+              const vy = vertices[idx * 4 + 1];
+              const dx = vx - localMouseX;
+              const dy = vy - localMouseY;
+              if ((dx * dx + dy * dy) < thresholdSq) {
+                hitVertex = idx;
+                break;
+              }
+            }
+
+            if (hitVertex !== -1) {
+              isDragging = true;
+              dragStartX = xNDC; // 記錄 NDC 用於後續計算 delta
+              dragStartY = yNDC;
+            }
+          }
+        }
+        // --- Tool: Select Points (Box Select) ---
+        else if (activeTool.value === 'select-points') {
+          bonesInstance.handleSelectPointsMouseDown(xNDC, yNDC, rawX, rawY);
+          isDragging = true;
+        }
+        // --- Tool: Add Points ---
+        else if (activeTool.value === 'add-points') {
+          if (e.button === 0) {
+            glsInstance.updateLayerVertices(gl.value, glsInstance.layers[currentChosedLayer.value], { add: [{ x: xNDC, y: yNDC }] });
+          }
+        }
+        // --- Tool: Edit Points ---
+        else if (activeTool.value === 'edit-points') {
+          if (e.button === 0) {
+            selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
+            isDragging = true;
+          }
+        }
+        // --- Tool: Remove Points ---
+        else if (activeTool.value === 'remove-points') {
+          if (e.button === 0) {
+            let vIdx = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
+            if (vIdx !== -1) {
+              glsInstance.updateLayerVertices(gl.value, glsInstance.layers[currentChosedLayer.value], { delete: [vIdx] });
+            }
+          }
+        }
+        // --- Tool: Link Points ---
+        else if (activeTool.value === 'link-points') {
+          if (e.button === 0) {
+            selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
+            isDragging = true;
+          }
+        }
+        // --- Tool: Delete Edge ---
+        else if (activeTool.value === 'delete-edge') {
+          if (e.button === 0) {
+            selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
+          }
+        }
+        // --- Tool: Edit Boundary (Green Box) ---
+        else if (activeTool.value === 'edit-boundary') {
+          if (e.button === 0) {
+            selectedBoundaryIndex = glsInstance.handleBoundaryInteraction(
+              xNDC, yNDC, glsInstance.layers, currentChosedLayer
+            );
+            if (selectedBoundaryIndex !== -1) isDragging = true;
+          }
+        }
+        // --- Tool: Bone Create ---
+        else if (activeTool.value === 'bone-create') {
+          if (e.button === 2) { // Right click edit
+            bonesInstance.handleMeshBoneEditMouseDown(xNDC, yNDC);
+            isDragging = true;
+          } else {
+            bonesInstance.handleMeshBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
+            isDragging = true;
+          }
+        }
+        // --- Tool: Bone Animate ---
+        else if (activeTool.value === 'bone-animate') {
+          bonesInstance.GetCloestBoneAsSelectBone(xNDC, yNDC, false);
+          isDragging = true;
+        }
+      }
+    };
+
+    const handleMouseMove = (e) => {
+      const canvas = document.getElementById('webgl2');
+      if (!canvas) return;
+
+      const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, canvas.closest('.canvas-area'));
+      const { x: rawX, y: rawY } = getRawXY(e, canvas, canvas.closest('.canvas-area'));
+
+      // Hover 狀態處理 (非拖曳時)
+      if (!isDragging) {
+        const isCreateMode = (activeTool.value === 'bone-create');
+        bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC, isCreateMode);
+
+        if (activeTool.value === 'edit-points') {
+          // Preview logic if needed
+        } else if (activeTool.value === 'edit-boundary') {
+          mousePosition.value = glsInstance.updateMousePosition(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
+        }
         return;
       }
+
+      // Dragging 狀態處理
+      if (activeTool.value === 'grab-point' && isDragging) {
+        bonesInstance.moveSelectedVertex(currentChosedLayer, useMultiSelect, localSelectedVertex, gl.value, xNDC, yNDC, dragStartX, dragStartY);
+        dragStartX = xNDC;
+        dragStartY = yNDC;
+        forceUpdate();
+      }
+      else if (activeTool.value === 'select-points') {
+        bonesInstance.handleSelectPointsMouseMove(xNDC, yNDC, rawX, rawY);
+      }
+      else if (activeTool.value === 'edit-points') {
+        if (selectedVertex.value !== -1) {
+          glsInstance.updateLayerVertices(gl.value, glsInstance.layers[currentChosedLayer.value], { update: [{ index: selectedVertex.value, x: xNDC, y: yNDC }] });
+          forceUpdate();
+        }
+      }
+      else if (activeTool.value === 'bone-create') {
+        if (e.buttons === 2) {
+          bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
+        } else {
+          bonesInstance.meshboneCreateMouseMove(xNDC, yNDC);
+        }
+      }
+      else if (activeTool.value === 'bone-animate') {
+        bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC); // 注意：這裡可能命名為 MouseMove 比較好，但沿用原邏輯
+        bonesInstance.updatePoseMesh(gl.value);
+        forceUpdate();
+      }
+      else if (activeTool.value === 'edit-boundary') {
+        if (selectedBoundaryIndex !== -1) {
+          glsInstance.updateBoundary(xNDC, yNDC, selectedBoundaryIndex, glsInstance.layers[currentChosedLayer.value], isShiftPressed.value);
+        }
+      }
+    };
+
+    const handleMouseUp = (e) => {
+      const canvas = document.getElementById('webgl2');
+      if (!canvas) return;
+      const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, canvas.closest('.canvas-area'));
+      mousePressed.value = null; // Reset mouse pressed state
+
+      if (activeTool.value === 'bone-create' && isDragging) {
+        if (e.button === 2) {
+          bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
+        } else {
+          bonesInstance.MeshBoneCreate(xNDC, yNDC);
+        }
+      }
+      else if (activeTool.value === 'select-points' && isDragging) {
+        bonesInstance.handleSelectPointsMouseUp(xNDC, yNDC, currentChosedLayer.value, isShiftPressed.value, isCtrlPressed.value);
+      }
+      else if (activeTool.value === 'link-points') {
+        if (e.button === 0) {
+          let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
+          if (vertex2 !== -1 && selectedVertex.value !== -1 && vertex2 !== selectedVertex.value) {
+            glsInstance.updateLayerVertices(gl.value, glsInstance.layers[currentChosedLayer.value], { addEdge: [{ v1: selectedVertex.value, v2: vertex2 }] });
+          }
+        }
+      }
+      else if (activeTool.value === 'delete-edge') {
+        if (e.button === 0) {
+          let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
+          if (vertex2 !== -1 && selectedVertex.value !== -1 && vertex2 !== selectedVertex.value) {
+            glsInstance.updateLayerVertices(gl.value, glsInstance.layers[currentChosedLayer.value], { deleteEdge: [{ v1: selectedVertex.value, v2: vertex2 }] });
+          }
+        }
+      }
+      else if (activeTool.value === 'edit-boundary') {
+        selectedBoundaryIndex = -1;
+      }
+
+      // Cleanup
+      isDragging = false;
+      selectedVertex.value = -1;
+      forceUpdate();
+    };
+
+const handleWheel = (e) => {
+      e.preventDefault();
+
+      // 1. 設定縮放參數
+      const zoomIntensity = 0.1;
+      const direction = e.deltaY > 0 ? -1 : 1; // 滾輪向下縮小，向上放大
+      const factor = 1 + (zoomIntensity * direction);
+
+      // 2. 取得 Canvas 容器資訊
+      const canvas = document.getElementById('webgl2');
+      if (!canvas) return;
+      
+      // 嘗試抓取 .canvas-area 或父層容器
+      const container = canvas.closest('.canvas-area') || canvas.parentElement;
+      const rect = container.getBoundingClientRect();
+
+      // 3. 計算滑鼠相對於容器左上角的像素位置
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      // 4. 計算縮放前的「世界座標」(World Space)
+      // 原理: (Mouse - Pan) / Zoom = World
+      const worldX = (mouseX - camera.x) / camera.zoom;
+      const worldY = (mouseY - camera.y) / camera.zoom;
+
+      // 5. 計算新的 Zoom 值 (限制在 0.1 ~ 5.0 倍之間)
+      const newZoom = Math.max(0.1, Math.min(5.0, camera.zoom * factor));
+
+      // 6. 更新相機狀態
+      camera.zoom = newZoom;
+
+      // 7. 補償位移 (Pan)，讓縮放以滑鼠游標為中心
+      // 新的 Pan = Mouse - (World * 新的 Zoom)
+      camera.x = mouseX - worldX * newZoom;
+      camera.y = mouseY - worldY * newZoom;
+
+      // console.log(`Zoom: ${camera.zoom.toFixed(2)}, Pan: ${camera.x.toFixed(0)}, ${camera.y.toFixed(0)}`);
+    };
+
+    // ==========================================
+    // 🛠️ Helper Functions
+    // ==========================================
+
+    const drawGlCanvas = async () => {
+      const canvas = document.getElementById('webgl2');
+      if (!canvas) {
+        console.error("Canvas #webgl2 not found!");
+        return;
+      }
+      const webglContext = canvas.getContext('webgl2');
+
       if (gl.value) {
+        // 清理舊 Program 以防 Context Lost
         gl.value.deleteProgram(program.value);
         gl.value.deleteProgram(colorProgram.value);
         gl.value.deleteProgram(skeletonProgram.value);
+        gl.value.deleteProgram(weightPaintProgram.value);
+        gl.value.deleteProgram(skinnedProgram.value);
         gl.value = null;
       }
-      gl.value = webglContext;
-      setupCanvasEvents(canvas, gl.value);
 
-      // 创建着色器程序
+      gl.value = webglContext;
+
+      // 綁定事件 (使用 Setup 中定義的函數，確保唯一性)
+      canvas.addEventListener('mousedown', handleMouseDown);
+      canvas.addEventListener('mousemove', handleMouseMove);
+      canvas.addEventListener('mouseup', handleMouseUp);
+      canvas.addEventListener('mouseleave', handleMouseUp); // 離開畫布視為放開
+      canvas.addEventListener('wheel', handleWheel);
+
+      // 建立 Shader Programs
       program.value = glsInstance.createProgram(gl.value, shaders.vertex, shaders.fragment);
       colorProgram.value = glsInstance.createProgram(gl.value, shaders.colorVertex, shaders.colorFragment);
       skeletonProgram.value = glsInstance.createProgram(gl.value, shaders.skeletonVertex, shaders.skeletonFragment);
       weightPaintProgram.value = glsInstance.createProgram(gl.value, shaders.weightPaintVertex, shaders.weightPaintFragment);
       skinnedProgram.value = glsInstance.createProgram(gl.value, shaders.skinnedVertex, shaders.skinnedFragment);
-
-    };
-    const setupCanvasEvents = (canvas, gl, container) => {
-      let isDragging = false;
-      let alreadySelect = false;
-      let localSelectedVertex = -1;
-      let startPosX = 0;
-      let startPosY = 0;
-      let useMultiSelect = true;
-      let dragStartX = 0, dragStartY = 0; // 記錄滑鼠起始點
-      let selectedBoundaryIndex = -1;
-
-      const handleMouseDown = (e) => {
-        mousePressed.value = e.button;
-        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
-        startPosX = xNDC;
-        startPosY = yNDC;
-        let vertexIndex = -1;
-        if (e.button === 0 || e.button === 2) {
-          if (activeTool.value === 'grab-point') {
-
-            // 取得當前圖層
-            const currentLayer = glsInstance.layers[currentChosedLayer.value];
-
-            // ✨ 1. 將滑鼠 NDC 轉為 Local 座標
-            const { x: localMouseX, y: localMouseY } = getMouseLocalPos(xNDC, yNDC, currentLayer);
-
-            if (!useMultiSelect) {
-              // ===== 單點選取模式 =====
-              let minDist = Infinity;
-              localSelectedVertex = -1;
-
-              const vertices = currentLayer.vertices.value;
-
-              // ✨ 2. 使用 localMouseX/Y 進行距離比較
-              // 注意：距離閾值(0.02)這裡是跟局部座標比，如果圖片縮放很大，可能需要調整閾值
-              // 建議使用平方距離 (distSq) 比較省效能
-              const thresholdSq = 0.05 * 0.05; // 放寬一點選取範圍
-
-              for (let i = 0; i < vertices.length; i += 4) {
-                const dx = vertices[i] - localMouseX;
-                const dy = vertices[i + 1] - localMouseY;
-                const distSq = dx * dx + dy * dy;
-
-                if (distSq < minDist) {
-                  minDist = distSq;
-                  localSelectedVertex = i / 4;
-                }
-              }
-
-              // 如果最近的點在閾值內
-              if (minDist < thresholdSq) {
-                isDragging = true;
-                selectedVertex.value = localSelectedVertex;
-              }
-
-            } else {
-              // ===== 多點群組模式 =====
-              let hitVertex = -1;
-              const vertices = currentLayer.vertices.value;
-              const thresholdSq = 0.05 * 0.05;
-
-              for (let idx of selectedVertices.value) {
-                const vx = vertices[idx * 4];
-                const vy = vertices[idx * 4 + 1];
-
-                // ✨ 3. 同樣使用 localMouseX/Y
-                const dx = vx - localMouseX;
-                const dy = vy - localMouseY;
-                const distSq = dx * dx + dy * dy;
-
-                if (distSq < thresholdSq) {
-                  hitVertex = idx;
-                  break;
-                }
-              }
-              console.log(" hitVertex : ", hitVertex);
-
-              if (hitVertex !== -1) {
-                isDragging = true;
-                // 注意：dragStart 保持 NDC 格式，在 move 時我們再轉換
-                dragStartX = xNDC;
-                dragStartY = yNDC;
-              }
-            }
-          } else if (activeTool.value === 'select-points') {
-            bonesInstance.handleSelectPointsMouseDown(xNDC, yNDC, e.button === 0, isShiftPressed.value);
-            isDragging = true;
-
-          }
-
-          else if (activeTool.value === 'add-points') {
-            if (e.button === 2) {
-
-            }
-            else {
-              console.log(" hi I should add point at : ", xNDC, " , ", yNDC);
-              glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { add: [{ x: xNDC, y: yNDC }] });
-
-            }
-          }
-          else if (activeTool.value === 'edit-points') {
-
-
-            if (e.button === 2) {
-
-            }
-            else {
-              console.log(" hi I should edit point at : ", xNDC, " , ", yNDC);
-              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
-              isDragging = true;
-            }
-          }
-
-          else if (activeTool.value === 'remove-points') {
-            if (e.button === 2) {
-
-            }
-
-            else {
-              console.log(" hi I should edit point at : ", xNDC, " , ", yNDC);
-
-              let vertexIndex = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
-              isDragging = true;
-              console.log(" remove vertex index : ", vertexIndex);
-              if (vertexIndex !== -1)
-                glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { delete: [vertexIndex] });
-            }
-          }
-          else if (activeTool.value === 'link-points') {
-            if (e.button === 0) {
-
-              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
-              console.log("link point select first vertex at  ", selectedVertex.value);
-              isDragging = true;
-            }
-          }
-          else if (activeTool.value === 'delete-edge') {
-            if (e.button === 0) {
-
-              selectedVertex.value = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
-              console.log("delete edge  select first vertex at  ", selectedVertex.value);
-
-            }
-          }
-          else if (activeTool.value === 'edit-boundary') {
-            if (e.button === 0) {
-              console.log("doing boundary interact");
-
-              selectedBoundaryIndex = glsInstance.handleBoundaryInteraction(
-                xNDC,
-                yNDC,
-                glsInstance.layers,
-                currentChosedLayer
-              );
-              console.log("click : ", selectedBoundaryIndex);
-            }
-          }
-          isDragging = true;
-
-        }
-      };
-
-      const handleMouseMove = (e) => {
-
-        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
-
-        if (!isDragging) {
-          const isCreatMode = (activeTool.value === 'bone-create');
-          bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC, isCreatMode);
-          if (activeTool.value === 'edit-points') {
-            glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value]);
-          }
-          else if (activeTool.value === 'edit-boundary') {
-            mousePosition.value = glsInstance.updateMousePosition(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
-
-          }
-          return;
-        }
-
-        if (activeTool.value === 'grab-point' && isDragging) {
-
-          bonesInstance.moveSelectedVertex(currentChosedLayer, useMultiSelect, localSelectedVertex, gl, xNDC, yNDC, dragStartX, dragStartY);
-          dragStartX = xNDC;
-          dragStartY = yNDC;
-
-          forceUpdate();
-
-        } else if (activeTool.value === 'select-points') {
-
-          if (isDragging)
-            bonesInstance.handleSelectPointsMouseMove(xNDC, yNDC, isShiftPressed.value);
-
-        }
-        else if (activeTool.value === 'edit-points') {
-
-          if (isDragging && selectedVertex.value !== -1) {
-            let vertexIndex = selectedVertex.value;
-            console.log("currentChosedLayer.value : ", currentChosedLayer.value)
-            glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { update: [{ index: vertexIndex, x: xNDC, y: yNDC }] });
-            forceUpdate();
-          }
-
-        }
-        else if (activeTool.value === 'link-points') {
-
-
-
-        }
-        else if (activeTool.value === 'bone-create') {
-
-          // console.log(" mouse move event : ", e.buttons);  // in mouse move e.buttons: 1:left, 2:right, 3:left+right
-          if (e.buttons === 2) {  //edit selected bone
-            //   console.log(" right button move edit bone...  ");
-            bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
-          }
-          else {
-            //console.log(" left button move create bone...  ");
-            bonesInstance.meshboneCreateMouseMove(xNDC, yNDC);
-          }
-
-        } else if (activeTool.value === 'bone-animate') {
-          bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
-          bonesInstance.updatePoseMesh(gl);
-          forceUpdate();
-          // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
-          //   startPosX = xNDC;
-          //    startPosY = yNDC;
-        } else if (activeTool.value === 'edit-boundary') {
-          if (e.button === 0) {
-            console.log("doing boundary interact mouse moving ..", selectedBoundaryIndex);
-
-            if (selectedBoundaryIndex !== -1)
-              glsInstance.updateBoundary(xNDC, yNDC, selectedBoundaryIndex, glsInstance.layers[currentChosedLayer.value], isShiftPressed.value,
-              );
-
-          }
-        }
-      };
-
-      const handleMouseUp = (e) => {
-        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
-        mousePressed.value = e.button;
-
-        if (activeTool.value === 'bone-create' && isDragging) {
-
-          if (e.button === 2) { //edit selected bone
-            bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
-          }
-          else {
-            bonesInstance.MeshBoneCreate(xNDC, yNDC);
-          }
-
-
-          //bonesInstance.assignVerticesToBones();
-        }
-        else if (activeTool.value === 'select-points') {
-          if (isDragging) {
-            bonesInstance.handleSelectPointsMouseUp(xNDC, yNDC, currentChosedLayer.value, isShiftPressed.value, isCtrlPressed.value);
-            isDragging = false;
-          }
-        }
-
-
-        else if (activeTool.value === 'bone-animate' && isDragging) {
-          // bonesInstance.handleBoneAnimateMouseUp();
-        }
-
-        else if (activeTool.value === 'link-points') {
-          if (e.button === 0) {
-
-            let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
-            console.log("link point select first vertex at  ", selectedVertex.value);
-            console.log("link point select second vertex at  ", vertex2);
-            if (vertex2 !== -1 && selectedVertex.value !== -1 && vertex2 !== selectedVertex.value) {
-              glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { addEdge: [{ v1: selectedVertex.value, v2: vertex2 }] });
-            }
-          }
-        }
-        else if (activeTool.value === 'delete-edge') {
-          if (e.button === 0) {
-
-            let vertex2 = getClosestVertex(xNDC, yNDC, glsInstance.layers[currentChosedLayer.value]);
-            console.log("link point select first vertex at  ", selectedVertex.value);
-            console.log("link point select second vertex at  ", vertex2);
-            if (vertex2 !== -1 && selectedVertex.value !== -1 && vertex2 !== selectedVertex.value) {
-              glsInstance.updateLayerVertices(gl, glsInstance.layers[currentChosedLayer.value], { deleteEdge: [{ v1: selectedVertex.value, v2: vertex2 }] });
-            }
-          }
-        } else if (activeTool.value === 'edit-boundary') {
-
-          selectedBoundaryIndex = -1;
-          // glsInstance.resetMouseState( glsInstance.layers[currentChosedLayer.value]);
-        }
-        isDragging = false;
-        selectedVertex.value = -1;
-
-
-        forceUpdate();
-      };
-
-      const handleWheel = (e) => {
-        e.preventDefault();
-        console.log('wheel', e.deltaY);
-      };
-
-      // 綁定事件
-      canvas.addEventListener('mousedown', handleMouseDown);
-      canvas.addEventListener('mousemove', handleMouseMove);
-      canvas.addEventListener('mouseup', handleMouseUp);
-      canvas.addEventListener('wheel', handleWheel);
-
-      // （可選）在 component unmount 或重新繪製時解除綁定
-      // return () => {
-      //   canvas.removeEventListener('mousedown', handleMouseDown);
-      //   canvas.removeEventListener('mousemove', handleMouseMove);
-      //   canvas.removeEventListener('mouseup', handleMouseUp);
-      //   canvas.removeEventListener('wheel', handleWheel);
-      // };
     };
 
-    const initAnything = (async () => {
-
-      //  if( !texture.value)
-      if (lastLoadedImageType.value == 'png') {
-        //if no texture render first time
-        if (!texture.value)
-          await pngRender();
-
-        else {
-          await pngRenderAgain();
-        }
-      }
-      else if (lastLoadedImageType.value === 'psd') {
-        //await psdRenderAgain(selectedLayers, wholeImageHeight.value, wholeImageWidth.value);
-        await psdRender(selectedLayers, wholeImageHeight.value, wholeImageWidth.value);
-      }
-
-
-      showLayers.value = glsInstance.layers;
-
-    });
-
-    const toggleMeshSelection = (index) => {
-      console.log(" toggle layer selection : ", index);
-      if (chosenMesh.value.includes(index)) {
-        chosenMesh.value = chosenMesh.value.filter(i => i !== index)
-      } else {
-        chosenMesh.value.push(index)
-      }
-      console.log(" chosenMesh.value : ", chosenMesh.value);
-
-
-      // checking chosenMesh.includes(index)
-      console.log(" chosenMesh includes index? ", chosenMesh.value.includes(index));
-    }
-    // ... existing imports
-
-    // 找到原本的 addMesh 函式並替換為以下內容
     const addMesh = () => {
-      console.log(" hi add addMesh ");
-
-      // 檢查是否有選中圖層
+      console.log("Add Mesh Triggered");
       if (glsInstance.layers.length > 0 && currentChosedLayer.value !== null && currentChosedLayer.value < glsInstance.layers.length) {
-
         const sourceLayerIndex = currentChosedLayer.value;
         const sourceLayer = glsInstance.layers[sourceLayerIndex];
 
-        // 1. 建立新圖層
         const newLayerName = sourceLayer.name.value + "_Copy";
         const newLayer = glsInstance.addLayer(newLayerName);
         const newIndex = glsInstance.layers.length - 1;
 
-        // 2. 深拷貝幾何數據
+        // 複製屬性
         newLayer.vertices.value = [...sourceLayer.vertices.value];
         newLayer.indices.value = [...sourceLayer.indices.value];
         newLayer.linesIndices.value = [...sourceLayer.linesIndices.value];
         newLayer.poseVertices.value = [...sourceLayer.poseVertices.value];
-
-        // 3. 拷貝 Set 結構
         if (sourceLayer.edges) newLayer.edges = new Set(sourceLayer.edges);
         if (sourceLayer.originalTriangles) newLayer.originalTriangles = new Set(sourceLayer.originalTriangles);
-
-        // 4. 深拷貝變形參數 (關鍵：讓位置正確)
         if (sourceLayer.transformParams) newLayer.transformParams = JSON.parse(JSON.stringify(sourceLayer.transformParams));
         if (sourceLayer.transformParams2) newLayer.transformParams2 = JSON.parse(JSON.stringify(sourceLayer.transformParams2));
-
-        // 5. 複製圖片引用
         newLayer.image = sourceLayer.image;
         newLayer.width = sourceLayer.width;
         newLayer.height = sourceLayer.height;
 
-        // 6. 為主圖層建立 WebGL Buffers
+        // 建立 Buffer
         const { vbo, ebo, eboLines } = glsInstance.createWebGLBuffers(
-          gl.value,
-          newLayer.vertices.value,
-          newLayer.indices.value,
-          newLayer.linesIndices.value
+          gl.value, newLayer.vertices.value, newLayer.indices.value, newLayer.linesIndices.value
         );
-        newLayer.vbo = vbo;
-        newLayer.ebo = ebo;
-        newLayer.eboLines = eboLines;
+        newLayer.vbo = vbo; newLayer.ebo = ebo; newLayer.eboLines = eboLines;
 
-        // 7. 同步處理 Ref Layer (避免 ghost layer 問題)
-        // gls.addLayer 自動建立了 refLayer，我們也需要幫它初始化 buffer
+        // 處理 Ref Layer
         const refLayer = glsInstance.refLayers[newIndex];
         if (refLayer) {
           const { vbo: rvbo, ebo: rebo, eboLines: reboLines } = glsInstance.createWebGLBuffers(
-            gl.value,
-            newLayer.vertices.value,
-            newLayer.indices.value,
-            newLayer.linesIndices.value
+            gl.value, newLayer.vertices.value, newLayer.indices.value, newLayer.linesIndices.value
           );
-          refLayer.vbo = rvbo;
-          refLayer.ebo = rebo;
-          refLayer.eboLines = reboLines;
+          refLayer.vbo = rvbo; refLayer.ebo = rebo; refLayer.eboLines = reboLines;
           refLayer.transformParams = JSON.parse(JSON.stringify(newLayer.transformParams));
-          refLayer.vertices.value = [...newLayer.vertices.value]; // 同步頂點
+          refLayer.vertices.value = [...newLayer.vertices.value];
         }
 
-        // 8. 處理紋理 (Texture)
+        // 複製 Texture 參照
         if (texture.value && texture.value[sourceLayerIndex]) {
           texture.value.push(texture.value[sourceLayerIndex]);
         }
 
-        // 9. 同步加入 Mesh2D 列表
+        // 建立 Mesh Object
         const newMeshObj = new Mesh2D(newLayerName);
         newMeshObj.image = loadedImage.value || sourceLayer.image;
         newMeshObj.vertices = [...newLayer.vertices.value];
@@ -539,141 +477,26 @@ export const meshEditor = defineComponent({
         newMeshObj.linesIndices = [...newLayer.linesIndices.value];
         meshs.value.push(newMeshObj);
 
-        // ==========================
-        // 🔥 關鍵修正：自動選中與顯示
-        // ==========================
-
-        // A. 加入渲染清單 (讓貼圖顯示)
-        if (!selectedLayers.value.includes(newIndex)) {
-          selectedLayers.value.push(newIndex);
-        }
-
-        // B. 切換當前操作圖層 (讓 Vertex 紅點顯示)
-        currentChosedLayer.value = newIndex;
-
-        // C. 更新 UI 高亮 (chosenLayers)
-        // 先清空舊選擇 (如果是單選邏輯) 或者 push (如果是多選)
-        // 這裡假設單選操作比較直覺
-        chosenLayers.value = [newIndex];
-
-        // 10. 更新畫面
-        showLayers.value = glsInstance.layers;
+        // 自動選中
+        toggleLayerSelection(newIndex);
+        chosenLayers.value = [newIndex]; // 單選
         forceUpdate();
-
-        console.log(`✅ 已複製並選中 Mesh 圖層: ${newLayerName} (Index: ${newIndex})`);
-
       } else {
-        console.warn("⚠️ 未選中圖層，無法複製 Mesh");
+        console.warn("未選中圖層，無法複製 Mesh");
       }
-    }
+    };
+
     const fitLayerBoundary = () => {
-      fitTransformToVertices(glsInstance.layers[currentChosedLayer.value]);
+      if (currentChosedLayer.value !== null) fitTransformToVertices(glsInstance.layers[currentChosedLayer.value]);
     }
     const fitLayerBoundary2 = () => {
-      fitTransformToVertices2(glsInstance.layers[currentChosedLayer.value]);
+      if (currentChosedLayer.value !== null) fitTransformToVertices2(glsInstance.layers[currentChosedLayer.value]);
     }
-    onMounted(async () => {
-      renderFn.value = await loadHtmlPage('./meshEditor.html');
+    const toggleMeshSelection = (index) => {
+      if (chosenMesh.value.includes(index)) chosenMesh.value = chosenMesh.value.filter(i => i !== index);
+      else chosenMesh.value.push(index);
+    }
 
-      await nextTick();
-      drawGlCanvas();
-      console.log("is gl already init? ", initGlAlready.value);
-      if (!initGlAlready.value) {
-        // === 第一次載入 ===
-        lastLoadedImageType.value = 'png';
-        clearTexture(selectedLayers);
-        await pngLoadTexture('./png3.png');
-        initGlAlready.value = true;
-        await initAnything(); // 這是原本的初始化邏輯
-      } else {
-        // === 頁面切換回來 (包含新增的圖層) ===
-        console.log("🔄 Switching back page, restoring existing layers...");
-
-        // 使用新功能：恢復所有圖層 (包含 addMesh 新增的)
-        await restoreWebGLResources(gl.value);
-      }
-      // 確保 GL 狀態綁定正確
-      await bindGl(selectedLayers);
-
-      // 同步顯示列表
-      showLayers.value = glsInstance.layers;
-
-      const beforePasses = [];
-
-      // 權重繪製模式
-      beforePasses.push(
-        makeRenderPass(
-          render,
-          gl.value, program.value, glsInstance.refLayers, selectedLayers)
-      )
-
-
-      const passes = [];
-
-      // 根據模式動態加入 pass
-      {
-        // 權重繪製模式
-        passes.push(
-          makeRenderPass(
-            renderGridOnly,
-            gl.value,
-            colorProgram.value,
-            glsInstance.layers,
-            glsInstance.getLayerSize(),
-            currentChosedLayer,
-            selectedVertices
-          ),
-
-
-          makeRenderPass(
-            renderWeightPaint,
-            gl.value,
-            weightPaintProgram.value,
-            selectedGroups.value[0],
-            glsInstance.layers[currentChosedLayer.value]
-          ),
-
-          makeRenderPass(
-            renderOutBoundary,
-            gl.value,
-            colorProgram.value,
-            glsInstance.layers,
-            glsInstance.getLayerSize(),
-            currentChosedLayer,
-            selectedVertices
-          ),
-
-
-        );
-      }
-
-
-      // === 骨架渲染（所有模式都要）===
-      passes.push(
-        makeRenderPass(
-          renderMeshSkeleton,
-          gl.value,
-          skeletonProgram.value,
-          meshSkeleton,
-          bonesInstance,
-          mousePressed,
-          activeTool
-        )
-      );
-      if (activeTool.value === 'bone-animate') { //update pose if in animate mode
-        bonesInstance.updatePoseMesh(gl.value);
-      }
-      setCurrentJobName('edit');
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers, passes, "edit", beforePasses);
-
-    });
-    const layoutState = reactive({
-      rightPanelWidth: 300, // 右側面板初始寬度
-      layersHeight: 250,    // 圖層區塊初始高度
-      isResizing: false
-    });
-
-    // 處理拖曳手柄
     const startResize = (type, event) => {
       layoutState.isResizing = true;
       const startX = event.clientX;
@@ -683,7 +506,6 @@ export const meshEditor = defineComponent({
 
       const onMouseMove = (moveEvent) => {
         if (type === 'right-panel') {
-          // 向左拖動會增加寬度，所以是 startX - currentX
           const deltaX = startX - moveEvent.clientX;
           layoutState.rightPanelWidth = Math.max(150, Math.min(600, startWidth + deltaX));
         } else if (type === 'layer-height') {
@@ -702,99 +524,81 @@ export const meshEditor = defineComponent({
       window.addEventListener('mouseup', onMouseUp);
     };
 
-    const getCorrectedNDC = (e, canvas) => {
-      const rect = canvas.getBoundingClientRect();
-
-      // 1. 取得滑鼠在 Canvas DOM 元素上的像素位置 (尚未考慮縮放)
-      // 注意：這裡假設 canvas 的 CSS transform 是由父層 .canvas-viewport 控制的
-      // 如果直接 transform canvas，rect 會是被縮放後的大小
-
-      // 我們改用 event.clientX 減去 容器的偏移，再扣除 camera 的位移，除以 zoom
-      const container = canvas.closest('.canvas-area');
-      const containerRect = container.getBoundingClientRect();
-
-      // 滑鼠相對於 canvas-area 左上角的像素位置
-      const mouseXInContainer = e.clientX - containerRect.left;
-      const mouseYInContainer = e.clientY - containerRect.top;
-
-      // 轉換為相對於「實際畫布內容」的像素位置 (反向應用平移與縮放)
-      const contentX = (mouseXInContainer - camera.x) / camera.zoom;
-      const contentY = (mouseYInContainer - camera.y) / camera.zoom;
-
-      // 接著轉為 NDC (-1 ~ 1)
-      // 假設畫布的渲染尺寸是 canvas.width / canvas.height
-      const xNDC = (contentX / canvas.width) * 2 - 1;
-      const yNDC = 1 - (contentY / canvas.height) * 2; // WebGL Y 軸向上，DOM 向下
-
-      return { x: xNDC, y: yNDC };
-    };
-
-    // 處理滑鼠滾輪縮放
-    const handleWheel = (e) => {
-      if (!e.altKey && !e.ctrlKey && activeTool.value !== 'move-view') {
-        // 如果沒有按特殊鍵，你可以選擇是否要攔截，這裡示範直接縮放
-      }
-
-      const zoomIntensity = 0.1;
-      const direction = e.deltaY > 0 ? -1 : 1;
-      const factor = 1 + (zoomIntensity * direction);
-
-      // 計算縮放前的滑鼠在「內容世界」的相對位置，讓縮放以滑鼠為中心
-      const container = document.querySelector('.canvas-area');
-      const rect = container.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      const worldX = (mouseX - camera.x) / camera.zoom;
-      const worldY = (mouseY - camera.y) / camera.zoom;
-
-      // 更新 Zoom
-      const newZoom = Math.max(0.1, Math.min(5.0, camera.zoom * factor));
-      camera.zoom = newZoom;
-
-      // 更新 Pan (補償位移)
-      camera.x = mouseX - worldX * newZoom;
-      camera.y = mouseY - worldY * newZoom;
-    };
-
-    // 處理中鍵平移 (Pan)
-    // 修改後的 handlePan：只允許中鍵拖曳
     const handlePan = (e) => {
-      // e.button === 1 代表中鍵 (滾輪鍵)
-      if (e.button === 1) {
-        e.preventDefault(); // 防止瀏覽器預設的捲動圖示出現
+      if (e.button === 1) { // Middle click
+        e.preventDefault();
+        const startX = e.clientX, startY = e.clientY;
+        const startCamX = camera.x, startCamY = camera.y;
 
-        const startX = e.clientX;
-        const startY = e.clientY;
-        const startCamX = camera.x;
-        const startCamY = camera.y;
-
-        const onMouseMove = (moveE) => {
-          // 更新相機位置
-          camera.x = startCamX + (moveE.clientX - startX);
-          camera.y = startCamY + (moveE.clientY - startY);
+        const onMouseMove = (ev) => {
+          camera.x = startCamX + (ev.clientX - startX);
+          camera.y = startCamY + (ev.clientY - startY);
         };
-
         const onMouseUp = () => {
-          // 放開滑鼠後移除監聽
           window.removeEventListener('mousemove', onMouseMove);
           window.removeEventListener('mouseup', onMouseUp);
         };
-
-        // 綁定到 window 以確保拖曳出畫布範圍也能偵測
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
       }
     };
-    // --- 2. 畫布相機控制 (Camera Logic) ---
-    const camera = reactive({
-      x: 0,
-      y: 0,
-      zoom: 1.0
+
+    // ==========================================
+    // 🚀 Lifecycle
+    // ==========================================
+
+    onMounted(async () => {
+      renderFn.value = await loadHtmlPage('./meshEditor.html');
+      await nextTick();
+      await drawGlCanvas();
+
+      if (!initGlAlready.value) {
+        lastLoadedImageType.value = 'png';
+        clearTexture(selectedLayers);
+        await pngLoadTexture('./png3.png');
+        initGlAlready.value = true;
+        // 初始渲染邏輯 (模擬 initAnything)
+        if (!texture.value) await pngRender();
+        else await pngRenderAgain();
+        showLayers.value = glsInstance.layers;
+      } else {
+        console.log("🔄 Restoring GL Resources...");
+        await restoreWebGLResources(gl.value);
+      }
+
+      await bindGl(selectedLayers);
+      showLayers.value = glsInstance.layers;
+
+      // Render Passes Setup
+      const beforePasses = [
+        makeRenderPass(render, gl.value, program.value, glsInstance.refLayers, selectedLayers)
+      ];
+
+      const passes = [
+        makeRenderPass(renderGridOnly, gl.value, colorProgram.value, glsInstance.layers, glsInstance.getLayerSize(), currentChosedLayer, selectedVertices),
+        makeRenderPass(renderWeightPaint, gl.value, weightPaintProgram.value, selectedGroups.value[0], glsInstance.layers[currentChosedLayer.value]),
+        makeRenderPass(renderOutBoundary, gl.value, colorProgram.value, glsInstance.layers, glsInstance.getLayerSize(), currentChosedLayer, selectedVertices),
+        makeRenderPass(renderMeshSkeleton2, gl.value, skeletonProgram.value, meshSkeleton, bonesInstance, mousePressed, activeTool,wholeImageWidth.value,wholeImageHeight.value)
+      ];
+
+      if (activeTool.value === 'bone-animate') {
+        bonesInstance.updatePoseMesh(gl.value);
+      }
+
+      setCurrentJobName('edit');
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers, passes, "edit", beforePasses);
     });
 
     onUnmounted(() => {
-      console.log("unmount edit page, cleaning up gl context...");
+      const canvas = document.getElementById('webgl2');
+      if (canvas) {
+        canvas.removeEventListener('mousedown', handleMouseDown);
+        canvas.removeEventListener('mousemove', handleMouseMove);
+        canvas.removeEventListener('mouseup', handleMouseUp);
+        canvas.removeEventListener('mouseleave', handleMouseUp);
+        canvas.removeEventListener('wheel', handleWheel);
+      }
+
       if (gl.value) {
         gl.value.deleteProgram(program.value);
         gl.value.deleteProgram(colorProgram.value);
@@ -803,33 +607,30 @@ export const meshEditor = defineComponent({
         setCurrentJobName("exit");
       }
     });
-    return () =>
-      renderFn.value
-        ? renderFn.value({
-          counter,
-          v,
-          triggerRefresh,
-          activeTool,
-          selectTool,
-          showLayers,
-          selectedLayers,
-          chosenLayers,
-          toggleLayerSelection,
-          addMesh,
-          meshs,
-          chosenMesh,
-          toggleMeshSelection,
-          selectedMesh,
-          fitLayerBoundary,
-          fitLayerBoundary2,
-          mousePosition,
-          layoutState,
-          camera,
-          handleWheel,
-          handlePan,
-          startResize
-        })
-        : h('div', '載入中...');
 
-  },
+    return () => renderFn.value ? renderFn.value({
+      counter,
+      v,
+      triggerRefresh,
+      activeTool,
+      selectTool,
+      showLayers,
+      selectedLayers,
+      chosenLayers,
+      toggleLayerSelection,
+      addMesh,
+      meshs,
+      chosenMesh,
+      toggleMeshSelection,
+      selectedMesh,
+      fitLayerBoundary,
+      fitLayerBoundary2,
+      mousePosition,
+      layoutState,
+      camera,
+      handleWheel,
+      handlePan,
+      startResize
+    }) : h('div', 'Loading Editor...');
+  }
 });

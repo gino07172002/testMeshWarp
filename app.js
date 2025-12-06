@@ -1,6 +1,12 @@
-const { createApp, onMounted, ref, reactive, computed, watch, provide } = Vue;
+// app.js
+const { createApp, onMounted, onUnmounted, ref, reactive, computed, watch, provide } = Vue;
+const { createRouter, createWebHashHistory } = VueRouter;
+const { createPinia } = Pinia;
+
+// === Imports ===
 import {
-  globalVars as v, convertToNDC,
+  globalVars as v,
+  convertToNDC,
   selectedLayers,
   currentChosedLayer,
   selectedGroups,
@@ -8,15 +14,11 @@ import {
   isShiftPressed,
   refreshKey,
   wholeImageWidth,
-  wholeImageHeight
-} from './globalVars.js'  // 引入全局變數
+  wholeImageHeight,
+  lastLoadedImageType
+} from './globalVars.js';
 
-window.testWord = 'Hello';
-
-export const boneIdToIndexMap = reactive({});
-export const boneTree = reactive({});
 import {
-  //initBone,
   boneParents,
   meshSkeleton,
   skeletons,
@@ -26,7 +28,6 @@ import {
 } from './useBone.js';
 
 import {
-  shaders,
   gl,
   texture,
   program,
@@ -39,1693 +40,41 @@ import {
   setCurrentJobName,
   renderGridOnly,
   renderMeshSkeleton,
+  renderMeshSkeleton2,
   renderWeightPaint,
   layerForTextureWebgl,
   layerToTexture,
   psdRender,
   pngRender,
-  makeRenderPass
+  makeRenderPass,
+  bindGl,
+  clearTexture,
+  pngLoadTexture,
+  renderOutBoundary,
+  restoreWebGLResources
 } from './useWebGL.js';
 
-import {
-  psdHello,
-  processPSDFile
-
-} from './psd.js';
-
-
-
-
-
-import { Bone as MeshBone, Vertex, Mesh2D, Skeleton, getClosestBoneAtClick, Attachment } from './mesh.js';
-
-
-import {
-  Timeline2
-} from './timeline2.js';
 import glsInstance from './useWebGL.js';
-
-
-
-const testWordOutside = ref("test word Outside");
-
-// 準備多圖層資料結構陣列
-let layersForTexture = [];
-
-// Coordinate conversion utility function
-
-
-
-
-
-// Texture Loading Functions
-const loadTexture = (gl, url) => {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-
-    image.onload = () => {
-      const currentTexture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, currentTexture);
-
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = image.width;
-      tempCanvas.height = image.height;
-      const tempCtx = tempCanvas.getContext('2d');
-
-      tempCtx.drawImage(image, 0, 0);
-
-      const imgData = tempCtx.getImageData(0, 0, image.width, image.height);
-
-      gl.bindTexture(gl.TEXTURE_2D, null);
-
-
-      resolve({
-        texture: currentTexture,      // WebGL紋理物件
-        data: imgData.data,            // 圖像的像素數據 (Uint8Array)
-        width: image.width,            // 圖像寬度
-        height: image.height           // 圖像高度
-      });
-    };
-
-    image.onerror = (error) => {
-      console.error("Image loading failed:", error);
-      reject(error);
-    };
-
-    image.src = url;
-  });
-};
-
-
-
-const app = Vue.createApp({
-  data() {
-    return {
-      imageData: '',
-      imageCanvasManager: null,
-      lastTimestamp: 0,
-      status: '準備中',
-      points: [],
-      fileDropdown: false,
-      editDropdown: false,
-      selectedLayerId: null,
-      layers: [],
-      layerCounter: 0,
-      keyframeCounter: 0,
-      isDragging: false,
-      startX: 0,
-      scrollLeft: 0,
-      dragStartX: 0,
-      dragStartY: 0,
-      refreshKey: 0,
-      timelineLength: 1000,
-      dragInfo: { dragging: false, startX: 0, type: null },
-      timeSelection: { active: false, start: 0, end: 0 },
-      animationPlaying: false,
-      animationStartTime: 0,
-      nextKeyframeId: 10,
-      psdLayers: [],
-      fileDropdown: false,
-      editDropdown: false,
-
-
-    };
-  },
-  async mounted() {
-
-    console.log("somehow mount here ... ");
-    document.addEventListener('click', this.closeAllDropdowns);
-  },
-  beforeUnmount() {
-  },
-  computed: {
-    keyframes() {
-      return this.timeline?.keyframes || [];
-    },
-    timeRange() {
-      return this.timeline?.timeRange || { qq: 123 };
-    },
-    boneTree() {
-      const rootBones = boneParents.value
-        .map((parent, index) => (parent === -1 ? index : null))
-        .filter(index => index !== null);
-
-      Object.keys(boneIdToIndexMap).forEach(key => {
-        delete boneIdToIndexMap[key];
-      });
-
-      const trees = rootBones.map(rootIndex => {
-        const tree = this.buildBoneTree(rootIndex, null, boneIdToIndexMap);
-        return tree;
-      });
-
-      Object.keys(boneTree).forEach(key => {
-        delete boneTree[key];
-      });
-
-      trees.forEach((tree, index) => {
-        boneTree[index] = tree;
-      });
-
-      return trees;
-    },
-    flattenedBones() {
-      let result = [];
-
-      return result;
-    }
-  },
-  beforeUnmount() {
-    clearInterval(this.updateTimer);
-  },
-  unmounted() {
-    document.removeEventListener('click', this.handleClickOutside);
-  },
-  methods: {
-
-    usePsd() {
-      console.log("hello use psd ... ");
-      psdHello();
-      console.log("ok use psd ... ");
-
-      // then I should draw layers to canvas
-    },
-    createLayerTexture(gl, layer) {
-      if (!layer || !layer.imageData) {
-        console.error("Layer or layer.imageData is undefined:", layer);
-        return null;
-      }
-
-      const texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-
-      //console.log("Processing layer:", layer.name, "ImageData type:", Object.prototype.toString.call(layer.imageData));
-
-      // Handle different types of imageData
-      if (layer.imageData instanceof ImageData) {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, layer.imageData.width, layer.imageData.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, layer.imageData.data);
-      } else if (layer.imageData instanceof HTMLCanvasElement || layer.imageData instanceof HTMLImageElement) {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, layer.imageData);
-      } else if (ArrayBuffer.isView(layer.imageData)) {
-        // Handle Uint8Array, Uint8ClampedArray etc.
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = layer.width;
-        tempCanvas.height = layer.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        const tempImageData = tempCtx.createImageData(layer.width, layer.height);
-        tempImageData.data.set(layer.imageData);
-        tempCtx.putImageData(tempImageData, 0, 0);
-
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tempCanvas);
-      } else {
-        console.error("Unsupported layer.imageData type for layer:", layer.name, layer.imageData);
-        console.log("Data preview:", layer.imageData && layer.imageData.length ? layer.imageData.slice(0, 20) : "No data");
-        return null;
-      }
-
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-      return texture;
-    },
-
-    async handlePSDUpload(event) {
-      try {
-        const file = event.target.files[0];
-        if (file) {
-          layersForTexture = [];
-          const psdInfo = await processPSDFile(file);
-          this.psdLayers = psdInfo.layers;
-
-          let imageWidth = psdInfo.width;
-          let imageHeight = psdInfo.height;
-          wholeImageHeight.value = imageHeight;
-
-          wholeImageWidth.value = imageWidth;
-          console.log(" processed psd image width height: ", wholeImageHeight.value, wholeImageWidth.value);
-          const glContext = gl.value; // WebGL context from useWebGL.js
-
-
-
-          for (const layer of this.psdLayers) {
-            // Create texture for the layer
-            layer.texture = this.createLayerTexture(glContext, layer);
-
-            // Calculate NDC coordinates based on layer position and size
-            const left = layer.left || 0;
-            const top = layer.top || 0;
-            const right = left + (layer.width || imageWidth);
-            const bottom = top + (layer.height || imageHeight);
-
-            const ndcLeft = (left / imageWidth) * 2 - 1;
-            const ndcRight = (right / imageWidth) * 2 - 1;
-            const ndcTop = 1 - (top / imageHeight) * 2;
-            const ndcBottom = 1 - (bottom / imageHeight) * 2;
-
-            // Define vertices for the quad (position and texture coordinates)
-            const layerVertices = [
-              ndcLeft, ndcBottom, 0, 0,   // Bottom-left
-              ndcRight, ndcBottom, 1, 0,  // Bottom-right
-              ndcRight, ndcTop, 1, 1,     // Top-right
-              ndcLeft, ndcTop, 0, 1       // Top-left
-            ];
-
-            // Create and populate vertex buffer object (VBO)
-            layer.vbo = glContext.createBuffer();
-            glContext.bindBuffer(glContext.ARRAY_BUFFER, layer.vbo);
-            glContext.bufferData(glContext.ARRAY_BUFFER, new Float32Array(layerVertices), glContext.STATIC_DRAW);
-
-            // Create and populate element buffer object (EBO) for triangles
-            layer.ebo = glContext.createBuffer();
-            glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, layer.ebo);
-            glContext.bufferData(glContext.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 0, 2, 3]), glContext.STATIC_DRAW);
-
-            // 將圖層轉換成與 PNG 相同的資料結構格式
-            const layerForTexture = {
-              imageData: layer.imageData, // 假設 PSD 圖層已經有 imageData (Uint8Array 格式)
-              width: layer.width,
-              height: layer.height,
-              // 如果需要額外的圖層資訊，可以加上：
-              left: layer.left || -1,
-              top: layer.top || 1,
-              name: layer.name || `Layer ${layersForTexture.length}`,
-              opacity: layer.opacity || 1.0,
-              blendMode: layer.blendMode || 'normal'
-            };
-            console.log("let see new psd layer: ", layer.top, " , ", layer.left);
-
-
-            layersForTexture.push(layerForTexture);
-          }
-          layerForTextureWebgl.value = layersForTexture;
-
-
-          console.log(" then renew canvas... ");
-
-
-
-        }
-      } catch (error) {
-        console.error("處理 PSD 檔案時出錯:", error);
-      }
-    },
-    saveProjectToServer() {
-      this.status = '正在儲存專案...';
-      const projectData = {
-        layers: this.layers,
-        points: this.points
-      };
-      fetch('/api/project/save', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(projectData)
-      })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            this.status = '專案儲存成功!';
-          } else {
-            this.status = '專案儲存失敗: ' + data.message;
-          }
-        })
-        .catch(error => {
-          this.status = '專案儲存失敗: ' + error.message;
-        });
-    },
-    saveLayerToServer() {
-      if (!this.selectedLayerId) {
-        this.status = '請先選擇一個圖層';
-        return;
-      }
-      this.status = '正在儲存圖層...';
-      const selectedLayer = this.layers.find(l => l.id === this.selectedLayerId);
-      const layerData = {
-        layerId: this.selectedLayerId,
-        layerName: selectedLayer.name,
-        points: this.points.filter(p => p.layerId === this.selectedLayerId || !p.layerId)
-      };
-      fetch('/api/layer/save', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(layerData)
-      })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            this.status = `圖層 ${selectedLayer.name} 儲存成功!`;
-          } else {
-            this.status = '圖層儲存失敗: ' + data.message;
-          }
-        })
-        .catch(error => {
-          this.status = '圖層儲存失敗: ' + error.message;
-        });
-    },
-    handleClickOutside(e) {
-      const targetElement = e.target;
-      if (!targetElement.closest('.menu-item')) {
-        this.closeAllDropdowns();
-      }
-    },
-    showBone() {
-      console.log("hi show bone");
-      console.log("hi bone ", JSON.stringify(this.boneTree));
-    },
-    toggleDropdown(menu) {
-      if (menu == 'fileDropdown') {
-        this.fileDropdown = true;
-        this.editDropdown = false;
-      }
-      else {
-        this.fileDropdown = false;
-        this.editDropdown = true;
-      }
-
-    },
-    handleFileAction(action) {
-      console.log(" hi action ", action);
-      this.closeAllDropdowns();
-    },
-    handleEditAction(action) {
-      console.log(" hi action ", action);
-      this.closeAllDropdowns();
-    },
-    closeAllDropdowns() {
-      console.log(" close menu ... ");
-      this.fileDropdown = false;
-      this.editDropdown = false;
-
-    },
-
-    // 在组件挂载时添加全局点击监听
-
-
-
-
-  },
-  setup() {
-    const selectedVertex = ref(-1);
-    const activeTool = ref('grab-point');
-    const skeletonIndices = ref([]);
-
-    const isCtrlPressed = ref(false);
-    const instance = Vue.getCurrentInstance();
-
-    const expandedNodes = reactive([]);
-    const showLayers = ref(glsInstance.layers);
-    //const selectedLayers = selectedLayers;
-    const chosenLayers = ref([])   // 控制選擇(多選)
-
-    const selectedValues = ref([]);
-
-    let currentJobName = null;
-    const isWeightPaintMode = ref(true);
-
-    const timelineList = ref([new Timeline2('main', 2.0)])
-    const selectedTimelineId = ref(0)
-    const timeline2 = computed(() => timelineList.value[selectedTimelineId.value])
-
-    //pinia test
-    const counter = useCounterStore();
-    const testWord = ref("test word");
-    window.testWord = testWord.value;
-    const myWord = testWordOutside; // 指向同一個 ref 物件
-
-    const forceUpdate = () => {
-      refreshKey.value++; // 每次加 1 → 會觸發 template 重新渲染
-    };
-    function syncLayers() {
-      forceUpdate();
-      showLayers.value = glsInstance.layers;
-    }
-
-    // provide reactive values and functions to child components that use inject()
-
-
-    function toggleNode(nodeId) {
-      // nodeId 可能是 string 或物件（防呆）
-      const id = typeof nodeId === 'object' ? nodeId.id : nodeId;
-      const idx = expandedNodes.indexOf(id);
-      if (idx >= 0) expandedNodes.splice(idx, 1);
-      else expandedNodes.push(id);
-    }
-
-
-    function handleNameClick(payload) {
-      // payload 結構: { type, id, data }
-      //this.seletedItem = payload;c
-
-      console.log("選中了:", payload.type, payload.data.name);
-      console.log("handle bone name click: ", input);
-      let boneId = payload.id || payload; // 防呆處理
-      console.log(" click bone id : ", boneId, "bone index? ", boneId.boneIndex);
-
-      lastSelectedBone.value = bonesInstance.findBoneById(boneId);
-      // 如果你有右側屬性面板，這裡就是把 payload.data 傳給屬性面板的時機
-      // this.attributePanelData = payload.data;
-    }
-
-    // assign necessary vule to global
-
-    v.glsInstance.value = glsInstance;
-    v.bonesInstance.value = bonesInstance;
-    const selectTool = (tool) => {
-      activeTool.value = tool;
-      console.log("switch to tool : ", tool);
-      if (activeTool.value === 'bone-animate') {
-        // bonesInstance.restoreSkeletonVerticesFromLast();
-      }
-      else if (tool === 'bone-create') {
-        // glsInstance.resetMeshToOriginal();
-        // bonesInstance.resetSkeletonToOriginal();
-      }
-      else if (tool === 'edit-points') {
-
-        bonesInstance.recoverSelectedVertex(currentChosedLayer)
-
-        // restore vertices to original
-      }
-      else if (tool === 'bone-clear') {
-        bonesInstance.clearBones();
-      } else if (tool === 'bone-save') {
-        bonesInstance.saveBones();
-        // bonesInstance.checkKeyframe();
-      } else if (tool === 'bone-load') {
-        bonesInstance.loadBones();
-      }
-      forceUpdate();
-    };
-
-    const resetPose = () => {
-      //bonesInstance.resetPoseToOriginal()
-    }
-
-    const handleKeyDown = (e) => {
-      if (e.key === 'Shift') {
-        console.log("hi shift")
-        isShiftPressed.value = true;
-      }
-      if (e.key === 'Control') {
-        isCtrlPressed.value = true;
-      }
-    };
-
-    const handleKeyUp = (e) => {
-      if (e.key === 'Shift') {
-        isShiftPressed.value = false;
-      }
-      if (e.key === 'Control') {
-        isCtrlPressed.value = false;
-      }
-    };
-
-    const setupCanvasEvents = (canvas, gl, container) => {
-      let isDragging = false;
-      let alreadySelect = false;
-      let localSelectedVertex = -1;
-      let startPosX = 0;
-      let startPosY = 0;
-      let useMultiSelect = true;
-      let dragStartX = 0, dragStartY = 0; // 記錄滑鼠起始點
-
-
-      const handleMouseDown = (e) => {
-        mousePressed.value = e.button;
-        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
-        startPosX = xNDC;
-        startPosY = yNDC;
-
-        if (e.button === 0 || e.button === 2) {
-          if (activeTool.value === 'grab-point') {
-
-            if (!useMultiSelect) {
-              // ===== 單點選取模式 =====
-              let minDist = Infinity;
-              localSelectedVertex = -1;
-
-              const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
-              for (let i = 0; i < vertices.length; i += 4) {
-                const dx = vertices[i] - xNDC;
-                const dy = vertices[i + 1] - yNDC;
-                const dist = dx * dx + dy * dy;
-                if (dist < minDist) {
-                  minDist = dist;
-                  localSelectedVertex = i / 4;
-                }
-              }
-
-              if (minDist < 0.02) {
-                isDragging = true;
-                selectedVertex.value = localSelectedVertex; // 單點記錄
-              }
-
-            } else {
-              // ===== 多點群組模式 =====
-              // 檢查點擊是否落在 selectedVertices 裡的某一個頂點
-              let hitVertex = -1;
-              const vertices = glsInstance.layers[currentChosedLayer.value].vertices.value;
-
-              for (let idx of selectedVertices.value) {
-                const vx = vertices[idx * 4];
-                const vy = vertices[idx * 4 + 1];
-                const dx = vx - xNDC;
-                const dy = vy - yNDC;
-                const dist = dx * dx + dy * dy;
-                if (dist < 0.02) {
-                  hitVertex = idx;
-                  break;
-                }
-              }
-              console.log(" hitVertex : ", hitVertex);
-
-              if (hitVertex !== -1) {
-                isDragging = true;
-                dragStartX = xNDC;
-                dragStartY = yNDC;
-              }
-            }
-
-
-          } else if (activeTool.value === 'select-points') {
-            bonesInstance.handleSelectPointsMouseDown(xNDC, yNDC, e.button === 0, isShiftPressed.value);
-            isDragging = true;
-
-          }
-
-          else if (activeTool.value === 'bone-create') {
-            if (e.button === 2) {
-              console.log(" right button down edit bone...  ");
-              bonesInstance.handleMeshBoneEditMouseDown(xNDC, yNDC);
-              isDragging = true;
-            }
-            else {
-              //  if(!getBone)
-              bonesInstance.handleMeshBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
-              //bonesInstance.handleBoneCreateMouseDown(xNDC, yNDC, isShiftPressed.value);
-              isDragging = true;
-            }
-          } else if (activeTool.value === 'bone-animate') {
-            bonesInstance.GetCloestBoneAsSelectBone(xNDC, yNDC, false);
-
-            isDragging = true;
-          }
-        }
-      };
-
-      const handleMouseMove = (e) => {
-        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
-
-        if (!isDragging) {
-          const isCreatMode = (activeTool.value === 'bone-create');
-          bonesInstance.GetCloestBoneAsHoverBone(xNDC, yNDC, isCreatMode);
-
-          return;
-        }
-
-        if (activeTool.value === 'grab-point' && isDragging) {
-
-          bonesInstance.moveSelectedVertex(currentChosedLayer, useMultiSelect, localSelectedVertex, gl, xNDC, yNDC, dragStartX, dragStartY);
-          dragStartX = xNDC;
-          dragStartY = yNDC;
-
-          forceUpdate();
-
-        } else if (activeTool.value === 'select-points') {
-          if (isDragging)
-            bonesInstance.handleSelectPointsMouseMove(xNDC, yNDC, isShiftPressed.value);
-
-        }
-
-        else if (activeTool.value === 'bone-create') {
-
-          // console.log(" mouse move event : ", e.buttons);  // in mouse move e.buttons: 1:left, 2:right, 3:left+right
-          if (e.buttons === 2) {  //edit selected bone
-            //   console.log(" right button move edit bone...  ");
-            bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
-          }
-          else {
-            //console.log(" left button move create bone...  ");
-            bonesInstance.meshboneCreateMouseMove(xNDC, yNDC);
-          }
-
-        } else if (activeTool.value === 'bone-animate') {
-          bonesInstance.handleMeshBoneAnimateMouseDown(xNDC, yNDC);
-          bonesInstance.updatePoseMesh(gl);
-          forceUpdate();
-          // console.log(" xNDC: ",xNDC," , yNDC",yNDC);
-          //   startPosX = xNDC;
-          //    startPosY = yNDC;
-        }
-      };
-
-      const handleMouseUp = (e) => {
-        const { x: xNDC, y: yNDC } = convertToNDC(e, canvas, container);
-
-        if (activeTool.value === 'bone-create' && isDragging) {
-
-          if (e.button === 2) { //edit selected bone
-            bonesInstance.meshBoneEditMouseMove(xNDC, yNDC);
-          }
-          else {
-            bonesInstance.MeshBoneCreate(xNDC, yNDC);
-          }
-
-
-          //bonesInstance.assignVerticesToBones();
-        }
-        else if (activeTool.value === 'select-points') {
-          if (isDragging) {
-            bonesInstance.handleSelectPointsMouseUp(xNDC, yNDC, currentChosedLayer.value, isShiftPressed.value, isCtrlPressed.value);
-            isDragging = false;
-          }
-        }
-
-
-        else if (activeTool.value === 'bone-animate' && isDragging) {
-          // bonesInstance.handleBoneAnimateMouseUp();
-        }
-        isDragging = false;
-        selectedVertex.value = -1;
-        mousePressed.value = null;
-
-        forceUpdate();
-      };
-
-      canvas.removeEventListener('mousedown', handleMouseDown);
-      canvas.removeEventListener('mousemove', handleMouseMove);
-      canvas.removeEventListener('mouseup', handleMouseUp);
-      canvas.removeEventListener('mouseleave', handleMouseUp);
-
-      canvas.addEventListener('mousedown', handleMouseDown);
-      canvas.addEventListener('mousemove', handleMouseMove);
-      canvas.addEventListener('mouseup', handleMouseUp);
-      canvas.addEventListener('mouseleave', handleMouseUp);
-
-      canvas.tabIndex = 1;
-      canvas.addEventListener('focus', () => {
-        canvas.style.outline = 'none';
-      });
-    };
-
-    //render start
-    var time = 0;
-
-
-
-
-
-
-
-    // 调试函数：打印图层信息
-    function debugLayers() {
-      console.log("=== Layer Debug Info ===");
-      console.log("Total layers:", glsInstance.getLayerSize());
-      console.log("Texture count:", texture.value?.length || 0);
-
-      for (let i = 0; i < glsInstance.getLayerSize(); i++) {
-        const layer = glsInstance.layers[i];
-        const tex = texture.value?.[i];
-
-        console.log(`Layer ${i}:`, {
-          name: layer?.name?.value || 'unnamed',
-          hasVbo: !!layer?.vbo,
-          hasEbo: !!layer?.ebo,
-          hasTexture: !!tex?.tex,
-          visible: layer?.visible !== false,
-          opacity: layer?.opacity?.value ?? 1.0,
-          vertexCount: layer?.vertices?.value?.length / 4 || 0
-        });
-      }
-    }
-
-    // 图层控制函数
-    function setLayerVisibility(layerIndex, visible) {
-      if (layerIndex >= 0 && layerIndex < glsInstance.getLayerSize()) {
-        const layer = glsInstance.layers[layerIndex];
-        if (layer) {
-          layer.visible = visible;
-          console.log(`Layer ${layerIndex} visibility set to:`, visible);
-        }
-      }
-    }
-
-    function setLayerOpacity(layerIndex, opacity) {
-      if (layerIndex >= 0 && layerIndex < glsInstance.getLayerSize()) {
-        const layer = glsInstance.layers[layerIndex];
-        if (layer) {
-          if (!layer.opacity) layer.opacity = { value: 1.0 };
-          layer.opacity.value = Math.max(0, Math.min(1, opacity));
-          console.log(`Layer ${layerIndex} opacity set to:`, layer.opacity.value);
-        }
-      }
-    }
-
-    // 初始化时的处理
-    function initializeLayerVisibility() {
-      // 确保所有图层默认可见
-      for (let i = 0; i < glsInstance.getLayerSize(); i++) {
-        const layer = glsInstance.layers[i];
-        if (layer) {
-          if (layer.visible === undefined) {
-            layer.visible = true;
-          }
-          if (!layer.opacity) {
-            layer.opacity = { value: 1.0 };
-          }
-        }
-      }
-    }
-
-    // 测试函数：逐个显示图层
-    function testLayerVisibility() {
-      console.log("Testing layer visibility...");
-
-      // 先隐藏所有图层
-      for (let i = 0; i < glsInstance.getLayerSize(); i++) {
-        setLayerVisibility(i, false);
-      }
-
-      // 每2秒显示下一个图层
-      let currentLayer = 0;
-      const showNextLayer = () => {
-        if (currentLayer < glsInstance.getLayerSize()) {
-          setLayerVisibility(currentLayer, true);
-          console.log(`Showing layer ${currentLayer}`);
-          currentLayer++;
-          setTimeout(showNextLayer, 2000);
-        } else {
-          // 显示所有图层
-          for (let i = 0; i < glsInstance.getLayerSize(); i++) {
-            setLayerVisibility(i, true);
-          }
-          console.log("All layers visible");
-        }
-      };
-
-      showNextLayer();
-    }
-
-    // render end
-
-    const drawGlCanvas = async () => {
-      const canvas = document.getElementById('webgl');
-
-      const webglContext = canvas.getContext('webgl');
-
-      gl.value = webglContext;
-      setupCanvasEvents(canvas, gl.value);
-
-      // 创建着色器程序
-      program.value = glsInstance.createProgram(gl.value, shaders.vertex, shaders.fragment);
-      colorProgram.value = glsInstance.createProgram(gl.value, shaders.colorVertex, shaders.colorFragment);
-      skeletonProgram.value = glsInstance.createProgram(gl.value, shaders.skeletonVertex, shaders.skeletonFragment);
-      weightPaintProgram.value = glsInstance.createProgram(gl.value, shaders.weightPaintVertex, shaders.weightPaintFragment);
-      skinnedProgram.value = glsInstance.createProgram(gl.value, shaders.skinnedVertex, shaders.skinnedFragment);
-      firstImage();
-    };
-
-    const firstImage = async () => {
-
-      if (!gl.value) return;
-      await pngRender('./png3.png', selectedLayers, wholeImageHeight, wholeImageWidth);
-      syncLayers();
-      console.log("WebGL initialization complete");
-      setCurrentJobName("png");
-
-      const passes = [];
-
-      // 根據模式動態加入 pass
-      {
-        // 權重繪製模式
-        passes.push(
-          makeRenderPass(
-            renderGridOnly,
-            gl.value,
-            colorProgram.value,
-            glsInstance.layers[currentChosedLayer.value],
-            glsInstance.getLayerSize(),
-            currentChosedLayer.value,
-            selectedVertices.value
-          ),
-          makeRenderPass(
-            renderWeightPaint,
-            gl.value,
-            weightPaintProgram.value,
-            selectedGroups.value[0],
-            glsInstance.layers[currentChosedLayer.value],
-            isWeightPaintMode
-          )
-        );
-
-      }
-
-      // === 骨架渲染（所有模式都要）===
-
-      passes.push(
-        makeRenderPass(
-          renderMeshSkeleton,
-          gl.value,
-          skeletonProgram.value,
-          meshSkeleton,
-          bonesInstance,
-          mousePressed,
-          activeTool
-        )
-      );
-      setCurrentJobName("png");
-      // 启动渲染循环
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers.value, passes, "png");
-    };
-    const psdImage = async () => {
-      if (!gl.value) return;
-      await psdRender(selectedLayers, wholeImageHeight, wholeImageWidth);
-      syncLayers();
-      //construct necessary pass
-
-
-      const passes = [];
-
-      // 根據模式動態加入 pass
-      {
-        // 權重繪製模式
-        passes.push(
-          makeRenderPass(
-            renderGridOnly,
-            gl.value,
-            colorProgram.value,
-            glsInstance.layers[currentChosedLayer.value],
-            glsInstance.getLayerSize(),
-            currentChosedLayer.value,
-            selectedVertices.value
-          ),
-          makeRenderPass(
-            renderWeightPaint,
-            gl.value,
-            weightPaintProgram.value,
-            selectedGroups.value[0],
-            glsInstance.layers[currentChosedLayer.value]
-          )
-        );
-      }
-
-
-      // === 骨架渲染（所有模式都要）===
-      passes.push(
-        makeRenderPass(
-          renderMeshSkeleton,
-          gl.value,
-          skeletonProgram.value,
-          meshSkeleton,
-          bonesInstance,
-          mousePressed,
-          activeTool
-        )
-      );
-
-      setCurrentJobName("psd");
-
-      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers.value, passes, "psd");
-    };
-    const toggleLayerSelection = (index) => {
-      console.log(" toggle layer selection : ", index);
-      if (chosenLayers.value.includes(index)) {
-        //cancel selection
-        chosenLayers.value = chosenLayers.value.filter(i => i !== index)
-        if (currentChosedLayer.value === index) {
-          currentChosedLayer.value = -1;
-        }
-      } else {
-        chosenLayers.value.push(index)
-        // set last input index as currentChosedLayer
-        currentChosedLayer.value = index;
-      }
-
-
-
-      //checking vertex group info
-      console.log(" vertex group info : ", glsInstance.layers[index]?.vertexGroup.value);
-      //check layer's parameter key name
-      console.log(" layer parameter key name : ", Object.keys(glsInstance.layers[index] || {}));
-
-      console.log(" also checking select laysers : ", selectedLayers.value);
-    }
-
-    const onVertexGroupChange = (event) => {
-
-      selectedGroups.value = Array.from(event.target.selectedOptions).map(opt => opt.value);
-
-
-      console.log(selectedValues.value); // 例如 ["a", "c"]
-    };
-    function printBoneHierarchy(bones, indent = 0) {
-      for (const bone of bones) {
-        //  console.log(`${' '.repeat(indent)}- ${bone.name}`);
-        //display global head and tail
-        const globalTransform = bone.getGlobalTransform();
-        //  console.log(`${' '.repeat(indent + 2)}  Head: (${globalTransform.head.x.toFixed(2)}, ${globalTransform.head.y.toFixed(2)})`);
-        //  console.log(`${' '.repeat(indent + 2)}  Tail: (${globalTransform.tail.x.toFixed(2)}, ${globalTransform.tail.y.toFixed(2)})`);
-        // 遞迴列印子骨骼
-
-        if (bone.children && bone.children.length > 0) {
-          printBoneHierarchy(bone.children, indent + 2); // 遞迴
-        }
-      }
-    }
-    const bindingBoneWeight = (overlapFactor = 1) => {
-      console.log(" Binding bone weight ... ");
-      if (skeletons.length === 0) {
-        console.warn("No skeletons available for binding.");
-        return;
-      }
-      printBoneHierarchy(skeletons[0].bones);
-      const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer) {
-        console.error("Invalid layer index for binding bone weight.");
-        return;
-      }
-      const vertices = layer.vertices.value;
-      const vertexCount = vertices.length / 4;
-
-      // 收集所有骨骼
-      const allBones = [];
-      function collectBones(bones) {
-        for (const bone of bones) {
-          allBones.push(bone);
-          if (bone.children && bone.children.length > 0) {
-            collectBones(bone.children);
-          }
-        }
-      }
-      collectBones(skeletons[0].bones);
-      console.log(`Found ${allBones.length} bones and ${vertexCount} vertices`);
-
-      // 清空舊的 vertex group
-      console.log("some body clear vertex group ... ");
-      layer.vertexGroup.value = [];
-      const vertexGroupMap = new Map();
-
-      // **取得圖層的變換參數**
-      const { canvasWidth, canvasHeight, width, height, top, left } = layer.transformParams;
-
-      // 計算點到骨頭線段的距離
-      function distanceToSegment(px, py, x1, y1, x2, y2) {
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const lengthSquared = dx * dx + dy * dy;
-
-        if (lengthSquared === 0) {
-          const distX = px - x1;
-          const distY = py - y1;
-          return {
-            distance: Math.sqrt(distX * distX + distY * distY),
-            t: 0
-          };
-        }
-
-        let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
-        t = Math.max(0, Math.min(1, t));
-
-        const closestX = x1 + t * dx;
-        const closestY = y1 + t * dy;
-        const distX = px - closestX;
-        const distY = py - closestY;
-
-        return {
-          distance: Math.sqrt(distX * distX + distY * distY),
-          t: t
-        };
-      }
-
-      // 計算骨骼的有效影響半徑（基於骨骼長度）
-      function getBoneInfluenceRadius(bone) {
-        const globalTransform = bone.getGlobalTransform();
-        // **骨骼座標現在是像素座標,直接計算長度**
-        const dx = globalTransform.tail.x - globalTransform.head.x;
-        const dy = globalTransform.tail.y - globalTransform.head.y;
-        const boneLength = Math.sqrt(dx * dx + dy * dy);
-
-        return boneLength * 0.5 * overlapFactor;
-      }
-
-      // === 主迴圈 ===
-      for (let i = 0; i < vertexCount; i++) {
-        const vx = vertices[i * 4];
-        const vy = vertices[i * 4 + 1];
-
-        // **將頂點從 NDC 轉換為 Canvas 像素座標**
-        const vxLayerPixel = (vx + 1.0) * 0.5 * width;
-        const vyLayerPixel = (1.0 - vy) * 0.5 * height;
-        const vxCanvasPixel = vxLayerPixel + left;
-        const vyCanvasPixel = vyLayerPixel + top;
-
-        const candidates = [];
-
-        for (let j = 0; j < allBones.length; j++) {
-          const bone = allBones[j];
-          const globalTransform = bone.getGlobalTransform();
-
-          // **骨骼座標已經是 Canvas 像素座標,直接使用**
-          const result = distanceToSegment(
-            vxCanvasPixel, vyCanvasPixel,
-            globalTransform.head.x, globalTransform.head.y,
-            globalTransform.tail.x, globalTransform.tail.y
-          );
-
-          const influenceRadius = getBoneInfluenceRadius(bone);
-
-          if (result.distance <= influenceRadius) {
-            const normalizedDist = result.distance / influenceRadius;
-            const weight = Math.pow(1.0 - normalizedDist, 3);
-
-            candidates.push({
-              boneIndex: j,
-              boneName: bone.name,
-              distance: result.distance,
-              weight: weight,
-              t: result.t
-            });
-          }
-        }
-
-        // 如果沒有骨骼在影響範圍內，選擇最近的那個
-        if (candidates.length === 0) {
-          let minDist = Infinity;
-          let closestBone = null;
-
-          for (let j = 0; j < allBones.length; j++) {
-            const bone = allBones[j];
-            const globalTransform = bone.getGlobalTransform();
-            const result = distanceToSegment(
-              vxCanvasPixel, vyCanvasPixel,
-              globalTransform.head.x, globalTransform.head.y,
-              globalTransform.tail.x, globalTransform.tail.y
-            );
-
-            if (result.distance < minDist) {
-              minDist = result.distance;
-              closestBone = {
-                boneIndex: j,
-                boneName: bone.name,
-                distance: result.distance,
-                weight: 1.0,
-                t: result.t
-              };
-            }
-          }
-
-          if (closestBone) {
-            candidates.push(closestBone);
-          }
-        }
-
-        // 正規化權重
-        let totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
-        if (totalWeight > 0) {
-          candidates.forEach(c => c.weight /= totalWeight);
-        }
-
-        // 只保留權重較大的骨骼
-        const threshold = 0.05;
-        const finalBones = candidates.filter(c => c.weight >= threshold);
-
-        // 再次正規化
-        totalWeight = finalBones.reduce((sum, c) => sum + c.weight, 0);
-        if (totalWeight > 0) {
-          finalBones.forEach(c => c.weight /= totalWeight);
-        }
-
-        // === 存到 vertex group ===
-        finalBones.forEach(item => {
-          const boneName = item.boneName;
-          if (!vertexGroupMap.has(boneName)) {
-            vertexGroupMap.set(boneName, { name: boneName, vertices: [] });
-          }
-          const group = vertexGroupMap.get(boneName);
-          const existingVertex = group.vertices.find(v => v.id === i);
-          if (existingVertex) {
-            existingVertex.weight += item.weight;
-          } else {
-            group.vertices.push({ id: i, weight: item.weight });
-          }
-        });
-      }
-
-      console.log("some body change vertex group there ... ");
-      layer.vertexGroup.value = Array.from(vertexGroupMap.values());
-      console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
-      console.log(`Average bones per vertex: ${layer.vertexGroup.value.reduce((sum, g) => sum + g.vertices.length, 0) / vertexCount}`);
-      // -------------------------------------------------------------
-      // ✨ 新增程式碼：將 Layer 轉換為 Root Bone 下的 Slot 與 Attachment
-      // -------------------------------------------------------------
-
-      /*
-      // 1. 取得根骨骼 (通常是 skeleton 的第一個骨骼，或是 parent 為 null/-1 的骨骼)
-      // 這裡假設 skeletons[0] 是當前操作的骨架
-      const currentSkeleton = skeletons[0];
-      const rootBone = currentSkeleton.bones[0]; // 簡單取第0個作為 Root，你可以根據需求改為遍歷查找 parent===null 的骨骼
-
-      if (rootBone) {
-        // 確保 rootBone 有 slots 陣列
-        if (!rootBone.slots) {
-          rootBone.slots = [];
-        }
-
-        // 定義 Slot 和 Attachment 的名稱
-        const layerName = layer.name.value || `Layer_${currentChosedLayer.value}`;
-        const slotName = `${layerName}_Slot`;
-
-        // 檢查是否已經存在同名的 Slot，避免重複添加
-        const existingSlotIndex = rootBone.slots.findIndex(s => s.name === slotName);
-
-        // 建立 Attachment 物件 (對應 Spine 的 Region Attachment 或 Mesh Attachment)
-        // 注意：refId 必須對應到 glsInstance 中的 layer index，這樣渲染器才知道要畫哪張圖
-        const newAttachment = {
-          type: 'region',       // 或者 'mesh'，視你的渲染器實作定義
-          name: layerName,      // Attachment 名稱
-          refId: currentChosedLayer.value, // 關鍵：關聯到 WebGL 的 Layer ID
-          path: layerName,      // 圖片路徑或名稱
-
-          // 初始變形資料 (相對於骨骼，因為是綁定時建立，通常設為歸零或對應圖層初始位置)
-          // 如果你的系統支援將圖層的世界座標轉為骨骼的局部座標，這裡需要計算 offset
-          x: 0,
-          y: 0,
-          rotation: 0,
-          scaleX: 1,
-          scaleY: 1,
-          width: layer.width || 100,
-          height: layer.height || 100
-        };
-
-        // 建立 Slot 物件
-        const newSlot = {
-          id: `slot_${Date.now()}`,
-          name: slotName,
-          boneId: rootBone.id, // 標記這個 Slot 屬於 Root Bone
-          visible: true,
-          blendMode: layer.blendMode || 'normal',
-          color: { r: 1, g: 1, b: 1, a: 1 },
-          attachmentKey: layerName, // 預設選中剛建立的 attachment
-          attachments: {
-            [layerName]: newAttachment // 將 attachment 放入 map 中
-          }
-        };
-
-        if (existingSlotIndex !== -1) {
-          // 如果 Slot 已存在，則更新它 (例如重新綁定權重後更新資訊)
-          console.log(`Updating existing slot: ${slotName}`);
-          rootBone.slots[existingSlotIndex] = newSlot;
-        } else {
-          // 如果 Slot 不存在，則推入新的
-          console.log(`Creating new slot for layer: ${layerName} on Root Bone`);
-          rootBone.slots.push(newSlot);
-        }
-
-        // 強制更新 UI (因為 Vue 有時監聽不到深層物件陣列的變動，視情況需要)
-        forceUpdate();
-      }*/
-    };
-    const vertexGroupInfo = computed(() => {
-      console.log(" refresh vertex group : ")
-      refreshKey.value; // 強制刷新
-      console.log(" currentChosedLayer value : ", currentChosedLayer.value, ", layer size: ", glsInstance.layers.length);
-      console.log("glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value ", glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value.length);
-      return glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value
-    })
-
-    const drawAgain = () => {
-      drawGlCanvas();
-    };
-
-    const editingGroup = ref(null);   // 目前正在編輯的 group 名稱
-    const editName = ref("");         // 暫存輸入的名字
-
-    // 切換選中 / 取消選中
-    const toggleSelect = (name) => {
-
-
-      //temporary only one selection
-      if (selectedGroups.value.includes(name)) {
-        selectedGroups.value = [];
-      } else {
-        selectedGroups.value = [name];
-      }
-
-      //show selected vertices info
-      const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer || !layer.vertexGroup) return;
-      const selectedGroupName = selectedGroups.value[0];
-      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
-      if (!group) return;
-      console.log("Selected vertices from group:", JSON.stringify(group));
-
-      /*
-      if (selectedGroups.value.includes(name)) {
-        selectedGroups.value = selectedGroups.value.filter(n => n !== name);
-      } else {
-        selectedGroups.value.push(name);
-
-      }
-        */
-    };
-
-    // 開始編輯
-    const startEdit = (name) => {
-      editingGroup.value = name;
-      editName.value = name; // 預設是舊名字
-    };
-
-    // 確認編輯
-    const confirmEdit = (group) => {
-      if (editName.value.trim() !== "") {
-        group.name = editName.value.trim();
-      }
-      editingGroup.value = null;
-      editName.value = "";
-    };
-    const onAdd = () => {
-      console.log("on add vertex group info!");
-      const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer || !layer.vertexGroup) return;
-
-      layer.vertexGroup.value.push({
-        name: "group" + (layer.vertexGroup.value.length + 1),
-        vertices: [] // 預設空陣列
-      });
-    };
-    const onRemove = () => {
-      console.log("on remove vertex group info!");
-      const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer || !layer.vertexGroup)
-        return; // 只留下沒有被選中的 group 
-      layer.vertexGroup.value = layer.vertexGroup.value.filter(g => !selectedGroups.value.includes(g.name)); // 清空已刪掉的選擇，避免選到不存在的 group 
-      selectedGroups.value = [];
-    };
-    const onAssign = () => {
-      const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer || !layer.vertexGroup) return;
-
-      const selectedGroupName = selectedGroups.value[0];
-      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
-      if (!group) return;
-
-      group.vertices = selectedVertices.value.map(idx => ({
-        id: idx,       // 直接用數字 index
-        weight: 0.0
-      }));
-
-      console.log("Assigned vertices to group:", group);
-      console.log("Updated vertex group info:", layer.vertexGroup.value);
-    };
-
-    const onSelect = () => {
-      const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer || !layer.vertexGroup) return;
-
-      const selectedGroupName = selectedGroups.value[0];
-      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
-      if (!group) return;
-
-      selectedVertices.value = group.vertices.map(v => v.id);
-
-      console.log("Selected vertices from group:", selectedVertices.value);
-    };
-    const weightValue = ref(0.0);
-
-
-
-    const setWeight = () => {
-      const weight = parseFloat(weightValue.value);
-      if (isNaN(weight) || weight < 0 || weight > 1) {
-        alert("請輸入介於 0.0 到 1.0 之間的數值");
-        return;
-      }
-      const layer = glsInstance.layers[currentChosedLayer.value];
-      if (!layer || !layer.vertexGroup) return;
-
-      const selectedGroupName = selectedGroups.value[0];
-      const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
-      if (!group) return;
-
-      // 加上這個檢查！
-      // 確認 group.vertices 存在並且是一個陣列
-      if (!group.vertices || !Array.isArray(group.vertices)) {
-        console.error("錯誤：選中的 group 沒有 vertices 陣列可供操作。", group);
-        return; // 提早結束函式，避免崩潰
-      }
-
-      // 現在可以安全地執行 forEach 了
-      group.vertices.forEach(v => {
-        v.weight = weight;
-      });
-
-      console.log("Updated vertex group info:", JSON.stringify(layer.vertexGroup.value));
-    };
-
-
-    //animate vertex function (not yet done )
-    const tryAnimatedVertex = () => {
-      const uTransformMatrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; // 你的投影/模型矩陣
-      drawSkinnedMesh(gl, skinnedProgram, glsInstance.layers[currentChosedLayer.value], skeletons[0], uTransformMatrix);
-    }
-    function drawSkinnedMesh(gl, program, layer, skeleton, uTransformMatrix) {
-      const vertices = layer.vertices.value; // 原始頂點 x,y
-      const texCoords = layer.texCoords.value; // uv
-      const vertexCount = vertices.length / 2;
-
-      // -----------------------------
-      // 1️⃣ 準備 Bone Skinning 資料
-      // -----------------------------
-      const aBoneIndices = new Float32Array(vertexCount * 4);
-      const aBoneWeights = new Float32Array(vertexCount * 4);
-
-      for (let i = 0; i < vertexCount; i++) {
-        const groups = layer.vertexGroup.value
-          .map(g => g.vertices.find(v => v.id === i))
-          .filter(v => v)
-          .slice(0, 4); // 最多 4 骨骼
-
-        for (let j = 0; j < 4; j++) {
-          if (groups[j]) {
-            const bIndex = skeleton.bones.findIndex(b => b.name === layer.vertexGroup.value[j].name);
-            aBoneIndices[i * 4 + j] = bIndex;
-            aBoneWeights[i * 4 + j] = groups[j].weight;
-          } else {
-            aBoneIndices[i * 4 + j] = 0;
-            aBoneWeights[i * 4 + j] = 0;
-          }
-        }
-      }
-
-      // -----------------------------
-      // 2️⃣ 更新骨骼矩陣到 Bone Texture
-      // -----------------------------
-      const boneCount = skeleton.bones.length;
-      const boneTextureData = new Float32Array(boneCount * 4 * 4);
-      for (let i = 0; i < boneCount; i++) {
-        const m = skeleton.bones[i].getWorldMatrix(); // 16 element flat array
-        for (let row = 0; row < 4; row++) {
-          for (let col = 0; col < 4; col++) {
-            boneTextureData[i * 16 + row * 4 + col] = m[row * 4 + col];
-          }
-        }
-      }
-
-      const boneTexture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, boneTexture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 4, boneCount, 0, gl.RGBA, gl.FLOAT, boneTextureData);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-
-      // -----------------------------
-      // 3️⃣ 綁定 shader attribute & uniform
-      // -----------------------------
-      gl.useProgram(program);
-
-      const aPositionLoc = gl.getAttribLocation(program, "aPosition");
-      const aTexCoordLoc = gl.getAttribLocation(program, "aTexCoord");
-      const aBoneIndicesLoc = gl.getAttribLocation(program, "aBoneIndices");
-      const aBoneWeightsLoc = gl.getAttribLocation(program, "aBoneWeights");
-      const uTransformLoc = gl.getUniformLocation(program, "uTransform");
-      const uBoneTextureLoc = gl.getUniformLocation(program, "uBoneTexture");
-      const uBoneTextureSizeLoc = gl.getUniformLocation(program, "uBoneTextureSize");
-
-      // 顯示矩陣
-      gl.uniformMatrix4fv(uTransformLoc, false, uTransformMatrix);
-
-      // Bone Texture
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, boneTexture);
-      gl.uniform1i(uBoneTextureLoc, 0);
-      gl.uniform1f(uBoneTextureSizeLoc, boneCount * 4.0);
-
-      // -----------------------------
-      // 4️⃣ 綁定頂點 buffer
-      // -----------------------------
-      function bindArrayBuffer(data, loc, size) {
-        const buffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-        gl.enableVertexAttribArray(loc);
-        gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
-      }
-
-      bindArrayBuffer(vertices, aPositionLoc, 2);
-      bindArrayBuffer(texCoords, aTexCoordLoc, 2);
-      bindArrayBuffer(aBoneIndices, aBoneIndicesLoc, 4);
-      bindArrayBuffer(aBoneWeights, aBoneWeightsLoc, 4);
-
-      // -----------------------------
-      // 5️⃣ draw call
-      // -----------------------------
-      gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
-    }
-
-    //timeline series function
-    const timelineDragging = ref(false);
-    const playheadPosition = ref(null);
-
-    const selectTimeline = (event) => {
-      const timelineRect = event.currentTarget.getBoundingClientRect();
-      let offsetX = event.clientX - timelineRect.left;
-      const clampedX = Math.max(0, Math.min(offsetX, timelineRect.width));
-
-      const updateTimeline = () => {
-        timeline2.value.update(playheadPosition.value, skeletons);
-        bonesInstance.updatePoseMesh(gl.value);
-        forceUpdate();
-      }
-
-      //maybe I should update bone-pose (for animation here)
-
-      switch (event.type) {
-        case 'mousedown':
-          timelineDragging.value = true;
-          const handleMouseUp = (e) => {
-            timelineDragging.value = false;
-            document.removeEventListener('mouseup', handleMouseUp);
-            document.removeEventListener('mousemove', handleMouseMove);
-            updateTimeline();
-          };
-          const handleMouseMove = (e) => {
-            if (timelineDragging.value) {
-              offsetX = e.clientX - timelineRect.left;
-              playheadPosition.value = Math.max(0, Math.min(offsetX, timelineRect.width));
-
-              updateTimeline();
-            }
-          };
-          document.addEventListener('mouseup', handleMouseUp);
-          document.addEventListener('mousemove', handleMouseMove);
-          playheadPosition.value = clampedX;
-          updateTimeline();
-          break;
-        case 'mousemove':
-          if (timelineDragging.value) {
-            playheadPosition.value = clampedX;
-            updateTimeline();
-          }
-          break;
-        case 'mouseup':
-          timelineDragging.value = false;
-          break;
-      }
-
-
-
-    };
-    const addKeyframe = () => {
-      timeline2.value.addKeyframe(bonesInstance.GetLastSelectedBone?.(), playheadPosition.value);
-
-      console.log("check now timeline data : ", JSON.stringify(timeline2.value));
-    }
-    const removeKeyframe = () => {
-    }
-
-    const selectBoneByKey = (boneId) => {
-      lastSelectedBone.value = bonesInstance.findBoneById(boneId);
-
-      console.log("now last select bone is ", lastSelectedBone.value.id);
-
-    }
-
-    const exportSkeletonToSpineJson = () => {
-      let result = meshSkeleton.exportSpineJson();
-      console.log(" hi spine json : ", JSON.stringify(result));
-
-    }
-    const saveSpineJson = () => {
-      meshSkeleton.exportToFile();
-
-      const imageName = "alien.png";
-      const imageSize = { width: 500, height: 768 };
-      const regionBounds = {
-        Bone_1: { x: 0, y: 0, width: 500, height: 768 },
-        Bone_2: { x: 0, y: 0, width: 500, height: 768 },
-        Bone_3: { x: 0, y: 0, width: 500, height: 768 }
-      };
-
-      // 產生 Atlas
-      meshSkeleton.exportAtlasFile("alien.atlas", imageName, imageSize, regionBounds);
-
-    }
-    const playAnimation = () => {
-      console.log("hi play animation! ");
-    }
-
-    const addTimeline = () => {
-      const newName = `動畫軸 ${timelineList.value.length + 1}`;
-      timelineList.value.push(new Timeline2(newName, 2.0));
-      selectedTimelineId.value = timelineList.value.length - 1;
-    };
-    const removeTimeline = () => {
-      if (timelineList.length > 1) {
-        timelineList.splice(selectedTimelineId, 1);
-        selectedTimelineId = Math.max(0, selectedTimelineId - 1);
-      }
-    }
-
-    const choseTimelineId = () => {
-      console.log("hi select timeline ID ", selectedTimelineId);
-    }
-
-    onMounted(async () => {
-
-
-      window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('keyup', handleKeyUp);
-
-      try {
-        // drawGlCanvas();
-      } catch (error) {
-        console.error("Initialization error:", error);
-      }
-    });
-    watch(selectedLayers, (newVal) => {
-      console.log("勾選的圖層:", JSON.stringify(newVal)); // 這裡可以 emit 或呼叫父組件的方法
-    });
-    const currentTimeline = computed(() => timelineList.value[selectedTimelineId.value]);
-
-    try {
-      provide && provide('activeTool', activeTool);
-      provide && provide('selectTool', selectTool);
-      provide && provide('bindingBoneWeight', bindingBoneWeight);
-      // Additional shared state for allEditor
-      provide && provide('skeletons', skeletons);
-      provide && provide('lastSelectedBone', lastSelectedBone);
-      provide && provide('selectedItem', ref(null));
-      provide && provide('showLayers', showLayers);
-      provide && provide('selectedLayers', selectedLayers);
-      provide && provide('chosenLayers', chosenLayers);
-      provide && provide('selectedGroups', selectedGroups);
-      provide && provide('currentChosedLayer', currentChosedLayer);
-      provide && provide('vertexGroupInfo', vertexGroupInfo);
-      provide && provide('editingGroup', editingGroup);
-      provide && provide('weightValue', weightValue);
-      provide && provide('timelineList', timelineList);
-      provide && provide('selectedTimelineId', selectedTimelineId);
-      provide && provide('timeline2', timeline2);
-      provide && provide('currentTimeline', currentTimeline);
-      provide && provide('playheadPosition', playheadPosition);
-      // functions
-      provide && provide('onAdd', onAdd);
-      provide && provide('onRemove', onRemove);
-      provide && provide('onAssign', onAssign);
-      provide && provide('onSelect', onSelect);
-      provide && provide('setWeight', setWeight);
-      provide && provide('choseTimelineId', choseTimelineId);
-      provide && provide('addTimeline', addTimeline);
-      provide && provide('removeTimeline', removeTimeline);
-      provide && provide('addKeyframe', addKeyframe);
-      provide && provide('removeKeyframe', removeKeyframe);
-      provide && provide('psdImage', psdImage);
-      provide && provide('playAnimation', playAnimation);
-      provide && provide('exportSkeletonToSpineJson', exportSkeletonToSpineJson);
-      provide && provide('saveSpineJson', saveSpineJson);
-      provide && provide('selectTimeline', selectTimeline);
-      provide && provide('expandedNodes', expandedNodes);
-      provide && provide('toggleNode', toggleNode);
-      provide && provide('handleNameClick', handleNameClick);
-      provide && provide('toggleLayerSelection', toggleLayerSelection);
-
-      provide && provide('toggleSelect', toggleSelect);
-      provide && provide('firstImage', firstImage);
-
-
-    } catch (e) {
-      console.warn('provide failed', e);
-    }
-
-    return {
-      selectTool,
-      activeTool,
-      resetPose,
-      drawAgain,
-      skeletons,
-      toggleNode,
-      expandedNodes,
-      handleNameClick,
-      lastSelectedBone,
-      psdImage,
-      firstImage,
-      showLayers,
-      selectedLayers,
-      chosenLayers,
-      toggleLayerSelection,
-      currentChosedLayer,
-      vertexGroupInfo,
-      onVertexGroupChange,
-      onAdd,
-      onRemove,
-      selectedGroups,
-      editingGroup,
-      editName,
-      toggleSelect,
-      startEdit,
-      confirmEdit,
-      onAssign,
-      onSelect,
-      setWeight,
-      weightValue,
-      bindingBoneWeight,
-      timeline2,
-      selectTimeline,
-      playheadPosition,
-      addKeyframe,
-      removeKeyframe,
-      selectBoneByKey,
-      exportSkeletonToSpineJson,
-      saveSpineJson,
-      timelineList,
-      selectedTimelineId,
-      choseTimelineId,
-      addTimeline,
-      removeTimeline,
-      currentTimeline,
-      playAnimation,
-      counter,
-      testWord,
-    };
-
-  }
-
-
-});
+import { processPSDFile } from './psd.js';
+import { Timeline2 } from './timeline2.js';
+import { useCounterStore } from './mesh.js'; // 假設這是在 mesh.js 定義的 store
+
+// 引入頁面組件
+import { Home } from './Home.js';
+import { allEditor } from './allEditor.js';
+import { Editor } from './Editor.js';
+import { Page } from './page.js';
+import { meshEditor } from './meshEditor.js';
+
+// Global Reactive Objects
+export const boneIdToIndexMap = reactive({});
+export const boneTree = reactive({});
+
+window.testWord = 'Hello';
+
+// === TreeItem 組件定義 (保持 Options API 結構作為子組件是沒問題的) ===
 const TreeItem = {
-  // 接收 layers 是為了選圖，expandedNodes 控制樹狀展開
+  name: 'TreeItem', // 遞迴組件必須有名稱
   props: ['node', 'expandedNodes', 'selectedItem', 'layers'],
   emits: [
     'toggle-node', 'item-click',
@@ -1747,6 +96,8 @@ const TreeItem = {
               @click="selectItem({type:'bone',id:node.id, data: node})">
           🦴 {{ node.name || '(未命名骨骼)' }}
         </span>
+        
+        <button @click.stop="addSlot(0)" title="新增 Slot" style="font-size:10px; margin-left:8px;">➕ Slot</button>
       </div>
 
       <div v-if="isExpanded" class="tree-item-children" style="padding-left:20px; border-left: 1px dashed #ccc;">
@@ -1781,9 +132,8 @@ const TreeItem = {
           <button @click.stop="appendAttachment(slot)" title="新增 Attachment" style="font-size:10px; margin-left:2px;">📎+</button>
 
           <span style="margin-left:auto;display:flex;gap:2px;font-size:12px">
-            <button @click.stop="moveSlot(idx,-1)" :disabled="idx===0" title="上移 (Draw Order)">⬆</button>
-            <button @click.stop="moveSlot(idx,1)"  :disabled="idx===node.slots.length-1" title="下移 (Draw Order)">⬇</button>
-            <button @click.stop="addSlot(idx)" title="在此處插入新 Slot">➕</button>
+            <button @click.stop="moveSlot(idx,-1)" :disabled="idx===0" title="上移">⬆</button>
+            <button @click.stop="moveSlot(idx,1)"  :disabled="idx===node.slots.length-1" title="下移">⬇</button>
             <button @click.stop="deleteSlot(idx)" title="刪除 Slot">🗑</button>
           </span>
         </div>
@@ -1799,29 +149,23 @@ const TreeItem = {
       </div>
     </div>
   `,
-
   computed: {
     hasChildren() { return this.node.children && this.node.children.length > 0; },
     hasSlots() { return this.node.slots && this.node.slots.length > 0; },
     isExpanded() { return this.expandedNodes.includes(this.node.id); }
   },
-
   methods: {
     toggleNode(id) { this.$emit('toggle-node', id); },
-    // 傳回完整的 item data 以便屬性面板使用
     selectItem(payload) { this.$emit('item-click', payload); },
-
+    
     toggleSlotVisible(slot) {
       slot.visible = !slot.visible;
       this.$emit('slot-visible-change', { slotId: slot.id, visible: slot.visible });
     },
 
     changeAttachment(slot, key) {
-      // 如果 key 為空字串，則視為 null (隱藏附件)
       const validKey = key === "" ? null : key;
       slot.attachmentKey = validKey;
-      // 這裡不需要手動設定 slot.attachment，這通常是在 Render Loop 中根據 key 去 attachments 查表
-      // 但為了編輯器方便，我們還是可以發送事件
       this.$emit('slot-attachment-change', {
         slotId: slot.id,
         key: validKey,
@@ -1829,102 +173,71 @@ const TreeItem = {
       });
     },
 
-    /* ********** 核心邏輯修改區 ********** */
-
-    // 1. 新增 Slot：結構更接近 Spine
+    // 新增 Slot
     addSlot(insertBeforeIdx) {
       const name = prompt('新 Slot 名稱：', 'newSlot');
       if (!name) return;
 
-      // 選擇預設圖片 (Attachment)
-      // 注意：這依賴全域 glsInstance，建議未來改為 props 傳入 layer list
-      const items = (this.layers || []).map((L, i) => `${i}:${L.name.value}`).join('\n');
-      const pick = prompt(`選擇初始圖片 (Attachment) Index:\n${items}`);
+      // 讓使用者選擇初始綁定的圖層
+      let items = "";
+      if(this.layers && this.layers.length > 0) {
+         items = this.layers.map((L, i) => `${i}:${L.name.value}`).join('\n');
+      } else {
+         items = "無可用圖層";
+      }
+      
+      const pick = prompt(`選擇初始圖片 (Attachment) Index (輸入 -1 跳過):\n${items}`, "0");
       const idx = Number(pick);
-      // 檢查是否為有效數字且圖層存在
-      const hasValidLayer = !Number.isNaN(idx) && this.layers && this.layers[idx];
+      const hasValidLayer = !Number.isNaN(idx) && idx >= 0 && this.layers && this.layers[idx];
 
-      // ====== Spine 風格結構 ======
       const newSlot = {
         id: `slot_${Date.now()}`,
         name: name,
-
-        // [重要] 綁定父骨骼 ID
         boneId: this.node.id,
-
         visible: true,
-
-        // [重要] 混合模式 (Normal, Additive, Multiply, Screen)
         blendMode: 'normal',
-
-        // 顏色與透明度
         color: { r: 1, g: 1, b: 1, a: 1 },
-
-        // 當前選中的附件 Key
         attachmentKey: hasValidLayer ? 'default' : null,
-
-        // 附件庫 (類似 Skin)
         attachments: {}
       };
 
-      // 如果有選圖，建立標準 Region Attachment
       if (hasValidLayer) {
         newSlot.attachments['default'] = {
-          type: 'region',   // Spine 術語：圖片叫 region
+          type: 'region',
           name: 'default',
-
-          // 資源參照
-          refId: idx,       // 你的圖層 index
+          refId: idx,
           path: this.layers[idx].name.value,
-
-          // [重要] 變形屬性 (相對於 Bone 的 Offset)
-          x: 0,
-          y: 0,
-          rotation: 0,
-          scaleX: 1,
-          scaleY: 1,
-          width: 100, // 預設寬
-          height: 100 // 預設高
+          x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1, width: 100, height: 100
         };
       }
 
-      // 插入 Slot 陣列
-      this.node.slots.splice(insertBeforeIdx + 1, 0, newSlot);
+      this.node.slots.splice(this.node.slots.length, 0, newSlot); // 加在最後面
       this.reorderDone();
     },
 
-    // 2. 新增 Attachment：支援 Transform 初始化
+    // 新增 Attachment (Skin)
     appendAttachment(slot) {
       const key = prompt('新 Attachment Key (例如: happy_face)：', `img_${Object.keys(slot.attachments).length + 1}`);
       if (!key || slot.attachments[key]) return;
 
-      const items = (this.layers || []).map((L, i) => `${i}:${L.name.value}`).join('\n');
+      let items = "";
+      if(this.layers) items = this.layers.map((L, i) => `${i}:${L.name.value}`).join('\n');
+      
       const pick = prompt(`選擇圖片 Index:\n${items}`);
       const idx = Number(pick);
 
-      if (Number.isNaN(idx) || !this.layers || !this.layers[idx]) return;
+      if (Number.isNaN(idx) || idx < 0 || !this.layers || !this.layers[idx]) return;
 
-      // 使用 Vue.set 或解構賦值以觸發響應更新
       const newAttachment = {
         type: 'region',
         name: key,
         refId: idx,
         path: this.layers[idx].name.value,
-        // 初始化 Transform
-        x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1,
-        width: 100, height: 100
+        x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1, width: 100, height: 100
       };
 
-      // 為了確保 Vue 偵測到物件變更，重新賦值整個 attachments 物件
-      slot.attachments = {
-        ...slot.attachments,
-        [key]: newAttachment
-      };
-
-      console.log(`Slot [${slot.name}] added attachment [${key}]`);
-
-      // 自動切換到新圖片
-      this.changeAttachment(slot, key);
+      slot.attachments = { ...slot.attachments, [key]: newAttachment };
+      this.changeAttachment(slot, key); // 自動切換
     },
 
     deleteSlot(idx) {
@@ -1937,8 +250,6 @@ const TreeItem = {
       const arr = this.node.slots;
       const newIdx = idx + dir;
       if (newIdx < 0 || newIdx >= arr.length) return;
-
-      // 交換位置 (Draw Order 改變)
       [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
       this.reorderDone();
     },
@@ -1946,30 +257,604 @@ const TreeItem = {
     reorderDone() {
       this.$emit('slot-reorder', {
         boneId: this.node.id,
-        slots: [...this.node.slots] // 傳回新的 Shallow Copy
+        slots: [...this.node.slots]
       });
     }
   }
 };
-//import {Home } from './home.js'
-//import {Editor } from './editor.js'
 
-const { createRouter, createWebHashHistory } = VueRouter;
-const { createPinia, defineStore } = Pinia;
+// === Main App ===
+const app = createApp({
+  setup() {
+    // --- 1. State (Refs & Reactives) ---
+    const status = ref('準備中');
+    const fileDropdown = ref(false);
+    const editDropdown = ref(false);
+    const selectedLayerId = ref(null);
+    const layers = ref([]); // 專案圖層列表 (Project Layers)
+    const psdLayers = ref([]);
+    const points = ref([]);
+    const activeTool = ref('grab-point'); // Default tool
+    
+    // UI State
+    const expandedNodes = reactive([]);
+    const weightValue = ref(0.0);
+    const editingGroup = ref(null);
+    const editName = ref("");
+    
+    // Timeline State
+    const timelineList = ref([new Timeline2('main', 2.0)]);
+    const selectedTimelineId = ref(0);
+    const timelineLength = ref(1000);
+    const playheadPosition = ref(0);
+    const animationPlaying = ref(false);
+    const timelineDragging = ref(false);
 
-import { useCounterStore } from './mesh.js'
+    // Pinia Store
+    const counter = useCounterStore();
+    const testWord = ref("test word");
 
+    // --- 2. Computed ---
+    const currentTimeline = computed(() => timelineList.value[selectedTimelineId.value]);
+    const timeline2 = computed(() => timelineList.value[selectedTimelineId.value]);
+    
+    // 獲取當前選中 Layer 的 Vertex Group (帶有 refreshKey 依賴)
+    const vertexGroupInfo = computed(() => {
+      refreshKey.value; // Trigger dependency
+      if (currentChosedLayer.value === null || !glsInstance.layers[currentChosedLayer.value]) return [];
+      return glsInstance.layers[currentChosedLayer.value]?.vertexGroup.value;
+    });
 
-import { Home } from './Home.js';
-import { allEditor } from './allEditor.js';
-import { Editor } from './Editor.js';
-import { Page } from './page.js';
-import { meshEditor } from './meshEditor.js';
+    // 獲取所有圖層供顯示
+    const showLayers = computed(() => {
+      refreshKey.value;
+      return glsInstance.layers;
+    });
 
+    // --- 3. Methods ---
+
+    const forceUpdate = () => {
+      refreshKey.value++;
+    };
+
+    const closeAllDropdowns = () => {
+      fileDropdown.value = false;
+      editDropdown.value = false;
+    };
+
+    const toggleDropdown = (menu) => {
+      if (menu === 'fileDropdown') {
+        fileDropdown.value = true;
+        editDropdown.value = false;
+      } else {
+        fileDropdown.value = false;
+        editDropdown.value = true;
+      }
+    };
+
+    const handleFileAction = (action) => {
+      console.log("File Action:", action);
+      closeAllDropdowns();
+    };
+
+    const handleEditAction = (action) => {
+      console.log("Edit Action:", action);
+      closeAllDropdowns();
+    };
+
+    // 處理點擊外部關閉選單
+    const handleClickOutside = (e) => {
+      const targetElement = e.target;
+      if (!targetElement.closest('.menu-item')) {
+        closeAllDropdowns();
+      }
+    };
+
+    // --- Tool Selection Logic ---
+    const selectTool = (tool) => {
+      activeTool.value = tool;
+      console.log("Switch to tool:", tool);
+
+      if (tool === 'bone-animate') {
+        // bonesInstance.restoreSkeletonVerticesFromLast();
+      } else if (tool === 'bone-create') {
+        // glsInstance.resetMeshToOriginal();
+      } else if (tool === 'edit-points') {
+        if(currentChosedLayer.value !== null) {
+            bonesInstance.recoverSelectedVertex(currentChosedLayer);
+        }
+      } else if (tool === 'bone-clear') {
+        bonesInstance.clearBones();
+      } else if (tool === 'bone-save') {
+        bonesInstance.saveBones();
+      } else if (tool === 'bone-load') {
+        bonesInstance.loadBones();
+      }
+      forceUpdate();
+    };
+
+    // --- Bone Tree Logic ---
+    const toggleNode = (nodeId) => {
+      const id = typeof nodeId === 'object' ? nodeId.id : nodeId;
+      const idx = expandedNodes.indexOf(id);
+      if (idx >= 0) expandedNodes.splice(idx, 1);
+      else expandedNodes.push(id);
+    };
+
+    const handleNameClick = (payload) => {
+      // payload: { type, id, data }
+      console.log("Tree Item Clicked:", payload);
+      let boneId = payload.id || payload; // 防呆
+      lastSelectedBone.value = bonesInstance.findBoneById(boneId);
+    };
+
+    // --- Layer Selection ---
+    const toggleLayerSelection = (index) => {
+      console.log("Toggle layer selection:", index);
+      if (selectedLayers.value.includes(index)) {
+        const idx = selectedLayers.value.indexOf(index);
+        selectedLayers.value.splice(idx, 1); // Mutate array directly for reactivity
+        if (currentChosedLayer.value === index) {
+          currentChosedLayer.value = -1;
+        }
+      } else {
+        selectedLayers.value.push(index);
+        currentChosedLayer.value = index;
+      }
+    };
+
+    // --- Vertex Group Logic ---
+    const toggleSelect = (name) => {
+      // Toggle vertex group selection
+      if (selectedGroups.value.includes(name)) {
+        selectedGroups.value = [];
+      } else {
+        selectedGroups.value = [name];
+      }
+      
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (layer && layer.vertexGroup) {
+        const group = layer.vertexGroup.value.find(g => g.name === name);
+      //  if(group) console.log("Selected Group Data:", JSON.stringify(group));
+      }
+    };
+
+    const onAdd = () => {
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+      layer.vertexGroup.value.push({
+        name: "group" + (layer.vertexGroup.value.length + 1),
+        vertices: []
+      });
+    };
+
+    const onRemove = () => {
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+      layer.vertexGroup.value = layer.vertexGroup.value.filter(g => !selectedGroups.value.includes(g.name));
+      selectedGroups.value = [];
+    };
+
+    const onAssign = () => {
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+      const groupName = selectedGroups.value[0];
+      const group = layer.vertexGroup.value.find(g => g.name === groupName);
+      if (group) {
+        group.vertices = selectedVertices.value.map(idx => ({ id: idx, weight: 0.0 }));
+        console.log("Assigned vertices to group:", group.name);
+      }
+    };
+
+    const onSelect = () => {
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+      const groupName = selectedGroups.value[0];
+      const group = layer.vertexGroup.value.find(g => g.name === groupName);
+      if (group) {
+        selectedVertices.value = group.vertices.map(v => v.id);
+        console.log("Selected vertices:", selectedVertices.value);
+      }
+    };
+
+    const setWeight = () => {
+      const weight = parseFloat(weightValue.value);
+      if (isNaN(weight) || weight < 0 || weight > 1) {
+        alert("請輸入介於 0.0 到 1.0 之間的數值");
+        return;
+      }
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer || !layer.vertexGroup) return;
+      const groupName = selectedGroups.value[0];
+      const group = layer.vertexGroup.value.find(g => g.name === groupName);
+      if (group && Array.isArray(group.vertices)) {
+        group.vertices.forEach(v => v.weight = weight);
+        console.log("Updated weights for group:", groupName);
+      }
+    };
+
+    // --- Bone Weight Binding Logic (Moved from original methods) ---
+    const bindingBoneWeight = (overlapFactor = 1) => {
+      console.log("Binding bone weight...");
+      if (skeletons.length === 0) {
+        console.warn("No skeletons available for binding.");
+        return;
+      }
+      
+      const layer = glsInstance.layers[currentChosedLayer.value];
+      if (!layer) {
+        console.error("Invalid layer index for binding bone weight.");
+        return;
+      }
+      
+      const vertices = layer.vertices.value;
+      const vertexCount = vertices.length / 4;
+      const { canvasWidth, canvasHeight, width, height, top, left } = layer.transformParams;
+
+      // Collect all bones
+      const allBones = [];
+      function collectBones(bones) {
+        for (const bone of bones) {
+          allBones.push(bone);
+          if (bone.children) collectBones(bone.children);
+        }
+      }
+      collectBones(skeletons[0].bones);
+
+      // Reset groups
+      layer.vertexGroup.value = [];
+      const vertexGroupMap = new Map();
+
+      // Helper: Distance to Segment
+      function distanceToSegment(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1, dy = y2 - y1;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) return { distance: Math.sqrt((px - x1)**2 + (py - y1)**2), t: 0 };
+        
+        let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        return { distance: Math.sqrt((px - (x1 + t * dx))**2 + (py - (y1 + t * dy))**2), t };
+      }
+
+      // Helper: Influence Radius
+      function getBoneInfluenceRadius(bone) {
+        const t = bone.getGlobalTransform();
+        const len = Math.sqrt((t.tail.x - t.head.x)**2 + (t.tail.y - t.head.y)**2);
+        return len * 0.5 * overlapFactor;
+      }
+
+      // Calculation Loop
+      for (let i = 0; i < vertexCount; i++) {
+        const vx = vertices[i * 4];
+        const vy = vertices[i * 4 + 1];
+        
+        // NDC -> Canvas Pixel
+        const vxLayerPixel = (vx + 1.0) * 0.5 * width;
+        const vyLayerPixel = (1.0 - vy) * 0.5 * height;
+        const vxCanvasPixel = vxLayerPixel + left;
+        const vyCanvasPixel = vyLayerPixel + top;
+
+        const candidates = [];
+
+        for (let j = 0; j < allBones.length; j++) {
+          const bone = allBones[j];
+          const gt = bone.getGlobalTransform();
+          const res = distanceToSegment(vxCanvasPixel, vyCanvasPixel, gt.head.x, gt.head.y, gt.tail.x, gt.tail.y);
+          const radius = getBoneInfluenceRadius(bone);
+
+          if (res.distance <= radius) {
+            const normalizedDist = res.distance / radius;
+            const w = Math.pow(1.0 - normalizedDist, 3);
+            candidates.push({ boneName: bone.name, distance: res.distance, weight: w });
+          }
+        }
+
+        // Fallback: Closest bone if no candidates
+        if (candidates.length === 0) {
+          let minDist = Infinity;
+          let closest = null;
+          for(const bone of allBones) {
+             const gt = bone.getGlobalTransform();
+             const res = distanceToSegment(vxCanvasPixel, vyCanvasPixel, gt.head.x, gt.head.y, gt.tail.x, gt.tail.y);
+             if(res.distance < minDist) {
+                 minDist = res.distance;
+                 closest = { boneName: bone.name, weight: 1.0 };
+             }
+          }
+          if(closest) candidates.push(closest);
+        }
+
+        // Normalize weights
+        let totalW = candidates.reduce((s, c) => s + c.weight, 0);
+        if (totalW > 0) candidates.forEach(c => c.weight /= totalW);
+
+        // Filter small weights & Re-normalize
+        const finalBones = candidates.filter(c => c.weight >= 0.05);
+        totalW = finalBones.reduce((s, c) => s + c.weight, 0);
+        if (totalW > 0) finalBones.forEach(c => c.weight /= totalW);
+
+        // Assign to groups
+        finalBones.forEach(item => {
+           if (!vertexGroupMap.has(item.boneName)) {
+             vertexGroupMap.set(item.boneName, { name: item.boneName, vertices: [] });
+           }
+           vertexGroupMap.get(item.boneName).vertices.push({ id: i, weight: item.weight });
+        });
+      }
+
+      layer.vertexGroup.value = Array.from(vertexGroupMap.values());
+      console.log("Auto-binding complete.");
+    };
+
+    // --- File Handling & Rendering ---
+    
+    // PSD Upload Helper (Creates Texture from Layer Data)
+    const createLayerTexture = (glCtx, layer) => {
+        if (!layer || !layer.imageData) return null;
+        const tex = glCtx.createTexture();
+        glCtx.bindTexture(glCtx.TEXTURE_2D, tex);
+        
+        if (layer.imageData instanceof ImageData) {
+            glCtx.texImage2D(glCtx.TEXTURE_2D, 0, glCtx.RGBA, glCtx.RGBA, glCtx.UNSIGNED_BYTE, layer.imageData);
+        } else if (ArrayBuffer.isView(layer.imageData)) {
+            const canvas = document.createElement('canvas');
+            canvas.width = layer.width;
+            canvas.height = layer.height;
+            const ctx = canvas.getContext('2d');
+            const iData = ctx.createImageData(layer.width, layer.height);
+            iData.data.set(layer.imageData);
+            ctx.putImageData(iData, 0, 0);
+            glCtx.texImage2D(glCtx.TEXTURE_2D, 0, glCtx.RGBA, glCtx.RGBA, glCtx.UNSIGNED_BYTE, canvas);
+        }
+        
+        glCtx.texParameteri(glCtx.TEXTURE_2D, glCtx.TEXTURE_WRAP_S, glCtx.CLAMP_TO_EDGE);
+        glCtx.texParameteri(glCtx.TEXTURE_2D, glCtx.TEXTURE_WRAP_T, glCtx.CLAMP_TO_EDGE);
+        glCtx.texParameteri(glCtx.TEXTURE_2D, glCtx.TEXTURE_MIN_FILTER, glCtx.LINEAR);
+        glCtx.bindTexture(glCtx.TEXTURE_2D, null);
+        return tex;
+    };
+
+    const handlePSDUpload = async (event) => {
+      try {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        let layersForTexture = [];
+        const psdInfo = await processPSDFile(file);
+        
+        wholeImageWidth.value = psdInfo.width;
+        wholeImageHeight.value = psdInfo.height;
+        
+        const glContext = gl.value;
+
+        for (const layer of psdInfo.layers) {
+            // Setup WebGL Texture
+            layer.texture = createLayerTexture(glContext, layer);
+            
+            // Calculate NDC Vertices
+            const left = layer.left || 0;
+            const top = layer.top || 0;
+            const right = left + (layer.width || psdInfo.width);
+            const bottom = top + (layer.height || psdInfo.height);
+            
+            const ndcLeft = (left / psdInfo.width) * 2 - 1;
+            const ndcRight = (right / psdInfo.width) * 2 - 1;
+            const ndcTop = 1 - (top / psdInfo.height) * 2;
+            const ndcBottom = 1 - (bottom / psdInfo.height) * 2;
+
+            const layerVertices = [ndcLeft, ndcBottom, 0,0, ndcRight, ndcBottom, 1,0, ndcRight, ndcTop, 1,1, ndcLeft, ndcTop, 0,1];
+            
+            layer.vbo = glContext.createBuffer();
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, layer.vbo);
+            glContext.bufferData(glContext.ARRAY_BUFFER, new Float32Array(layerVertices), glContext.STATIC_DRAW);
+            
+            layer.ebo = glContext.createBuffer();
+            glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, layer.ebo);
+            glContext.bufferData(glContext.ELEMENT_ARRAY_BUFFER, new Uint16Array([0,1,2, 0,2,3]), glContext.STATIC_DRAW);
+
+            layersForTexture.push({
+                imageData: layer.imageData,
+                width: layer.width,
+                height: layer.height,
+                left: layer.left || -1,
+                top: layer.top || 1,
+                name: layer.name || 'Layer',
+                opacity: layer.opacity || 1.0,
+                blendMode: layer.blendMode || 'normal'
+            });
+        }
+        layerForTextureWebgl.value = layersForTexture;
+        console.log("PSD Processed. Layers:", layersForTexture.length);
+        
+      } catch (error) {
+        console.error("PSD Upload Error:", error);
+      }
+    };
+
+    const firstImage = async () => {
+      if (!gl.value) return;
+      await pngRender('./png3.png', selectedLayers, wholeImageHeight, wholeImageWidth);
+      forceUpdate();
+      
+      const passes = [
+        makeRenderPass(renderGridOnly, gl.value, colorProgram.value, glsInstance.layers[currentChosedLayer.value], glsInstance.getLayerSize(), currentChosedLayer.value, selectedVertices.value),
+        makeRenderPass(renderWeightPaint, gl.value, weightPaintProgram.value, selectedGroups.value[0], glsInstance.layers[currentChosedLayer.value], true), // assuming isWeightPaintMode is true
+        makeRenderPass(renderMeshSkeleton, gl.value, skeletonProgram.value, meshSkeleton, bonesInstance, mousePressed, activeTool)
+      ];
+      
+      setCurrentJobName("png");
+      render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers.value, passes, "png");
+    };
+
+    const psdImage = async () => {
+        if(!gl.value) return;
+        await psdRender(selectedLayers, wholeImageHeight.value, wholeImageWidth.value);
+        forceUpdate();
+        
+        const passes = [
+            makeRenderPass(renderGridOnly, gl.value, colorProgram.value, glsInstance.layers[currentChosedLayer.value], glsInstance.getLayerSize(), currentChosedLayer.value, selectedVertices.value),
+            makeRenderPass(renderWeightPaint, gl.value, weightPaintProgram.value, selectedGroups.value[0], glsInstance.layers[currentChosedLayer.value]),
+            makeRenderPass(renderMeshSkeleton, gl.value, skeletonProgram.value, meshSkeleton, bonesInstance, mousePressed, activeTool)
+        ];
+        
+        setCurrentJobName("psd");
+        render2(gl.value, program.value, colorProgram.value, skeletonProgram.value, glsInstance.layers, selectedLayers.value, passes, "psd");
+    };
+
+    // --- Timeline Logic ---
+    const addTimeline = () => {
+      const newName = `動畫軸 ${timelineList.value.length + 1}`;
+      timelineList.value.push(new Timeline2(newName, 2.0));
+      selectedTimelineId.value = timelineList.value.length - 1;
+    };
+
+    const removeTimeline = () => {
+      if (timelineList.value.length > 1) {
+        timelineList.value.splice(selectedTimelineId.value, 1);
+        selectedTimelineId.value = Math.max(0, selectedTimelineId.value - 1);
+      }
+    };
+
+    const addKeyframe = () => {
+      timeline2.value.addKeyframe(bonesInstance.GetLastSelectedBone?.(), playheadPosition.value);
+    };
+
+    const removeKeyframe = () => {
+        // Implement remove logic here
+    };
+
+    const selectTimeline = (event) => {
+        const timelineRect = event.currentTarget.getBoundingClientRect();
+        let offsetX = event.clientX - timelineRect.left;
+        const clampedX = Math.max(0, Math.min(offsetX, timelineRect.width));
+        
+        const updateTimeline = () => {
+            timeline2.value.update(playheadPosition.value, skeletons);
+            bonesInstance.updatePoseMesh(gl.value);
+            forceUpdate();
+        };
+
+        if(event.type === 'mousedown') {
+            timelineDragging.value = true;
+            playheadPosition.value = clampedX;
+            updateTimeline();
+            
+            const upHandler = () => {
+                timelineDragging.value = false;
+                document.removeEventListener('mouseup', upHandler);
+                document.removeEventListener('mousemove', moveHandler);
+            };
+            const moveHandler = (e) => {
+                if(timelineDragging.value) {
+                    const x = e.clientX - timelineRect.left;
+                    playheadPosition.value = Math.max(0, Math.min(x, timelineRect.width));
+                    updateTimeline();
+                }
+            };
+            document.addEventListener('mouseup', upHandler);
+            document.addEventListener('mousemove', moveHandler);
+        }
+    };
+
+    const playAnimation = () => {
+        console.log("Playing Animation...");
+        // Implement play loop here using requestAnimationFrame
+    };
+
+    // --- Export/Save ---
+    const exportSkeletonToSpineJson = () => {
+        const result = meshSkeleton.exportSpineJson();
+        console.log("Spine JSON:", JSON.stringify(result));
+    };
+
+    const saveSpineJson = () => {
+        meshSkeleton.exportToFile();
+        // Also export Atlas logic here...
+    };
+
+    // --- Lifecycle ---
+    onMounted(() => {
+        document.addEventListener('click', handleClickOutside);
+        window.addEventListener('keydown', (e) => {
+            if(e.key === 'Shift') isShiftPressed.value = true;
+            if(e.key === 'Control') isCtrlPressed.value = true; // Use ref in globalVars if possible
+        });
+        window.addEventListener('keyup', (e) => {
+            if(e.key === 'Shift') isShiftPressed.value = false;
+            if(e.key === 'Control') isCtrlPressed.value = false;
+        });
+    });
+
+    onUnmounted(() => {
+        document.removeEventListener('click', handleClickOutside);
+        // Clean up global listeners if necessary
+    });
+
+    // --- 4. Provide (Dependency Injection for Child Components) ---
+    provide('activeTool', activeTool);
+    provide('selectTool', selectTool);
+    provide('bindingBoneWeight', bindingBoneWeight);
+    provide('skeletons', skeletons);
+    provide('lastSelectedBone', lastSelectedBone);
+    provide('selectedItem', ref(null)); // Placeholder
+    provide('showLayers', showLayers); // Computed
+    provide('selectedLayers', selectedLayers); // From globalVars
+    provide('chosenLayers', ref([])); // Need separate ref for this or reuse global
+    provide('selectedGroups', selectedGroups);
+    provide('currentChosedLayer', currentChosedLayer);
+    provide('vertexGroupInfo', vertexGroupInfo);
+    provide('editingGroup', editingGroup);
+    provide('weightValue', weightValue);
+    
+    // Timeline
+    provide('timelineList', timelineList);
+    provide('selectedTimelineId', selectedTimelineId);
+    provide('timeline2', timeline2);
+    provide('currentTimeline', currentTimeline);
+    provide('playheadPosition', playheadPosition);
+    provide('timelineLength', timelineLength);
+    
+    // Functions
+    provide('onAdd', onAdd);
+    provide('onRemove', onRemove);
+    provide('onAssign', onAssign);
+    provide('onSelect', onSelect);
+    provide('setWeight', setWeight);
+    provide('addTimeline', addTimeline);
+    provide('removeTimeline', removeTimeline);
+    provide('addKeyframe', addKeyframe);
+    provide('removeKeyframe', removeKeyframe);
+    provide('handlePSDUpload', handlePSDUpload);
+    provide('psdImage', psdImage);
+    provide('firstImage', firstImage);
+    provide('playAnimation', playAnimation);
+    provide('exportSkeletonToSpineJson', exportSkeletonToSpineJson);
+    provide('saveSpineJson', saveSpineJson);
+    provide('selectTimeline', selectTimeline);
+    provide('toggleNode', toggleNode);
+    provide('expandedNodes', expandedNodes);
+    provide('handleNameClick', handleNameClick);
+    provide('toggleLayerSelection', toggleLayerSelection);
+    provide('toggleSelect', toggleSelect);
+    
+    // --- Return for Template ---
+    return {
+      status,
+      fileDropdown,
+      editDropdown,
+      toggleDropdown,
+      handleFileAction,
+      handleEditAction,
+      counter,
+      testWord,
+      // expose other necessary variables to app.html template if needed
+    };
+  }
+});
+
+// === Router Setup ===
 const routes = [
-  {
-    path: '/', component: Home,
-  },
+  { path: '/', component: Home },
   { path: '/allEditor', component: allEditor },
   { path: '/editor', component: Editor },
   { path: '/page', component: Page },
@@ -1981,9 +866,9 @@ const router = createRouter({
   routes,
 });
 
-app.component('tree-item', TreeItem);
 const pinia = createPinia();
+app.component('tree-item', TreeItem);
 app.use(pinia);
-app.use(router)
+app.use(router);
 
 export default app;
