@@ -27,7 +27,7 @@ var boundaryWorldVerts = [];
 export const loadedImage = ref(null);
 
 // ==========================================
-// 🎨 Shader Sources (完整還原)
+// 🎨 Shader Sources
 // ==========================================
 export const shaders = {
   vertex: `
@@ -81,28 +81,26 @@ export const shaders = {
           gl_FragColor = uColor;
         }
       `,
-      weightPaintVertex: `
+  weightPaintVertex: `
     attribute vec2 aPosition;
-    attribute float aWeight; // ✨ 新增：每個頂點的權重
-    varying float vWeight;   // ✨ 傳遞給 Fragment Shader 進行插值
+    attribute float aWeight; 
+    varying float vWeight;   
     uniform mat4 uTransform;
     uniform float uPointSize;
 
     void main() {
       gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
-      gl_PointSize = uPointSize; // 支援畫點模式
-      vWeight = aWeight;         // 直接傳遞，WebGL 會自動在三角形內做平滑插值
+      gl_PointSize = uPointSize; 
+      vWeight = aWeight;         
     }
   `,
   weightPaintFragment: `
     precision mediump float;
-    varying float vWeight; // ✨ 接收插值後的權重 (0.0 ~ 1.0)
+    varying float vWeight; 
     uniform float uOpacity;
 
-    // 熱力圖顏色生成函數
     vec3 heatMap(float v) {
         float value = clamp(v, 0.0, 1.0);
-        // 0.0(藍) -> 0.5(綠) -> 1.0(紅)
         vec3 blue = vec3(0.0, 0.0, 1.0);
         vec3 cyan = vec3(0.0, 1.0, 1.0);
         vec3 green = vec3(0.0, 1.0, 0.0);
@@ -117,8 +115,6 @@ export const shaders = {
 
     void main() {
       vec3 color = heatMap(vWeight);
-      
-      // 設定透明度，讓使用者能稍微看到底下的圖片
       gl_FragColor = vec4(color, 0.7); 
     }
   `,
@@ -126,17 +122,15 @@ export const shaders = {
  attribute vec2 aPosition;
   attribute vec2 aTexCoord;
 
-  // Bone Skinning
-  attribute vec4 aBoneIndices;   // 每個頂點最多 4 骨骼
+  attribute vec4 aBoneIndices;   
   attribute vec4 aBoneWeights;
 
   uniform mat4 uTransform;
-  uniform sampler2D uBoneTexture; // 骨骼矩陣 texture
-  uniform float uBoneTextureSize; // 骨骼數量 / texture 寬度 (每骨骼 4 row)
+  uniform sampler2D uBoneTexture; 
+  uniform float uBoneTextureSize; 
 
   varying vec2 vTexCoord;
 
-  // 從骨骼 texture 讀 4x4 矩陣
   mat4 getBoneMatrix(float index) {
       float y = (index * 4.0 + 0.5) / uBoneTextureSize;
       mat4 m;
@@ -204,17 +198,13 @@ const isAreaTransparent = (x, y, w, h, imageData, imageWidth, imageHeight) => {
 };
 
 // ==========================================
-// 🧠 Transform Manager (統一矩陣管理類)
+// 🧠 Transform Manager
 // ==========================================
 class TransformManager {
   static getLayerParams(layer) {
-    // Prioritize pose params (bone animation), fallback to standard transform
     return layer.poseTransformParams || layer.transformParams;
   }
 
-  /**
-   * 產生 WebGL Shader 用的 4x4 變換矩陣
-   */
   static getTransformMatrix(layer) {
     const params = this.getLayerParams(layer);
     if (!params) return null;
@@ -222,24 +212,20 @@ class TransformManager {
     const { left, top, width, height, canvasWidth, canvasHeight } = params;
     const rotation = params.rotation || 0;
 
-    // 1. Calculate NDC Boundaries
     const glLeft = (left / canvasWidth) * 2 - 1;
     const glRight = ((left + width) / canvasWidth) * 2 - 1;
     const glTop = 1 - (top / canvasHeight) * 2;
     const glBottom = 1 - ((top + height) / canvasHeight) * 2;
 
-    // 2. Scale & Center
     const sx = (glRight - glLeft) / 2;
     const sy = (glTop - glBottom) / 2;
     const centerX = (glLeft + glRight) / 2;
     const centerY = (glTop + glBottom) / 2;
 
-    // 3. Rotation & Aspect Ratio Correction
     const cosR = Math.cos(rotation);
     const sinR = Math.sin(rotation);
     const aspect = canvasWidth / canvasHeight;
 
-    // 4. Construct Float32Array Matrix
     return new Float32Array([
       sx * cosR,              sx * sinR * aspect,       0, 0,
       -sy * sinR / aspect,    sy * cosR,                0, 0,
@@ -248,9 +234,6 @@ class TransformManager {
     ]);
   }
 
-  /**
-   * 將滑鼠 NDC 座標逆轉換為 Local 座標
-   */
   static getInverseTransform(xNDC, yNDC, layer) {
     const params = this.getLayerParams(layer);
     if (!params) return { x: xNDC, y: yNDC };
@@ -258,28 +241,23 @@ class TransformManager {
     const { left, top, width, height, canvasWidth, canvasHeight } = params;
     const rotation = params.rotation || 0;
 
-    // 1. Calculate NDC Boundaries
     const glLeft = (left / canvasWidth) * 2 - 1;
     const glRight = ((left + width) / canvasWidth) * 2 - 1;
     const glTop = 1 - (top / canvasHeight) * 2;
     const glBottom = 1 - ((top + height) / canvasHeight) * 2;
 
-    // 2. Scale & Center
     const sx = (glRight - glLeft) / 2;
     const sy = (glTop - glBottom) / 2;
     const centerX_NDC = (glLeft + glRight) / 2;
     const centerY_NDC = (glTop + glBottom) / 2;
 
-    // 3. Rotation & Aspect Ratio
     const cosR = Math.cos(rotation);
     const sinR = Math.sin(rotation);
     const aspect = canvasWidth / canvasHeight;
 
-    // 4. Translate back to origin
     const dx = xNDC - centerX_NDC;
     const dy = yNDC - centerY_NDC;
 
-    // 5. Inverse Matrix Calculation
     const localX = (dx * cosR + (dy * sinR / aspect)) / sx;
     const localY = (dy * cosR - (dx * sinR * aspect)) / sy;
 
@@ -326,7 +304,7 @@ class gls {
 
     const newRedLayer = Layer();
     newRedLayer.name.value = layerName + 'ref';
-    newRedLayer.opacity.value = 0.3;
+    newRedLayer.opacity.value = 0.1;
     this.refLayers.push(newRedLayer);
 
     return newLayer;
@@ -345,7 +323,6 @@ class gls {
   };
 
   compileShader(gl, source, type) {
-    // 🔥 檢查 source 是否為空，避免 undefined error
     if (!source) {
       console.error('Shader compilation failed: Source is undefined or empty.');
       return null;
@@ -365,7 +342,6 @@ class gls {
     const vertexShader = this.compileShader(gl, vsSource, gl.VERTEX_SHADER);
     const fragmentShader = this.compileShader(gl, fsSource, gl.FRAGMENT_SHADER);
     
-    // 🔥 如果任一 Shader 編譯失敗，就中止，避免 attachShader 報錯
     if (!vertexShader || !fragmentShader) {
         console.error("Cannot create program because shaders failed to compile.");
         return null;
@@ -1499,82 +1475,45 @@ const renderPoints = (gl, program, posAttrib, verticesPoints, color, pointSize) 
   gl.deleteBuffer(vbo_temp); 
 };
 
-// useWebGL.js
-
 export function renderWeightPaint(gl, program, selectedGroupName, layer, isWeightPaintMode) {
   if (!isWeightPaintMode || !layer || !layer.vertexGroup || !layer.vertices.value) return;
-  
-  // 1. 準備數據
-  const vertices = layer.vertices.value; // [x, y, u, v, ...]
-  const vertexCount = vertices.length / 4;
-  
-  // 建立權重陣列 (每個頂點 1 個 float)
-  const weights = new Float32Array(vertexCount).fill(0.0);
-
-  // 2. 填入權重
-  // 找到選中骨骼的群組
   const group = layer.vertexGroup.value.find(g => g.name === selectedGroupName);
-  
-  if (group && group.vertices) {
-    // 將該骨骼的權重填入對應的頂點索引位置
-    for (const v of group.vertices) {
-      // v.id 對應的是第幾個頂點 (0 ~ vertexCount-1)
-      if (v.id < vertexCount) {
-        weights[v.id] = v.weight;
-      }
-    }
-  }
+  if (!group || !group.vertices || group.vertices.length === 0) return;
 
-  // 3. 設定 WebGL 狀態
   gl.useProgram(program);
-
-  // --- A. 綁定頂點位置 (aPosition) ---
   gl.bindBuffer(gl.ARRAY_BUFFER, layer.vbo);
-  const positionAttrib = gl.getAttribLocation(program, 'aPosition');
-  gl.enableVertexAttribArray(positionAttrib);
-  gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 16, 0); // Stride 16, Offset 0
-
-  // --- B. 綁定權重 (aWeight) ---
-  // 我們需要一個臨時 Buffer 來傳權重 (或者緩存在 layer 物件中以優化效能)
-  // 為了簡單起見，這裡先每次建立 (若效能不足可優化為 layer.weightVbo)
-  if (!layer.weightVbo) {
-      layer.weightVbo = gl.createBuffer();
-  }
-  gl.bindBuffer(gl.ARRAY_BUFFER, layer.weightVbo);
-  gl.bufferData(gl.ARRAY_BUFFER, weights, gl.DYNAMIC_DRAW);
-
-  const weightAttrib = gl.getAttribLocation(program, 'aWeight');
-  if (weightAttrib !== -1) {
-    gl.enableVertexAttribArray(weightAttrib);
-    gl.vertexAttribPointer(weightAttrib, 1, gl.FLOAT, false, 0, 0);
-  }
-
-  // --- C. 設定變換矩陣 (uTransform) ---
-  // ✨ 使用我們重構好的 TransformManager
-  const transformMatrix = TransformManager.getTransformMatrix(layer);
-  if (transformMatrix) {
-    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
-  }
-
-  // --- D. 其他 Uniforms ---
-  const uPointSize = gl.getUniformLocation(program, 'uPointSize');
-  if (uPointSize) gl.uniform1f(uPointSize, 5.0); // 設定點的大小 (如果需要畫點)
-
-  // 4. 繪製 (Draw Call)
-  // 使用 EBO (Element Buffer Object) 繪製三角形，這樣顏色才會在面上插值
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, layer.ebo);
-  
-  // 啟用混合 (Blend) 讓權重顏色半透明疊在圖片上
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  
-  // 繪製三角形 (Gradient 效果)
-  gl.drawElements(gl.TRIANGLES, layer.indices.value.length, gl.UNSIGNED_SHORT, 0);
 
-  // (選用) 如果你也想畫出頂點的點，可以再呼叫一次 gl.drawArrays(gl.POINTS, ...)
-  
-  // 5. 清理 (解綁 Buffer 避免影響後續渲染)
-  gl.disableVertexAttribArray(weightAttrib);
+  const positionAttrib = gl.getAttribLocation(program, 'aPosition');
+  if (positionAttrib !== -1) {
+    gl.enableVertexAttribArray(positionAttrib);
+    gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 16, 0);
+  }
+
+  // ✨ Use Unified Transform Manager
+  const transformMatrix = TransformManager.getTransformMatrix(layer);
+  if (transformMatrix) gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uTransform'), false, transformMatrix);
+
+  const colorLocation = gl.getUniformLocation(program, 'uColor');
+  const weightMap = new Map();
+  group.vertices.forEach(v => weightMap.set(v.id, v.weight));
+
+  const indices = layer.indices.value;
+  for (let i = 0; i < indices.length; i += 3) {
+    const idx0 = indices[i], idx1 = indices[i + 1], idx2 = indices[i + 2];
+    if (!weightMap.has(idx0) && !weightMap.has(idx1) && !weightMap.has(idx2)) continue;
+
+    const w0 = weightMap.get(idx0) || 0;
+    const w1 = weightMap.get(idx1) || 0;
+    const w2 = weightMap.get(idx2) || 0;
+    
+    const count = (weightMap.has(idx0) ? 1 : 0) + (weightMap.has(idx1) ? 1 : 0) + (weightMap.has(idx2) ? 1 : 0);
+    const avgWeight = (w0 + w1 + w2) / (count || 1); // Avoid div by zero
+
+    const color = weightToColor(avgWeight);
+    gl.uniform4f(colorLocation, color.r, color.g, color.b, 0.5);
+    gl.drawElements(gl.TRIANGLES, 3, gl.UNSIGNED_SHORT, i * 2);
+  }
 }
 
 function weightToColor(weight) {
@@ -1898,13 +1837,20 @@ export const psdRender = async (selectedLayers, wholeImageHeight, wholeImageWidt
     const texInfo = await layerToTexture(gl.value, layerData);
     texture.value.push(texInfo);
     const layer = glsInstance.addLayer("psd" + index++);
-    layer.attachment = Attachment(layerData, texInfo.tex);
+    layer.attachment = new Attachment({ ...layerData, texture: texInfo.tex }); // Fix Here
   }
 
   for (let i = 0; i < texture.value.length; i++) {
     const layer = glsInstance.layers[i];
     const att = layer.attachment;
-    glsInstance.createLayerBuffers(gl.value, att.image, att.width, att.height, att.top, att.left, canvasWidth, canvasHeight, layer);
+    // Fix: Access coords property if available, otherwise fallback or assume direct property if changed
+    // Based on previous mesh.js, it's in coords.
+    // However, createLayerBuffers expects top, left.
+    // Let's pass att.coords.top if available.
+    const top = att.coords ? att.coords.top : (att.top || 0);
+    const left = att.coords ? att.coords.left : (att.left || 0);
+
+    glsInstance.createLayerBuffers(gl.value, att.image, att.width, att.height, top, left, canvasWidth, canvasHeight, layer);
   }
   console.log("WebGL initialization complete");
 }
@@ -1922,8 +1868,12 @@ export const psdRenderAgain = async (selectedLayers, wholeImageHeight, wholeImag
   for (let i = 0; i < texture.value.length; i++) {
     const layer = glsInstance.layers[i];
     const att = layer.attachment;
-    glsInstance.createLayerBuffersByInputLayers(gl.value, att.image, att.width, att.height, att.top, att.left, canvasWidth, canvasHeight, layer, layer);
-    glsInstance.createLayerBuffersByInputLayers(gl.value, att.image, att.width, att.height, att.top, att.left, canvasWidth, canvasHeight, glsInstance.refLayers[i], layer);
+     // Fix here too
+    const top = att.coords ? att.coords.top : (att.top || 0);
+    const left = att.coords ? att.coords.left : (att.left || 0);
+    
+    glsInstance.createLayerBuffersByInputLayers(gl.value, att.image, att.width, att.height, top, left, canvasWidth, canvasHeight, layer, layer);
+    glsInstance.createLayerBuffersByInputLayers(gl.value, att.image, att.width, att.height, top, left, canvasWidth, canvasHeight, glsInstance.refLayers[i], layer);
   }
   console.log("WebGL initialization complete");
 }

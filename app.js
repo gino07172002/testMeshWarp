@@ -687,6 +687,7 @@ const app = createApp({
     };
 
     const psdImage = async () => {
+      console.log("hi use psd image! ");
         if(!gl.value) return;
         await psdRender(selectedLayers, wholeImageHeight.value, wholeImageWidth.value);
         forceUpdate();
@@ -761,16 +762,7 @@ const app = createApp({
         // Implement play loop here using requestAnimationFrame
     };
 
-    // --- Export/Save ---
-    const exportSkeletonToSpineJson = () => {
-        const result = meshSkeleton.exportSpineJson();
-        console.log("Spine JSON:", JSON.stringify(result));
-    };
-
-    const saveSpineJson = () => {
-        meshSkeleton.exportToFile();
-        // Also export Atlas logic here...
-    };
+  
 
     // --- Lifecycle ---
     onMounted(() => {
@@ -828,8 +820,7 @@ const app = createApp({
     provide('psdImage', psdImage);
     provide('firstImage', firstImage);
     provide('playAnimation', playAnimation);
-    provide('exportSkeletonToSpineJson', exportSkeletonToSpineJson);
-    provide('saveSpineJson', saveSpineJson);
+    
     provide('selectTimeline', selectTimeline);
     provide('toggleNode', toggleNode);
     provide('expandedNodes', expandedNodes);

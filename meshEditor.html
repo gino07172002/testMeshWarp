@@ -98,12 +98,24 @@
             <div id="layerContainer"></div>
             <div style="padding: 5px; color: #888; font-size: 12px;">Layers: {{ showLayers?.length }}</div>
             
-            <div v-for="(layer, index) in showLayers" :key="index" class="layer-item">
-              <input type="checkbox" :value="index" v-model="selectedLayers" />
-              <span class="layer-name" :class="{ active: chosenLayers.includes(index) }"
-                @click="toggleLayerSelection(index)">
+            <div v-for="(layer, index) in showLayers" :key="index" class="layer-item"
+                 :style="{ backgroundColor: currentChosedLayer === index ? '#444' : 'transparent' }">
+              
+              <input type="checkbox" 
+                     :checked="selectedLayers.includes(index)" 
+                     @change="onLayerCheckChange(index, $event)" />
+              
+              <span class="layer-name" 
+                    :class="{ active: currentChosedLayer === index }"
+                    :style="{ 
+                        color: currentChosedLayer === index ? '#409eff' : '#ddd',
+                        fontWeight: currentChosedLayer === index ? 'bold' : 'normal',
+                        cursor: 'pointer'
+                    }"
+                    @click="selectLayer(index)">
                 圖層 {{ layer.name }}
               </span>
+              
             </div>
           </div>
         </div>

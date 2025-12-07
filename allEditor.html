@@ -96,13 +96,23 @@
                 style="width: 40px; background: #222; border: 1px solid #555; color: #fff;" />
             </div>
 
-            <div v-for="(layer, index) in showLayers" :key="layer.id" class="layer-item">
-              <input type="checkbox" :checked="selectedLayers.includes(index)"
-                @change="onLayerCheckChange(index, $event)" />
-              <span class="layer-name" :class="{ active: chosenLayers.includes(index) }"
-                @click="toggleLayerSelection(index)">
+            <div v-for="(layer, index) in showLayers" :key="layer.id" class="layer-item"
+                 :style="{ backgroundColor: currentChosedLayer === index ? '#444' : 'transparent' }">
+              
+              <input type="checkbox" 
+                     :checked="selectedLayers.includes(index)"
+                     @change="onLayerCheckChange(index, $event)" />
+              
+              <span class="layer-name" 
+                    :style="{ 
+                        color: currentChosedLayer === index ? '#409eff' : '#ddd',
+                        fontWeight: currentChosedLayer === index ? 'bold' : 'normal',
+                        cursor: 'pointer'
+                    }"
+                    @click="selectLayer(index)">
                 {{ layer.name }}
               </span>
+              
             </div>
           </div>
         </div>
@@ -118,21 +128,14 @@
             </div>
 
             <label style="display:block; margin-top:5px; font-weight:bold;">Vertex Groups:</label>
-<div class="vertex-group-list" style="margin-bottom: 10px;">
-              <div v-for="(group, index) in vertexGroupInfo" 
-                   :key="group.name + '-' + index" 
-                   class="vertex-group-item"
-                   :class="{ selected: selectedGroups.includes(group.name) }" 
-                   @click="toggleSelect(group.name)"
-                   @dblclick.stop="startEdit(group.name)">
+            <div class="vertex-group-list" style="margin-bottom: 10px;">
+              <div v-for="(group, index) in vertexGroupInfo" :key="group.name + '-' + index" class="vertex-group-item"
+                :class="{ selected: selectedGroups.includes(group.name) }" @click="toggleSelect(group.name)"
+                @dblclick.stop="startEdit(group.name)">
 
-                <input v-if="editState.editingGroup === group.name" 
-                       v-model="editState.editName" 
-                       @click.stop
-                       @keyup.enter="confirmEdit(group)"
-                       style="width:100%; color:#000;" 
-                       placeholder="輸入新名稱..." />
-                
+                <input v-if="editState.editingGroup === group.name" v-model="editState.editName" @click.stop
+                  @keyup.enter="confirmEdit(group)" style="width:100%; color:#000;" placeholder="輸入新名稱..." />
+
                 <span v-else>{{ group.name }}</span>
               </div>
             </div>
@@ -191,7 +194,6 @@
         <button class="timeline-btn" v-on:click="firstImage">PNG</button>
         <button class="timeline-btn" v-on:click="playAnimation" style="color: #4CAF50;">▶ Play</button>
         <button class="timeline-btn" v-on:click="exportSkeletonToSpineJson">Spine</button>
-        <button class="timeline-btn" v-on:click="saveSpineJson">Json</button>
       </div>
     </div>
 
